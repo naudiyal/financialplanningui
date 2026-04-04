@@ -64,7 +64,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 2700,
   },
   {
-    name: 'Wells Fargo (4256)',
+    name: 'Wellsfargo (4256)',
     availableCredit: 16652,
     nextPaymentDate: '2026-04-02',
     paidThisMonth: true,
