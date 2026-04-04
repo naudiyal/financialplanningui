@@ -33,7 +33,7 @@ export default function App() {
   }
 
   const totalAvailable = creditAccounts.reduce((sum, account) => sum + account.availableCredit, 0)
-  const totalDue = creditAccounts.reduce((sum, account) => sum + account.totalDue, 0)
+  const totalDue = creditAccounts.reduce((sum, account) => sum + account.lastStatementBalance, 0)
   const totalSalary = incomeItems.find((item) => item.label === 'Total Salary Per Month')?.amount ?? 0
 
   return (
