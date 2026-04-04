@@ -41,7 +41,94 @@ export default function App() {
     const minPayment = Math.max(account.lastStatementBalance * 0.02, 25) // 2% or $25 minimum
     return sum + (account.paidThisMonth ? 0 : minPayment)
   }, 0)
-  const totalSalary = incomeItems.find((item) => item.label === 'Total Salary Per Month')?.amount ?? 0
+
+  const biMonthlySalaryBase = 3711.25
+  const espPayment = 500
+  const biMonthlySalary = biMonthlySalaryBase + espPayment
+  const salaryTransfersToPNC = 2000 * 2
+  const salaryTransferToChase = biMonthlySalary * 2
+  const totalSalaryPerMonth = salaryTransferToChase + salaryTransfersToPNC
+  const salary15th = 0
+  const salary1st = 0
+
+  const checkingAccountBalanceChase = 22193.85 + 1000 - 2004.57 - 10659
+  const additionalPaymentsChase = 0
+  const totalBalanceChase = checkingAccountBalanceChase
+  const additionalIncomeChase = 0
+  const chaseCDBalance = 0
+  const checkingAccountBalancePNC = 100.57
+  const additionalOtherIncome = 0
+
+  const creditCardCurrentMonthPayments = creditAccounts.reduce((sum, account) => {
+    const totalDueForCard = account.creditLimit - account.availableCredit
+    const currentMonthPayment = account.paidThisMonth ? 0 : totalDueForCard
+    return sum + currentMonthPayment
+  }, 0)
+  const expenseCurrentMonthPayments = 1487.57
+  const totalCurrentMonthPayments = creditCardCurrentMonthPayments + expenseCurrentMonthPayments
+  const checkingAccountBalanceMonthEndChase = totalBalanceChase - totalCurrentMonthPayments
+  const netBalanceMonthEnd = checkingAccountBalanceMonthEndChase + chaseCDBalance + checkingAccountBalancePNC + additionalOtherIncome
+
+  const creditCardNextMonthBalance = creditAccounts.reduce((sum, account) => {
+    const totalDueForCard = account.creditLimit - account.availableCredit
+    const nextMonthBalance = account.paidThisMonth
+      ? account.statementCycledAfterPayment
+        ? account.lastStatementBalance
+        : totalDueForCard
+      : totalDueForCard - account.lastStatementBalance
+    return sum + nextMonthBalance
+  }, 0)
+  const expenseNextMonthBalance = 1334.47
+  const totalNextMonthBalance = creditCardNextMonthBalance + expenseNextMonthBalance
+  const netBalanceNextMonth = netBalanceMonthEnd + salaryTransferToChase - totalNextMonthBalance
+
+  const adjustedIncomeItems = incomeItems.map((item) => {
+    switch (item.label) {
+      case 'Salary Transfer To Chase/Month':
+        return { ...item, amount: salaryTransferToChase }
+      case 'Salary Transfers to PNC for Home Loans':
+        return { ...item, amount: salaryTransfersToPNC }
+      case 'Total Salary Per Month':
+        return { ...item, amount: totalSalaryPerMonth }
+      case 'Bi-mon Sal minus(ESPP + 2 Mortgage Payments)':
+        return { ...item, amount: biMonthlySalary }
+      case 'Sal 15th':
+        return { ...item, amount: salary15th }
+      case 'Sal 1st':
+        return { ...item, amount: salary1st }
+      default:
+        return item
+    }
+  })
+
+  const adjustedBalanceItems = balanceItems.map((item) => {
+    switch (item.label) {
+      case 'Checking Account Balance - Chase':
+        return { ...item, amount: checkingAccountBalanceChase }
+      case 'Additional Payments - Chase':
+        return { ...item, amount: additionalPaymentsChase }
+      case 'Total Balance - Chase':
+        return { ...item, amount: totalBalanceChase }
+      case 'Additional Income - Chase':
+        return { ...item, amount: additionalIncomeChase }
+      case 'Checking Account Balance @Month End - Chase':
+        return { ...item, amount: checkingAccountBalanceMonthEndChase }
+      case 'Chase CD Balance':
+        return { ...item, amount: chaseCDBalance }
+      case 'Checking Account Balance - PNC':
+        return { ...item, amount: checkingAccountBalancePNC }
+      case 'Additional Other Income':
+        return { ...item, amount: additionalOtherIncome }
+      case 'Net Balance @Month End':
+        return { ...item, amount: netBalanceMonthEnd }
+      case 'Net Balance @Next Month End':
+        return { ...item, amount: netBalanceNextMonth }
+      default:
+        return item
+    }
+  })
+
+  const totalSalary = totalSalaryPerMonth
 
   return (
     <div className="app">
@@ -181,7 +268,7 @@ export default function App() {
         <section>
           <h2>Income Schedule</h2>
           <div className="card-list">
-            {incomeItems.map((item) => (
+            {adjustedIncomeItems.map((item) => (
               <article key={item.label} className="info-card">
                 <p className="card-title">{item.label}</p>
                 <p className="card-value">{currency(item.amount)}</p>
@@ -195,7 +282,7 @@ export default function App() {
         <section>
           <h2>Balance Summary</h2>
           <div className="card-list">
-            {balanceItems.map((item) => (
+            {adjustedBalanceItems.map((item) => (
               <article key={item.label} className="info-card">
                 <p className="card-title">{item.label}</p>
                 <p className="card-value">{currency(item.amount)}</p>
