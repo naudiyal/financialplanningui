@@ -157,48 +157,48 @@ export const creditAccounts: CreditAccount[] = [
 
 export const incomeItems: IncomeItem[] = [
   {
-    label: 'Salary Transfer To Chase',
+    label: 'Salary Transfer To Chase/Month',
     amount: 8422.5,
-    month: 'Feb-26',
+    month: '',
     note: 'Monthly salary transfer',
   },
   {
     label: 'Salary Transfers to PNC for Home Loans',
     amount: 4000,
-    month: 'Mar-26',
+    month: '',
     note: 'Transfer for mortgages',
   },
   {
     label: 'Total Salary Per Month',
     amount: 12422.5,
-    month: 'Apr-26',
+    month: '',
   },
   {
-    label: 'Bi-monthly Salary minus ESPP + 2 Mortgage Payments',
+    label: 'Bi-mon Sal minus(ESPP + 2 Mortgage Payments)',
     amount: 4211.25,
-    month: 'May-26',
+    month: '',
   },
   {
     label: 'Sal 15th',
     amount: 0,
-    month: 'Jun-26',
+    month: '',
   },
   {
     label: 'Sal 1st',
     amount: 0,
-    month: 'Jul-26',
+    month: '',
   },
 ]
 
 export const balanceItems: BalanceItem[] = [
-  { label: 'Checking Account Balance - Chase', amount: 10530.28, month: 'Sep-26' },
-  { label: 'Additional Payments - Chase', amount: 0, month: 'Oct-26' },
-  { label: 'Total Balance - Chase', amount: 10530.28, month: 'Nov-26' },
-  { label: 'Additional Income - Chase', amount: 0, month: 'Dec-26' },
-  { label: 'Checking Account Balance @ Month End - Chase', amount: 7196.87, month: 'Jan-27' },
-  { label: 'Chase CD Balance', amount: 0, month: 'Mar-27' },
-  { label: 'Checking Account Balance - PNC', amount: 100.57, month: 'Apr-27' },
-  { label: 'Additional Other Income', amount: 0, month: 'May-27' },
-  { label: 'Net Balance @ Month End', amount: 7297.44, month: 'Jul-27' },
-  { label: 'Net Balance @ Next Month End', amount: 10311.47, month: 'Aug-27' },
+  { label: 'Checking Account Balance - Chase', amount: 10530.28, month: '' },
+  { label: 'Additional Payments - Chase', amount: 0, month: '' },
+  { label: 'Total Balance - Chase', amount: 10530.28, month: '' },
+  { label: 'Additional Income - Chase', amount: 0, month: '' },
+  { label: 'Checking Account Balance @Month End - Chase', amount: 7196.87, month: '' },
+  { label: 'Chase CD Balance', amount: 0, month: '' },
+  { label: 'Checking Account Balance - PNC', amount: 100.57, month: '' },
+  { label: 'Additional Other Income', amount: 0, month: '' },
+  { label: 'Net Balance @Month End', amount: 7297.44, month: '' },
+  { label: 'Net Balance @Next Month End', amount: 10311.47, month: '' },
 ]

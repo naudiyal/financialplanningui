@@ -185,7 +185,7 @@ export default function App() {
               <article key={item.label} className="info-card">
                 <p className="card-title">{item.label}</p>
                 <p className="card-value">{currency(item.amount)}</p>
-                <p className="card-meta">{item.month}</p>
+                {item.month ? <p className="card-meta">{item.month}</p> : null}
                 {item.note ? <p className="card-note">{item.note}</p> : null}
               </article>
             ))}
@@ -199,7 +199,7 @@ export default function App() {
               <article key={item.label} className="info-card">
                 <p className="card-title">{item.label}</p>
                 <p className="card-value">{currency(item.amount)}</p>
-                <p className="card-meta">{item.month}</p>
+                {item.month ? <p className="card-meta">{item.month}</p> : null}
               </article>
             ))}
           </div>
