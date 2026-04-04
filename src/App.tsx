@@ -1,5 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import {
   BalanceItem,
   balanceItems as initialBalanceItems,
   ColumnLabel,
@@ -197,6 +210,61 @@ const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData 
 
 const getFinancialPlanSignature = (data: FinancialPlanData) => JSON.stringify(normalizeFinancialPlanData(data))
 
+const chartCurrency = (value: number) =>
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    notation: Math.abs(value) >= 1000 ? 'compact' : 'standard',
+    maximumFractionDigits: 1,
+  }).format(value)
+
+const formatShortDate = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number)
+  const safeDate = new Date(year, (month ?? 1) - 1, day ?? 1)
+  return safeDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+const shortenLabel = (value: string, maxLength = 18, trailingLength = 0) => {
+  if (value.length <= maxLength) {
+    return value
+  }
+
+  const ellipsis = '....'
+
+  if (trailingLength > 0) {
+    const safeTrailingLength = Math.min(trailingLength, Math.max(1, maxLength - ellipsis.length - 1))
+    const leadingLength = Math.max(1, maxLength - ellipsis.length - safeTrailingLength)
+    return `${value.slice(0, leadingLength)}${ellipsis}${value.slice(-safeTrailingLength)}`
+  }
+
+  return `${value.slice(0, maxLength - 3)}...`
+}
+
+const getNewBankSubsectionTitle = (index: number) => {
+  let labelIndex = index
+  let suffix = ''
+
+  do {
+    suffix = String.fromCharCode(65 + (labelIndex % 26)) + suffix
+    labelIndex = Math.floor(labelIndex / 26) - 1
+  } while (labelIndex >= 0)
+
+  return `Bank ${suffix}`
+}
+
+const CHART_COLORS = {
+  current: '#0f766e',
+  next: '#2563eb',
+  deferred: '#f59e0b',
+  utilization: '#dc2626',
+  overdue: '#b91c1c',
+  positive: '#15803d',
+  negative: '#b45309',
+  forecast: '#1d4ed8',
+  grid: '#dbe4f0',
+  text: '#334155',
+}
+
 const defaultFinancialPlanData = normalizeFinancialPlanData({
   creditAccounts: initialCreditAccounts,
   incomeItems: initialIncomeItems,
@@ -219,6 +287,7 @@ export default function App() {
   const [columnLabels, setColumnLabels] = useState(defaultColumnLabels)
   const [sectionTitles, setSectionTitles] = useState(defaultSectionTitles)
   const [incomeSubsections, setIncomeSubsections] = useState(defaultIncomeSubsections)
+  const [newBankSubsectionIds, setNewBankSubsectionIds] = useState<Set<string>>(new Set())
   const [selectedCreditIds, setSelectedCreditIds] = useState<Set<string>>(new Set())
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<Set<string>>(new Set())
   const [creditSort, setCreditSort] = useState<SortState<CreditSortKey>>({
@@ -243,6 +312,7 @@ export default function App() {
       setColumnLabels(data.columnLabels ?? defaultColumnLabels)
       setSectionTitles(normalizeSectionTitles(data.sectionTitles))
       setIncomeSubsections(data.incomeSubsections ?? defaultIncomeSubsections)
+      setNewBankSubsectionIds(new Set())
     }
 
     const loadFinancialPlan = async () => {
@@ -389,11 +459,13 @@ export default function App() {
   }
 
   const addIncomeSubsection = () => {
+    const subsectionId = `income-subsection-${Date.now()}`
+    const newBankCount = incomeSubsections.filter((subsection) => newBankSubsectionIds.has(subsection.id)).length
     const nextSubsections = [
       ...incomeSubsections,
       {
-        id: `income-subsection-${Date.now()}`,
-        title: `Subsection ${incomeSubsections.length + 1}`,
+        id: subsectionId,
+        title: getNewBankSubsectionTitle(newBankCount),
         biMonthlySalaryLabel: 'Bi-monthly salary',
         biMonthlySalary: 0,
         midMonthSalaryLabel: 'Mid month salary Arrived',
@@ -412,12 +484,19 @@ export default function App() {
     ]
 
     setIncomeSubsections(nextSubsections)
+    setNewBankSubsectionIds((current) => new Set(current).add(subsectionId))
   }
 
   const deleteIncomeSubsection = (subsectionId: string) => {
     if (!window.confirm('Delete this subsection?')) {
       return
     }
+
+    setNewBankSubsectionIds((current) => {
+      const next = new Set(current)
+      next.delete(subsectionId)
+      return next
+    })
 
     void persistFinancialPlan(
       buildPayload({
@@ -576,6 +655,111 @@ export default function App() {
         return item
     }
   })
+
+  const overdueCreditAccounts = creditAccounts.filter(
+    (account) => isPastDate(account.nextPaymentDate) && !account.paidThisMonth,
+  )
+  const overdueExpenses = debitCardExpenseItems.filter(
+    (item) => isPastDate(item.payDate) && Math.abs(item.current) > 0.004,
+  )
+
+  const overdueAlertData = [
+    {
+      label: 'Overdue Cards',
+      value: overdueCreditAccounts.length,
+      detail: overdueCreditAccounts.length === 1 ? '1 account needs payment' : `${overdueCreditAccounts.length} accounts need payment`,
+      ratio: Math.min(100, creditAccounts.length === 0 ? 0 : (overdueCreditAccounts.length / creditAccounts.length) * 100),
+    },
+    {
+      label: 'Overdue Expenses',
+      value: overdueExpenses.length,
+      detail: overdueExpenses.length === 1 ? '1 debit row is late' : `${overdueExpenses.length} debit rows are late`,
+      ratio: Math.min(100, debitCardExpenseItems.length === 0 ? 0 : (overdueExpenses.length / debitCardExpenseItems.length) * 100),
+    },
+    {
+      label: 'Current Month Exposure',
+      value: chartCurrency(j36),
+      detail: 'Cards plus current debit expenses',
+      ratio: Math.min(100, totalLimits === 0 ? 0 : (j36 / totalLimits) * 100),
+    },
+    {
+      label: 'Next Month Exposure',
+      value: chartCurrency(k36),
+      detail: 'Projected next statement pressure',
+      ratio: Math.min(100, totalLimits === 0 ? 0 : (k36 / totalLimits) * 100),
+    },
+  ]
+
+  const paymentTimelineData = [...creditAccounts]
+    .map((account) => {
+      const metrics = getCreditMetrics(account)
+      return {
+        name: shortenLabel(account.name, 16, 7),
+        payDate: account.nextPaymentDate,
+        payDateLabel: formatShortDate(account.nextPaymentDate),
+        paymentDue: Number(metrics.currentMonthPayment.toFixed(2)),
+        nextBalance: Number(metrics.nextMonthStatementBalance.toFixed(2)),
+      }
+    })
+    .filter((account) => account.paymentDue > 0 || account.nextBalance > 0)
+    .sort((left, right) => left.payDate.localeCompare(right.payDate))
+
+  const creditTotalDueData = [...creditAccounts]
+    .map((account) => {
+      const metrics = getCreditMetrics(account)
+      return {
+        fullName: account.name,
+        name: shortenLabel(account.name, 25, 12),
+        totalDue: Number(metrics.totalDueForCard.toFixed(2)),
+        paymentDue: Number(metrics.currentMonthPayment.toFixed(2)),
+        nextStmtBalance: Number(metrics.nextMonthStatementBalance.toFixed(2)),
+      }
+    })
+    .filter((account) => account.totalDue > 0)
+    .sort(
+      (left, right) =>
+        right.totalDue - left.totalDue ||
+        right.paymentDue - left.paymentDue ||
+        right.nextStmtBalance - left.nextStmtBalance,
+    )
+
+  const creditVerticalChartHeight = Math.max(320, creditAccounts.length * 30)
+
+  const expenseCategoryData = [
+    {
+      name: 'Plano',
+      current: Number(sumExpenses(planoExpenses, 'current').toFixed(2)),
+      next: Number(sumExpenses(planoExpenses, 'next').toFixed(2)),
+    },
+    {
+      name: 'Sanford',
+      current: Number(sumExpenses(sanfordExpenses, 'current').toFixed(2)),
+      next: Number(sumExpenses(sanfordExpenses, 'next').toFixed(2)),
+    },
+    {
+      name: 'Other',
+      current: Number(sumExpenses(otherExpenses, 'current').toFixed(2)),
+      next: Number(sumExpenses(otherExpenses, 'next').toFixed(2)),
+    },
+  ]
+
+  const expenseCategoryShareData = expenseCategoryData
+    .map((item, index) => ({
+      name: item.name,
+      value: Number((item.current + item.next).toFixed(2)),
+      color: [CHART_COLORS.current, CHART_COLORS.next, CHART_COLORS.deferred][index],
+    }))
+    .filter((item) => item.value > 0)
+
+  const cashFlowDriverData = [
+    { name: 'Checking', amount: Number(checkingAccountBalanceChase.toFixed(2)), fill: CHART_COLORS.positive },
+    { name: 'Salary 15th', amount: Number(salary15th.toFixed(2)), fill: CHART_COLORS.positive },
+    { name: 'Salary 1st', amount: Number(salary1st.toFixed(2)), fill: CHART_COLORS.positive },
+    { name: 'Add. Income', amount: Number(additionalIncomeChase.toFixed(2)), fill: CHART_COLORS.positive },
+    { name: 'Add. Payments', amount: Number((-additionalPaymentsChase).toFixed(2)), fill: CHART_COLORS.negative },
+    { name: 'Expenses', amount: Number((-j36).toFixed(2)), fill: CHART_COLORS.overdue },
+    { name: 'Month End', amount: Number(checkingAccountBalanceMonthEndChase.toFixed(2)), fill: CHART_COLORS.forecast },
+  ]
 
   const displayedIncomeItems = adjustedIncomeItems.filter(
     (item) => item.id !== 'salary-transfer-pnc-home-loans' && item.id !== 'salary-transfer-chase-month',
@@ -969,6 +1153,7 @@ export default function App() {
     setColumnLabels(data.columnLabels ?? defaultColumnLabels)
     setSectionTitles(normalizeSectionTitles(data.sectionTitles))
     setIncomeSubsections(data.incomeSubsections ?? defaultIncomeSubsections)
+    setNewBankSubsectionIds(new Set())
   }
 
   const persistFinancialPlan = async (
@@ -1014,8 +1199,8 @@ export default function App() {
     <div className="app">
       <header className="hero">
         <div>
-          <p className="eyebrow">Personal Finance Tracker</p>
-          <h1>Financial Planning</h1>
+          <p className="eyebrow">Financial Planning</p>
+          <h1>Personal Finance Tracker</h1>
           <p className="intro">
             Track cards, statements, payments, income, balances, and spreadsheet-style expense totals in one dashboard.
           </p>
@@ -1027,6 +1212,21 @@ export default function App() {
           <span className={statusClassName}>{statusText}</span>
         </div>
       </header>
+
+      <section className="analytics-strip" aria-label="Top financial alerts">
+        {overdueAlertData.map((item) => (
+          <article key={item.label} className="analytics-kpi-card">
+            <div className="analytics-kpi-header">
+              <p>{item.label}</p>
+              <strong>{item.value}</strong>
+            </div>
+            <span>{item.detail}</span>
+            <div className="analytics-kpi-bar">
+              <div style={{ width: `${item.ratio}%` }} />
+            </div>
+          </article>
+        ))}
+      </section>
 
       <section className="credit-accounts-section">
         <div className="section-content-fit">
@@ -1203,6 +1403,46 @@ export default function App() {
               </tbody>
             </table>
           </div>
+          <div className="chart-grid credit-chart-grid">
+            <article className="chart-card">
+              <div className="chart-card-header">
+                <h3>Total Due by Card</h3>
+                <span>Highest total due cards shown first</span>
+              </div>
+              <div className="chart-shell" style={{ height: `${creditVerticalChartHeight}px` }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={creditTotalDueData} layout="vertical" margin={{ top: 4, right: 12, left: 8, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
+                    <XAxis type="number" tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={11} />
+                    <YAxis type="category" dataKey="name" width={170} stroke={CHART_COLORS.text} fontSize={11} />
+                    <Tooltip formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName ?? ''} />
+                    <Legend wrapperStyle={{ fontSize: '11px' }} />
+                    <Bar dataKey="paymentDue" name="Payment Due" stackId="totalDue" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="nextStmtBalance" name="Next Stmt Balance" stackId="totalDue" fill={CHART_COLORS.deferred} radius={[0, 6, 6, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
+            <article className="chart-card">
+              <div className="chart-card-header">
+                <h3>Payment Due Timeline</h3>
+                <span>Upcoming payment pressure by pay date</span>
+              </div>
+              <div className="chart-shell">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={paymentTimelineData} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+                    <XAxis dataKey="payDateLabel" stroke={CHART_COLORS.text} fontSize={11} />
+                    <YAxis tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={11} width={48} />
+                    <Tooltip formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.name ?? ''} />
+                    <Legend wrapperStyle={{ fontSize: '11px' }} />
+                    <Bar dataKey="paymentDue" name="Payment Due" fill={CHART_COLORS.current} radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="nextBalance" name="Next Stmt" fill={CHART_COLORS.next} radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
+          </div>
         </div>
       </section>
 
@@ -1375,6 +1615,56 @@ export default function App() {
           </div>
         </section>
 
+      </div>
+
+      <div className="chart-grid cross-section-chart-grid">
+        <article className="chart-card">
+          <div className="chart-card-header">
+            <h3>Expense Category Share</h3>
+            <span>Plano, Sanford, and Other across current and next month</span>
+          </div>
+          <div className="chart-shell">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={expenseCategoryShareData}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={54}
+                  outerRadius={84}
+                  paddingAngle={2}
+                >
+                  {expenseCategoryShareData.map((entry) => (
+                    <Cell key={entry.name} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value: number) => currency(value)} />
+                <Legend wrapperStyle={{ fontSize: '11px' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+        <article className="chart-card">
+          <div className="chart-card-header">
+            <h3>Cash In vs Cash Out</h3>
+            <span>Month-end balance drivers</span>
+          </div>
+          <div className="chart-shell chart-shell-bank">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={cashFlowDriverData} margin={{ top: 4, right: 8, left: -12, bottom: 16 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+                <XAxis dataKey="name" angle={-18} textAnchor="end" height={54} stroke={CHART_COLORS.text} fontSize={10} />
+                <YAxis tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={11} width={48} />
+                <Tooltip formatter={(value: number) => currency(value)} />
+                <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
+                  {cashFlowDriverData.map((entry) => (
+                    <Cell key={entry.name} fill={entry.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
       </div>
     </div>
   )

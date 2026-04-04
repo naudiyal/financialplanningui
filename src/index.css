@@ -103,6 +103,66 @@ h1 {
   margin-top: 2px;
 }
 
+.analytics-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin-top: 0.45rem;
+}
+
+.analytics-kpi-card {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.6rem;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+}
+
+.analytics-kpi-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.analytics-kpi-header p,
+.analytics-kpi-card span {
+  margin: 0;
+}
+
+.analytics-kpi-header p {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #475569;
+}
+
+.analytics-kpi-header strong {
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.analytics-kpi-card span {
+  display: block;
+  margin-top: 0.22rem;
+  font-size: 0.68rem;
+  color: #64748b;
+}
+
+.analytics-kpi-bar {
+  height: 0.36rem;
+  margin-top: 0.35rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.analytics-kpi-bar div {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ef4444 0%, #f59e0b 46%, #0f766e 100%);
+}
+
 .summary-grid {
   display: grid;
   gap: 0.25rem;
@@ -168,6 +228,76 @@ section {
 
 .section-content-fit .section-header {
   width: 100%;
+}
+
+.chart-grid {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.credit-chart-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.credit-chart-grid .chart-card-wide {
+  grid-column: 1 / -1;
+}
+
+.expense-chart-grid {
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+}
+
+.bank-chart-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cross-section-chart-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.5rem;
+}
+
+.chart-card {
+  min-width: 0;
+  padding: 0.45rem 0.5rem 0.35rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 7px 22px rgba(15, 23, 42, 0.05);
+}
+
+.chart-card-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+}
+
+.chart-card-header h3 {
+  margin: 0;
+  font-size: 0.79rem;
+}
+
+.chart-card-header span {
+  max-width: 10rem;
+  text-align: right;
+  font-size: 0.64rem;
+  color: #64748b;
+}
+
+.chart-shell {
+  width: 100%;
+  height: 240px;
+}
+
+.chart-shell-tall {
+  height: 300px;
+}
+
+.chart-shell-bank {
+  height: 230px;
 }
 
 h2 {
@@ -764,16 +894,16 @@ input.section-title-input {
 
 .expense-summary-grid {
   margin-top: 0.3rem;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   gap: 0.2rem;
-  grid-template-columns: repeat(3, max-content);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .expense-summary-section {
   margin-top: 0.35rem;
   display: block;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   padding: 0.25rem 0.3rem;
   border: 1px solid #e5e7eb;
@@ -788,7 +918,7 @@ input.section-title-input {
 }
 
 .expense-summary-grid .summary-card {
-  min-width: 10.58rem;
+  min-width: 0;
   padding: 0.24rem 0.34rem;
 }
 
@@ -918,8 +1048,28 @@ input.section-title-input {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .analytics-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .expense-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .credit-chart-grid,
+  .expense-chart-grid,
+  .bank-chart-grid,
+  .cross-section-chart-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-card-header {
+    flex-direction: column;
+  }
+
+  .chart-card-header span {
+    max-width: none;
+    text-align: left;
   }
 
   .finance-overview-row {
@@ -960,6 +1110,12 @@ input.section-title-input {
 
   .split-section {
     grid-template-columns: 1fr;
+  }
+
+  .chart-shell,
+  .chart-shell-tall,
+  .chart-shell-bank {
+    height: 240px;
   }
 
 }
