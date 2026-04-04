@@ -122,6 +122,8 @@ th {
   background: #f8fafc;
   font-weight: 700;
   color: #334155;
+  text-align: left;
+  vertical-align: top;
 }
 
 tbody tr:hover {
