@@ -29,6 +29,50 @@ html, body, #root {
   padding: 0.625rem 0.625rem 1rem;
 }
 
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.auth-card {
+  width: min(30rem, 100%);
+  padding: 1.4rem 1.3rem;
+  border: 1px solid #dbe4f0;
+  border-radius: 1rem;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.08);
+}
+
+.auth-copy {
+  margin: 0 0 0.9rem;
+  color: #475569;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.auth-button {
+  min-width: 11rem;
+}
+
+.auth-message {
+  margin: 0.85rem 0 0;
+  font-size: 0.78rem;
+}
+
+.auth-checking {
+  color: #1d4ed8;
+}
+
+.auth-unauthenticated {
+  color: #475569;
+}
+
+.auth-error {
+  color: #b91c1c;
+}
+
 .hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -40,8 +84,50 @@ html, body, #root {
 .hero-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-self: end;
   gap: 0.5rem;
+}
+
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #dbe4f0;
+  border-radius: 999px;
+  background: #ffffff;
+  min-width: 0;
+}
+
+.user-chip div {
+  display: grid;
+  min-width: 0;
+}
+
+.user-chip strong,
+.user-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-chip strong {
+  font-size: 0.72rem;
+  color: #0f172a;
+}
+
+.user-chip span {
+  font-size: 0.64rem;
+  color: #64748b;
+}
+
+.user-avatar {
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid #dbe4f0;
 }
 
 .toolbar-button {

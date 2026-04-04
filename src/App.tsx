@@ -49,7 +49,15 @@ type FinancialPlanData = {
   summary?: Record<string, number>
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
+type AuthStatusResponse = {
+  authenticated: boolean
+  email: string | null
+  name: string | null
+  pictureUrl: string | null
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
+const LOGIN_URL = `${API_BASE_URL}/oauth2/authorization/google`
 
 const convertToISODate = (dateStr: string) => {
   const months: Record<string, string> = {
@@ -298,9 +306,19 @@ export default function App() {
   const [saveState, setSaveState] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('loading')
   const [saveMessage, setSaveMessage] = useState('Loading saved plan...')
   const [loadedPlanSignature, setLoadedPlanSignature] = useState<string | null>(null)
+  const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking')
+  const [authenticatedUser, setAuthenticatedUser] = useState<AuthStatusResponse | null>(null)
+  const [authMessage, setAuthMessage] = useState('Checking sign-in status...')
 
   useEffect(() => {
     let isMounted = true
+    const loginStatus = new URLSearchParams(window.location.search).get('login')
+
+    if (loginStatus) {
+      const nextUrl = new URL(window.location.href)
+      nextUrl.searchParams.delete('login')
+      window.history.replaceState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`)
+    }
 
     const applyFinancialPlan = (data: FinancialPlanData) => {
       setCreditAccounts(data.creditAccounts)
@@ -317,7 +335,23 @@ export default function App() {
 
     const loadFinancialPlan = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/financial-plan`)
+        const response = await fetch(`${API_BASE_URL}/api/financial-plan`, {
+          credentials: 'include',
+        })
+
+        if (response.status === 401) {
+          if (!isMounted) {
+            return
+          }
+
+          setAuthenticatedUser(null)
+          setAuthState('unauthenticated')
+          setAuthMessage('Session expired. Sign in with Google to continue.')
+          setSaveState('idle')
+          setSaveMessage('')
+          return
+        }
+
         if (!response.ok) {
           throw new Error(`Failed to load financial plan: ${response.status}`)
         }
@@ -329,6 +363,7 @@ export default function App() {
 
         applyFinancialPlan(data)
         setLoadedPlanSignature(getFinancialPlanSignature(data))
+        setAuthState('authenticated')
         setSaveState('idle')
         setSaveMessage('')
       } catch {
@@ -337,12 +372,55 @@ export default function App() {
         }
 
         setLoadedPlanSignature(getFinancialPlanSignature(defaultFinancialPlanData))
+        setAuthState('error')
+        setAuthMessage('Authentication or API service unavailable.')
         setSaveState('error')
         setSaveMessage('API unavailable. Using local defaults.')
       }
     }
 
-    void loadFinancialPlan()
+    const loadAuthAndPlan = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+          credentials: 'include',
+        })
+
+        if (!response.ok) {
+          throw new Error(`Failed to check authentication: ${response.status}`)
+        }
+
+        const authData: AuthStatusResponse = await response.json()
+        if (!isMounted) {
+          return
+        }
+
+        if (!authData.authenticated) {
+          setAuthenticatedUser(null)
+          setAuthState('unauthenticated')
+          setAuthMessage(loginStatus === 'error' ? 'Google sign-in failed. Try again.' : 'Sign in with Google to continue.')
+          setSaveState('idle')
+          setSaveMessage('')
+          return
+        }
+
+        setAuthenticatedUser(authData)
+        setAuthState('authenticated')
+        setAuthMessage('')
+        await loadFinancialPlan()
+      } catch {
+        if (!isMounted) {
+          return
+        }
+
+        setAuthenticatedUser(null)
+        setAuthState('error')
+        setAuthMessage('Authentication service unavailable.')
+        setSaveState('error')
+        setSaveMessage('API unavailable. Using local defaults.')
+      }
+    }
+
+    void loadAuthAndPlan()
 
     return () => {
       isMounted = false
@@ -1167,11 +1245,21 @@ export default function App() {
     try {
       const response = await fetch(`${API_BASE_URL}/api/financial-plan`, {
         method: 'PUT',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
       })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setSaveState('idle')
+        setSaveMessage('')
+        return false
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to save financial plan: ${response.status}`)
@@ -1195,6 +1283,45 @@ export default function App() {
     await persistFinancialPlan(buildPayload())
   }
 
+  const handleLogin = () => {
+    window.location.href = LOGIN_URL
+  }
+
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+    } catch {
+      // Logout should still clear local auth state even if the network fails.
+    }
+
+    setAuthenticatedUser(null)
+    setAuthState('unauthenticated')
+    setAuthMessage('Signed out.')
+    setSaveState('idle')
+    setSaveMessage('')
+  }
+
+  if (authState !== 'authenticated') {
+    return (
+      <div className="auth-shell">
+        <section className="auth-card">
+          <p className="eyebrow">Financial Planning</p>
+          <h1>Personal Finance Tracker</h1>
+          <p className="auth-copy">
+            Sign in with Google to access the shared financial planning dashboard.
+          </p>
+          <button type="button" className="toolbar-button auth-button" onClick={handleLogin} disabled={authState === 'checking'}>
+            {authState === 'checking' ? 'Checking...' : 'Sign in with Google'}
+          </button>
+          <p className={`auth-message auth-${authState}`}>{authMessage}</p>
+        </section>
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <header className="hero">
@@ -1206,9 +1333,21 @@ export default function App() {
           </p>
         </div>
         <div className="hero-actions">
+          {authenticatedUser ? (
+            <div className="user-chip">
+              {authenticatedUser.pictureUrl ? (
+                <img src={authenticatedUser.pictureUrl} alt={authenticatedUser.name ?? authenticatedUser.email ?? 'Signed in user'} className="user-avatar" />
+              ) : null}
+              <div>
+                <strong>{authenticatedUser.name ?? authenticatedUser.email}</strong>
+                <span>{authenticatedUser.email}</span>
+              </div>
+            </div>
+          ) : null}
           <button type="button" className="toolbar-button" onClick={handleSave} disabled={saveState === 'loading' || saveState === 'saving'}>
             {saveState === 'saving' ? 'Saving...' : 'Save Changes'}
           </button>
+          <button type="button" className="toolbar-button" onClick={handleLogout}>Sign Out</button>
           <span className={statusClassName}>{statusText}</span>
         </div>
       </header>
