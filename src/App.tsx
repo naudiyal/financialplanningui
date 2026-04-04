@@ -50,16 +50,16 @@ export default function App() {
             <thead>
               <tr>
                 <th>Account</th>
-                <th>Available Credit</th>
-                <th>Next Payment Date</th>
-                <th>Payment Made</th>
-                <th>STMT Cycled After Payment</th>
-                <th>Last Statement Date</th>
-                <th>Last Statement Balance</th>
-                <th>Total Credit Limit</th>
-                <th>Total Due</th>
-                <th>Current Month Payment</th>
-                <th>Next Month Statement Balance</th>
+                <th>Avail Credit</th>
+                <th>Pay Date</th>
+                <th>Paid</th>
+                <th>Stmt Cycled</th>
+                <th>Stmt Date</th>
+                <th>Stmt Balance</th>
+                <th>Limit</th>
+                <th>Due</th>
+                <th>Curr Payment</th>
+                <th>Next Balance</th>
               </tr>
             </thead>
             <tbody>

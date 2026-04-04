@@ -86,7 +86,6 @@ h2 {
 }
 
 .table-wrapper {
-  overflow-x: auto;
   background: white;
   border-radius: 1rem;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
@@ -95,13 +94,13 @@ h2 {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 960px;
 }
 
 th, td {
-  padding: 0.95rem 1rem;
+  padding: 0.75rem 0.5rem;
   text-align: left;
   border-bottom: 1px solid #e2e8f0;
+  font-size: 0.9rem;
 }
 
 th {
