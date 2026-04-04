@@ -144,7 +144,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 11700,
   },
   {
-    name: 'Chase Sapphire Reserve (9140)',
+    name: 'Chase Sapphire Res (9140)',
     availableCredit: 33973.46,
     nextPaymentDate: '2026-04-10',
     paidThisMonth: false,
