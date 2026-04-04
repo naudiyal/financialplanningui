@@ -54,7 +54,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 8300,
   },
   {
-    name: 'Amazon Store Card (5108) - amazon.syf.com',
+    name: 'Amazon Store Card (5108)',
     availableCredit: 2700,
     nextPaymentDate: '2026-04-01',
     paidThisMonth: true,
