@@ -101,10 +101,10 @@ table {
 
 th:nth-child(1), td:nth-child(1) { width: 20% !important; } /* Account */
 th:nth-child(2), td:nth-child(2) { width: 10% !important; } /* Avail Credit */
-th:nth-child(3), td:nth-child(3) { width: 8% !important; } /* Pay Date */
+th:nth-child(3), td:nth-child(3) { width: 4% !important; } /* Pay Date */
 th:nth-child(4), td:nth-child(4) { width: 6% !important; } /* Paid */
 th:nth-child(5), td:nth-child(5) { width: 8% !important; } /* Stmt Cycled */
-th:nth-child(6), td:nth-child(6) { width: 8% !important; } /* Stmt Date */
+th:nth-child(6), td:nth-child(6) { width: 4% !important; } /* Stmt Date */
 th:nth-child(7), td:nth-child(7) { width: 10% !important; } /* Stmt Balance */
 th:nth-child(8), td:nth-child(8) { width: 10% !important; } /* Limit */
 th:nth-child(9), td:nth-child(9) { width: 8% !important; } /* Due */
