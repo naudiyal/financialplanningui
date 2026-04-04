@@ -1,4 +1,4 @@
-# Financial Planning — Frontend
+# financialplanning
 
 This is a minimal Vite + React + TypeScript scaffold.
 
