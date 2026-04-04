@@ -1,10 +1,18 @@
-import React from 'react'
-import { balanceItems, creditAccounts, incomeItems } from './data/financialData'
+import React, { useState } from 'react'
+import { balanceItems, creditAccounts as initialCreditAccounts, incomeItems } from './data/financialData'
 
 const currency = (value: number) =>
   value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
 export default function App() {
+  const [creditAccounts, setCreditAccounts] = useState(initialCreditAccounts)
+
+  const updateAccount = (index: number, field: string, value: any) => {
+    const updated = [...creditAccounts]
+    updated[index] = { ...updated[index], [field]: value }
+    setCreditAccounts(updated)
+  }
+
   const totalAvailable = creditAccounts.reduce((sum, account) => sum + account.availableCredit, 0)
   const totalDue = creditAccounts.reduce((sum, account) => sum + account.totalDue, 0)
   const totalSalary = incomeItems.find((item) => item.label === 'Total Salary Per Month')?.amount ?? 0
@@ -42,32 +50,84 @@ export default function App() {
             <thead>
               <tr>
                 <th>Account</th>
-                <th>Available</th>
-                <th>Pay Date</th>
-                <th>Paid</th>
-                <th>Statement</th>
-                <th>Last Balance</th>
-                <th>Limit</th>
-                <th>Current Due</th>
-                <th>Current Payment</th>
-                <th>Next Balance</th>
+                <th>Available Credit</th>
+                <th>Next Payment Date</th>
+                <th>Payment Made</th>
+                <th>STMT Cycled After Payment</th>
+                <th>Last Statement Date</th>
+                <th>Last Statement Balance</th>
+                <th>Total Credit Limit</th>
+                <th>Total Due</th>
+                <th>Current Month Payment</th>
+                <th>Next Month Statement Balance</th>
               </tr>
             </thead>
             <tbody>
-              {creditAccounts.map((account) => (
-                <tr key={account.name}>
-                  <td>{account.name}</td>
-                  <td>{currency(account.availableCredit)}</td>
-                  <td>{account.nextPaymentDate}</td>
-                  <td>{account.paidThisMonth ? 'Yes' : 'No'}</td>
-                  <td>{account.statementCycledAfterPayment ? 'Yes' : 'No'}</td>
-                  <td>{currency(account.lastStatementBalance)}</td>
-                  <td>{currency(account.creditLimit)}</td>
-                  <td>{currency(account.totalDue)}</td>
-                  <td>{currency(account.currentMonthPayment)}</td>
-                  <td>{currency(account.nextMonthStatementBalance)}</td>
-                </tr>
-              ))}
+              {creditAccounts.map((account, index) => {
+                const totalDue = account.lastStatementBalance // Simplified calculation
+                const currentMonthPayment = account.paidThisMonth ? 0 : totalDue
+                const nextMonthStatementBalance = account.statementCycledAfterPayment
+                  ? account.lastStatementBalance
+                  : totalDue - currentMonthPayment
+
+                return (
+                  <tr key={account.name}>
+                    <td>{account.name}</td>
+                    <td>
+                      <input
+                        type="number"
+                        value={account.availableCredit}
+                        onChange={(e) => updateAccount(index, 'availableCredit', parseFloat(e.target.value) || 0)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        value={account.nextPaymentDate}
+                        onChange={(e) => updateAccount(index, 'nextPaymentDate', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={account.paidThisMonth}
+                        onChange={(e) => updateAccount(index, 'paidThisMonth', e.target.checked)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={account.statementCycledAfterPayment}
+                        onChange={(e) => updateAccount(index, 'statementCycledAfterPayment', e.target.checked)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        value={account.lastStatementDate}
+                        onChange={(e) => updateAccount(index, 'lastStatementDate', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        value={account.lastStatementBalance}
+                        onChange={(e) => updateAccount(index, 'lastStatementBalance', parseFloat(e.target.value) || 0)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        value={account.creditLimit}
+                        onChange={(e) => updateAccount(index, 'creditLimit', parseFloat(e.target.value) || 0)}
+                      />
+                    </td>
+                    <td>{currency(totalDue)}</td>
+                    <td>{currency(currentMonthPayment)}</td>
+                    <td>{currency(nextMonthStatementBalance)}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

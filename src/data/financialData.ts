@@ -7,9 +7,6 @@ export type CreditAccount = {
   lastStatementDate: string
   lastStatementBalance: number
   creditLimit: number
-  totalDue: number
-  currentMonthPayment: number
-  nextMonthStatementBalance: number
 }
 
 export type IncomeItem = {
@@ -35,9 +32,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '31-Mar',
     lastStatementBalance: 30.58,
     creditLimit: 4000,
-    totalDue: 40.57,
-    currentMonthPayment: 0,
-    nextMonthStatementBalance: 30.58,
   },
   {
     name: 'SamsClub Store Card (5873)',
@@ -48,9 +42,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '31-Mar',
     lastStatementBalance: 444.19,
     creditLimit: 12000,
-    totalDue: 703,
-    currentMonthPayment: 0,
-    nextMonthStatementBalance: 444.19,
   },
   {
     name: 'American Express (72022)',
@@ -61,12 +52,9 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '8-Mar',
     lastStatementBalance: 115.66,
     creditLimit: 8300,
-    totalDue: 79,
-    currentMonthPayment: 0,
-    nextMonthStatementBalance: 79,
   },
   {
-    name: 'Amazon Store Card (5108)',
+    name: 'Amazon Store Card (5108) - amazon.syf.com',
     availableCredit: 2700,
     nextPaymentDate: '1-Apr',
     paidThisMonth: true,
@@ -74,9 +62,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '6-Mar',
     lastStatementBalance: 0,
     creditLimit: 2700,
-    totalDue: 0,
-    currentMonthPayment: 0,
-    nextMonthStatementBalance: 0,
   },
   {
     name: 'Wells Fargo (4256)',
@@ -87,9 +72,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '8-Mar',
     lastStatementBalance: 1728.18,
     creditLimit: 18000,
-    totalDue: 1348,
-    currentMonthPayment: 0,
-    nextMonthStatementBalance: 1348,
   },
   {
     name: 'Target (0969)',
@@ -100,9 +82,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '3-Apr',
     lastStatementBalance: 709.96,
     creditLimit: 7400,
-    totalDue: 182,
-    currentMonthPayment: 0,
-    nextMonthStatementBalance: 182,
   },
   {
     name: 'Barclays Frontier (5640)',
@@ -113,9 +92,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '6-Mar',
     lastStatementBalance: 670.23,
     creditLimit: 10000,
-    totalDue: 1730.14,
-    currentMonthPayment: 670.23,
-    nextMonthStatementBalance: 1059.91,
   },
   {
     name: 'Fidelity (9857)',
@@ -126,9 +102,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '9-Mar',
     lastStatementBalance: 118.49,
     creditLimit: 30000,
-    totalDue: 276.48,
-    currentMonthPayment: 118.49,
-    nextMonthStatementBalance: 157.99,
   },
   {
     name: 'Citi Bestbuy (5026)',
@@ -139,9 +112,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '11-Mar',
     lastStatementBalance: 0,
     creditLimit: 4000,
-    totalDue: 0,
-    currentMonthPayment: 0,
-    nextMonthStatementBalance: 0,
   },
   {
     name: 'BOA Spirit (2795)',
@@ -152,9 +122,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '11-Mar',
     lastStatementBalance: 29.94,
     creditLimit: 28300,
-    totalDue: 29.94,
-    currentMonthPayment: 29.94,
-    nextMonthStatementBalance: 0,
   },
   {
     name: 'Chase Amazon Prime (1128)',
@@ -165,9 +132,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '13-Mar',
     lastStatementBalance: 170.47,
     creditLimit: 9600,
-    totalDue: 371.97,
-    currentMonthPayment: 170.47,
-    nextMonthStatementBalance: 201.5,
   },
   {
     name: 'Chase Marriott (4245)',
@@ -178,9 +142,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '13-Mar',
     lastStatementBalance: 0,
     creditLimit: 11700,
-    totalDue: 0,
-    currentMonthPayment: 0,
-    nextMonthStatementBalance: 0,
   },
   {
     name: 'Chase Sapphire Reserve (9140)',
@@ -191,9 +152,6 @@ export const creditAccounts: CreditAccount[] = [
     lastStatementDate: '13-Mar',
     lastStatementBalance: 855.71,
     creditLimit: 35400,
-    totalDue: 1426.54,
-    currentMonthPayment: 855.71,
-    nextMonthStatementBalance: 570.83,
   },
 ]
 
