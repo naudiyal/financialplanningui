@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   BalanceItem,
   balanceItems as initialBalanceItems,
@@ -59,6 +59,19 @@ const convertToISODate = (dateStr: string) => {
 
 const currency = (value: number) =>
   value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+
+const formatCurrencyInputValue = (value: number) => value.toFixed(2)
+
+const isPastDate = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const targetDate = new Date(year, (month ?? 1) - 1, day ?? 1)
+  targetDate.setHours(0, 0, 0, 0)
+
+  return targetDate < today
+}
 
 const getHeaderInputWidth = (label: string, minChars = 8) => `${Math.max(label.length + 2, minChars)}ch`
 
@@ -170,6 +183,32 @@ const serializeSectionTitles = (
   incomeScheduleChase: sectionTitles.defaultBank,
 })
 
+const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData => ({
+  creditAccounts: data.creditAccounts,
+  incomeItems: data.incomeItems,
+  balanceItems: data.balanceItems,
+  planoExpenses: data.planoExpenses,
+  sanfordExpenses: data.sanfordExpenses,
+  otherExpenses: data.otherExpenses,
+  columnLabels: data.columnLabels ?? defaultColumnLabels,
+  sectionTitles: serializeSectionTitles(normalizeSectionTitles(data.sectionTitles)),
+  incomeSubsections: data.incomeSubsections ?? defaultIncomeSubsections,
+})
+
+const getFinancialPlanSignature = (data: FinancialPlanData) => JSON.stringify(normalizeFinancialPlanData(data))
+
+const defaultFinancialPlanData = normalizeFinancialPlanData({
+  creditAccounts: initialCreditAccounts,
+  incomeItems: initialIncomeItems,
+  balanceItems: initialBalanceItems,
+  planoExpenses: initialPlanoExpenses,
+  sanfordExpenses: initialSanfordExpenses,
+  otherExpenses: initialOtherExpenses,
+  columnLabels: defaultColumnLabels,
+  sectionTitles: defaultSectionTitles,
+  incomeSubsections: defaultIncomeSubsections,
+})
+
 export default function App() {
   const [creditAccounts, setCreditAccounts] = useState(initialCreditAccounts)
   const [incomeItemsState, setIncomeItemsState] = useState(initialIncomeItems)
@@ -182,10 +221,14 @@ export default function App() {
   const [incomeSubsections, setIncomeSubsections] = useState(defaultIncomeSubsections)
   const [selectedCreditIds, setSelectedCreditIds] = useState<Set<string>>(new Set())
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<Set<string>>(new Set())
-  const [creditSort, setCreditSort] = useState<SortState<CreditSortKey>>({ key: 'name', direction: 'asc' })
+  const [creditSort, setCreditSort] = useState<SortState<CreditSortKey>>({
+    key: 'statementCycledAfterPayment',
+    direction: 'desc',
+  })
   const [expenseSort, setExpenseSort] = useState<SortState<ExpenseSortKey>>({ key: 'label', direction: 'asc' })
   const [saveState, setSaveState] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('loading')
   const [saveMessage, setSaveMessage] = useState('Loading saved plan...')
+  const [loadedPlanSignature, setLoadedPlanSignature] = useState<string | null>(null)
 
   useEffect(() => {
     let isMounted = true
@@ -215,13 +258,15 @@ export default function App() {
         }
 
         applyFinancialPlan(data)
+        setLoadedPlanSignature(getFinancialPlanSignature(data))
         setSaveState('idle')
-        setSaveMessage('Loaded saved plan')
+        setSaveMessage('')
       } catch {
         if (!isMounted) {
           return
         }
 
+        setLoadedPlanSignature(getFinancialPlanSignature(defaultFinancialPlanData))
         setSaveState('error')
         setSaveMessage('API unavailable. Using local defaults.')
       }
@@ -367,8 +412,6 @@ export default function App() {
     ]
 
     setIncomeSubsections(nextSubsections)
-    setSaveState('idle')
-    setSaveMessage('Unsaved subsection added')
   }
 
   const deleteIncomeSubsection = (subsectionId: string) => {
@@ -581,7 +624,8 @@ export default function App() {
             <span className="currency-prefix">$</span>
             <input
               type="number"
-              value={item.amount}
+              value={formatCurrencyInputValue(item.amount)}
+              step="0.01"
               onChange={(e) => updateIncomeItem(itemIndex, parseFloat(e.target.value) || 0)}
               className="amount-input currency-amount-input"
             />
@@ -611,7 +655,8 @@ export default function App() {
             <span className="currency-prefix">$</span>
             <input
               type="number"
-              value={item.amount}
+              value={formatCurrencyInputValue(item.amount)}
+              step="0.01"
               onChange={(e) => updateBalanceItem(itemIndex, parseFloat(e.target.value) || 0)}
               className="amount-input currency-amount-input"
             />
@@ -657,7 +702,8 @@ export default function App() {
               <span className="currency-prefix">$</span>
               <input
                 type="number"
-                value={subsection.biMonthlySalary}
+                value={formatCurrencyInputValue(subsection.biMonthlySalary)}
+                step="0.01"
                 onChange={(e) => updateIncomeSubsection(index, 'biMonthlySalary', parseFloat(e.target.value) || 0)}
                 className="amount-input currency-amount-input"
               />
@@ -702,7 +748,8 @@ export default function App() {
               <span className="currency-prefix">$</span>
               <input
                 type="number"
-                value={subsection.checkingBalance}
+                value={formatCurrencyInputValue(subsection.checkingBalance)}
+                step="0.01"
                 onChange={(e) => updateIncomeSubsection(index, 'checkingBalance', parseFloat(e.target.value) || 0)}
                 className="amount-input currency-amount-input"
               />
@@ -719,7 +766,8 @@ export default function App() {
               <span className="currency-prefix">$</span>
               <input
                 type="number"
-                value={subsection.additionalPayments}
+                value={formatCurrencyInputValue(subsection.additionalPayments)}
+                step="0.01"
                 onChange={(e) => updateIncomeSubsection(index, 'additionalPayments', parseFloat(e.target.value) || 0)}
                 className="amount-input currency-amount-input"
               />
@@ -745,7 +793,8 @@ export default function App() {
               <span className="currency-prefix">$</span>
               <input
                 type="number"
-                value={subsection.additionalIncome}
+                value={formatCurrencyInputValue(subsection.additionalIncome)}
+                step="0.01"
                 onChange={(e) => updateIncomeSubsection(index, 'additionalIncome', parseFloat(e.target.value) || 0)}
                 className="amount-input currency-amount-input"
               />
@@ -882,6 +931,34 @@ export default function App() {
     summary: overrides.summary,
   })
 
+  const currentPlanSignature = useMemo(
+    () => getFinancialPlanSignature(buildPayload()),
+    [
+      adjustedBalanceItems,
+      adjustedIncomeItems,
+      columnLabels,
+      creditAccounts,
+      incomeSubsections,
+      otherExpenses,
+      planoExpenses,
+      sanfordExpenses,
+      sectionTitles,
+    ],
+  )
+
+  const hasUnsavedChanges = loadedPlanSignature !== null && currentPlanSignature !== loadedPlanSignature
+
+  const statusText =
+    saveState === 'loading' || saveState === 'saving'
+      ? saveMessage
+      : hasUnsavedChanges
+        ? 'Unsaved changes'
+        : saveState === 'error' || saveState === 'saved'
+          ? saveMessage
+          : ''
+
+  const statusClassName = `status-text status-${hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
+
   const applyFinancialPlan = (data: FinancialPlanData) => {
     setCreditAccounts(data.creditAccounts)
     setIncomeItemsState(data.incomeItems)
@@ -917,6 +994,7 @@ export default function App() {
 
       const savedData: FinancialPlanData = await response.json()
       applyFinancialPlan(savedData)
+  setLoadedPlanSignature(getFinancialPlanSignature(savedData))
       onSuccess?.()
       setSaveState('saved')
       setSaveMessage(successMessage)
@@ -946,7 +1024,7 @@ export default function App() {
           <button type="button" className="toolbar-button" onClick={handleSave} disabled={saveState === 'loading' || saveState === 'saving'}>
             {saveState === 'saving' ? 'Saving...' : 'Save Changes'}
           </button>
-          <span className={`status-text status-${saveState}`}>{saveMessage}</span>
+          <span className={statusClassName}>{statusText}</span>
         </div>
       </header>
 
@@ -1025,6 +1103,7 @@ export default function App() {
               <tbody>
                 {sortedCreditAccounts.map((account) => {
                 const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, utilizationPercent } = getCreditMetrics(account)
+                const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
 
                 return (
                   <tr key={account.id} className={selectedCreditIds.has(account.id) ? 'row-selected' : ''}>
@@ -1053,11 +1132,12 @@ export default function App() {
                         onChange={(e) => updateAccountById(account.id, 'nextPaymentDate', e.target.value)}
                       />
                     </td>
-                    <td>
+                    <td className={isPastDueUnpaid ? 'overdue-checkbox-cell' : undefined}>
                       <input
                         type="checkbox"
                         checked={account.paidThisMonth}
                         onChange={(e) => updateAccountById(account.id, 'paidThisMonth', e.target.checked)}
+                        className={isPastDueUnpaid ? 'overdue-checkbox' : undefined}
                       />
                     </td>
                     <td>
@@ -1079,7 +1159,8 @@ export default function App() {
                         <span className="currency-prefix">$</span>
                         <input
                           type="number"
-                          value={account.lastStatementBalance}
+                          value={formatCurrencyInputValue(account.lastStatementBalance)}
+                          step="0.01"
                           onChange={(e) => updateAccountById(account.id, 'lastStatementBalance', parseFloat(e.target.value) || 0)}
                           className="currency-amount-input"
                         />
@@ -1090,7 +1171,8 @@ export default function App() {
                         <span className="currency-prefix">$</span>
                         <input
                           type="number"
-                          value={account.creditLimit}
+                          value={formatCurrencyInputValue(account.creditLimit)}
+                          step="0.01"
                           onChange={(e) => updateAccountById(account.id, 'creditLimit', parseFloat(e.target.value) || 0)}
                           className="currency-amount-input"
                         />
@@ -1170,7 +1252,10 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {sortedExpenseRows.map(({ item, setter }) => (
+                    {sortedExpenseRows.map(({ item, setter }) => {
+                      const isPastDueCurrentExpense = isPastDate(item.payDate) && Math.abs(item.current) > 0.004
+
+                      return (
                       <tr key={item.id} className={selectedExpenseIds.has(item.id) ? 'row-selected' : ''}>
                         <td className="select-col">
                           <input type="checkbox" checked={selectedExpenseIds.has(item.id)} onChange={() => toggleExpenseSelection(item.id)} />
@@ -1197,9 +1282,10 @@ export default function App() {
                             <span className="currency-prefix">$</span>
                             <input
                               type="number"
-                              value={item.current}
+                              value={formatCurrencyInputValue(item.current)}
+                              step="0.01"
                               onChange={(e) => updateExpenseItemById(setter, item.id, 'current', parseFloat(e.target.value) || 0)}
-                              className="currency-amount-input"
+                              className={`currency-amount-input${isPastDueCurrentExpense ? ' overdue-amount-input' : ''}`}
                             />
                           </div>
                         </td>
@@ -1208,14 +1294,16 @@ export default function App() {
                             <span className="currency-prefix">$</span>
                             <input
                               type="number"
-                              value={item.next}
+                              value={formatCurrencyInputValue(item.next)}
+                              step="0.01"
                               onChange={(e) => updateExpenseItemById(setter, item.id, 'next', parseFloat(e.target.value) || 0)}
                               className="currency-amount-input"
                             />
                           </div>
                         </td>
                       </tr>
-                ))}
+                      )
+                })}
                 <tr className="table-summary-row">
                   <td></td>
                   <td>Debit Card Expenses Total</td>
