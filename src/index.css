@@ -96,6 +96,18 @@ table {
   border-collapse: collapse;
 }
 
+th:nth-child(1), td:nth-child(1) { width: 15%; } /* Account */
+th:nth-child(2), td:nth-child(2) { width: 10%; } /* Avail Credit */
+th:nth-child(3), td:nth-child(3) { width: 8%; } /* Pay Date */
+th:nth-child(4), td:nth-child(4) { width: 5%; } /* Paid */
+th:nth-child(5), td:nth-child(5) { width: 8%; } /* Stmt Cycled */
+th:nth-child(6), td:nth-child(6) { width: 8%; } /* Stmt Date */
+th:nth-child(7), td:nth-child(7) { width: 10%; } /* Stmt Balance */
+th:nth-child(8), td:nth-child(8) { width: 8%; } /* Limit */
+th:nth-child(9), td:nth-child(9) { width: 8%; } /* Due */
+th:nth-child(10), td:nth-child(10) { width: 10%; } /* Curr Payment */
+th:nth-child(11), td:nth-child(11) { width: 10%; } /* Next Balance */
+
 th, td {
   padding: 0.75rem 0.5rem;
   text-align: left;
