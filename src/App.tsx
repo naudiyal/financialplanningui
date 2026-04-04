@@ -31,7 +31,7 @@ type FinancialPlanData = {
   sanfordExpenses: ExpenseItem[]
   otherExpenses: ExpenseItem[]
   columnLabels?: FinancialPlanColumnLabels
-  sectionTitles?: FinancialPlanSectionTitles
+  sectionTitles?: FinancialPlanSectionTitles & { incomeScheduleChase?: string }
   incomeSubsections?: IncomeSubsection[]
   summary?: Record<string, number>
 }
@@ -155,6 +155,21 @@ const getCreditMetrics = (account: CreditAccount) => {
   }
 }
 
+const normalizeSectionTitles = (
+  sectionTitles?: FinancialPlanData['sectionTitles'],
+): FinancialPlanSectionTitles => ({
+  ...defaultSectionTitles,
+  ...sectionTitles,
+  defaultBank: sectionTitles?.defaultBank ?? sectionTitles?.incomeScheduleChase ?? defaultSectionTitles.defaultBank,
+})
+
+const serializeSectionTitles = (
+  sectionTitles: FinancialPlanSectionTitles,
+): FinancialPlanSectionTitles & { incomeScheduleChase: string } => ({
+  ...sectionTitles,
+  incomeScheduleChase: sectionTitles.defaultBank,
+})
+
 export default function App() {
   const [creditAccounts, setCreditAccounts] = useState(initialCreditAccounts)
   const [incomeItemsState, setIncomeItemsState] = useState(initialIncomeItems)
@@ -183,7 +198,7 @@ export default function App() {
       setSanfordExpenses(data.sanfordExpenses)
       setOtherExpenses(data.otherExpenses)
       setColumnLabels(data.columnLabels ?? defaultColumnLabels)
-      setSectionTitles(data.sectionTitles ?? defaultSectionTitles)
+      setSectionTitles(normalizeSectionTitles(data.sectionTitles))
       setIncomeSubsections(data.incomeSubsections ?? defaultIncomeSubsections)
     }
 
@@ -477,6 +492,7 @@ export default function App() {
   const debitCardExpenseItems = [...planoExpenses, ...sanfordExpenses, ...otherExpenses]
   const debitCardExpensesTotalCurrent = sumExpenses(debitCardExpenseItems, 'current')
   const debitCardExpensesTotalNext = sumExpenses(debitCardExpenseItems, 'next')
+  const monthAfterNextMonthExpense = totalCardDue - creditCardCurrentMonthPayments - creditCardNextMonthBalance
   const j15 = creditCardCurrentMonthPayments
   const k15 = creditCardNextMonthBalance
   const j36 = j15 + debitCardExpensesTotalCurrent
@@ -612,7 +628,7 @@ export default function App() {
     const midMonthSalary = subsection.midMonthSalaryArrived ? 0 : subsection.biMonthlySalary
     const monthEndSalary = subsection.monthEndSalaryArrived ? 0 : subsection.biMonthlySalary
     const totalBalance = midMonthSalary + monthEndSalary + subsection.checkingBalance - subsection.additionalPayments
-    const monthEndBalance = totalBalance + subsection.additionalIncome - j36
+    const monthEndBalance = totalBalance + subsection.additionalIncome
 
     return (
       <div key={subsection.id} className="subsection-block">
@@ -861,7 +877,7 @@ export default function App() {
     sanfordExpenses: overrides.sanfordExpenses ?? sanfordExpenses,
     otherExpenses: overrides.otherExpenses ?? otherExpenses,
     columnLabels: overrides.columnLabels ?? columnLabels,
-    sectionTitles: overrides.sectionTitles ?? sectionTitles,
+    sectionTitles: serializeSectionTitles(normalizeSectionTitles(overrides.sectionTitles ?? sectionTitles)),
     incomeSubsections: overrides.incomeSubsections ?? incomeSubsections,
     summary: overrides.summary,
   })
@@ -874,7 +890,7 @@ export default function App() {
     setSanfordExpenses(data.sanfordExpenses)
     setOtherExpenses(data.otherExpenses)
     setColumnLabels(data.columnLabels ?? defaultColumnLabels)
-    setSectionTitles(data.sectionTitles ?? defaultSectionTitles)
+    setSectionTitles(normalizeSectionTitles(data.sectionTitles))
     setIncomeSubsections(data.incomeSubsections ?? defaultIncomeSubsections)
   }
 
@@ -1210,14 +1226,21 @@ export default function App() {
               </tbody>
             </table>
           </div>
-          <div className="summary-grid expense-summary-grid">
-            <div className="summary-card">
-              <p>Expense Grand Total</p>
-              <strong>{currency(j36)}</strong>
-            </div>
-            <div className="summary-card">
-              <p>Next Month Expense Grand Total</p>
-              <strong>{currency(k36)}</strong>
+          <div className="expense-summary-section">
+            <h3>Expense Grand Total</h3>
+            <div className="summary-grid expense-summary-grid">
+              <div className="summary-card">
+                <p>Current Month</p>
+                <strong>{currency(j36)}</strong>
+              </div>
+              <div className="summary-card">
+                <p>Next Month</p>
+                <strong>{currency(k36)}</strong>
+              </div>
+              <div className="summary-card">
+                <p>Month After Next Month</p>
+                <strong>{currency(monthAfterNextMonthExpense)}</strong>
+              </div>
             </div>
           </div>
         </section>
@@ -1242,8 +1265,8 @@ export default function App() {
                 <h3>
                   <input
                     type="text"
-                    value={sectionTitles.incomeScheduleChase}
-                    onChange={(e) => updateSectionTitle('incomeScheduleChase', e.target.value)}
+                    value={sectionTitles.defaultBank}
+                    onChange={(e) => updateSectionTitle('defaultBank', e.target.value)}
                     className="label-input subsection-title-input"
                   />
                 </h3>

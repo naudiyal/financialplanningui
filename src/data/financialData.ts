@@ -58,7 +58,7 @@ export type FinancialPlanSectionTitles = {
   creditAccounts: string
   debitExpenses: string
   incomeSchedule: string
-  incomeScheduleChase: string
+  defaultBank: string
 }
 
 export const defaultIncomeSubsections: IncomeSubsection[] = []
@@ -288,5 +288,5 @@ export const defaultSectionTitles: FinancialPlanSectionTitles = {
   creditAccounts: 'Credit & Card Accounts',
   debitExpenses: 'Debit Card Expenses',
   incomeSchedule: 'Income Schedule',
-  incomeScheduleChase: 'Chase',
+  defaultBank: 'Chase',
 }

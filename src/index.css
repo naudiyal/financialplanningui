@@ -31,6 +31,8 @@ html, body, #root {
 
 .hero {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 0.5rem;
   margin-bottom: 2px;
 }
@@ -38,6 +40,7 @@ html, body, #root {
 .hero-actions {
   display: flex;
   align-items: center;
+  justify-self: end;
   gap: 0.5rem;
 }
 
@@ -726,7 +729,40 @@ input.section-title-input {
 
 .expense-summary-grid {
   margin-top: 0.3rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: fit-content;
+  max-width: 100%;
+  gap: 0.2rem;
+  grid-template-columns: repeat(3, max-content);
+}
+
+.expense-summary-section {
+  margin-top: 0.35rem;
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.25rem 0.3rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.6rem;
+  background: #ffffff;
+  box-sizing: border-box;
+}
+
+.expense-summary-section h3 {
+  margin: 0 0 0.2rem;
+  font-size: 0.8rem;
+}
+
+.expense-summary-grid .summary-card {
+  min-width: 10.58rem;
+  padding: 0.24rem 0.34rem;
+}
+
+.expense-summary-grid .summary-card p {
+  font-size: 0.58rem;
+}
+
+.expense-summary-grid .summary-card strong {
+  font-size: 0.72rem;
 }
 
 .compact-side-panel .card-list {
@@ -839,7 +875,19 @@ input.section-title-input {
 }
 
 @media (max-width: 900px) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-actions {
+    justify-self: start;
+  }
+
   .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .expense-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
