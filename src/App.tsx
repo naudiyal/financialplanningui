@@ -4,6 +4,25 @@ import { balanceItems, creditAccounts as initialCreditAccounts, incomeItems } fr
 const currency = (value: number) =>
   value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
+// Convert DD-MMM format to YYYY-MM-DD
+const convertToISODate = (dateStr: string) => {
+  const months: { [key: string]: string } = {
+    'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
+    'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+  }
+  const [day, month] = dateStr.split('-')
+  return `2026-${months[month]}-${day.padStart(2, '0')}`
+}
+
+// Convert YYYY-MM-DD to DD-MMM format
+const convertFromISODate = (isoDate: string) => {
+  const date = new Date(isoDate)
+  const day = date.getDate()
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const month = monthNames[date.getMonth()]
+  return `${day}-${month}`
+}
+
 export default function App() {
   const [creditAccounts, setCreditAccounts] = useState(initialCreditAccounts)
 
@@ -82,7 +101,7 @@ export default function App() {
                     </td>
                     <td>
                       <input
-                        type="text"
+                        type="date"
                         value={account.nextPaymentDate}
                         onChange={(e) => updateAccount(index, 'nextPaymentDate', e.target.value)}
                       />
@@ -103,7 +122,7 @@ export default function App() {
                     </td>
                     <td>
                       <input
-                        type="text"
+                        type="date"
                         value={account.lastStatementDate}
                         onChange={(e) => updateAccount(index, 'lastStatementDate', e.target.value)}
                       />
