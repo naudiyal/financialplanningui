@@ -110,6 +110,8 @@ th:nth-child(8), td:nth-child(8) { width: 7.5% !important; } /* Limit */
 th:nth-child(9), td:nth-child(9) { width: 8% !important; } /* Due */
 th:nth-child(10), td:nth-child(10) { width: 10% !important; } /* Curr Payment */
 th:nth-child(11), td:nth-child(11) { width: 10% !important; } /* Next Balance */
+th:nth-child(12), td:nth-child(12) { width: 6% !important; } /* Util % */
+th:nth-child(13), td:nth-child(13) { width: 8% !important; } /* Min Payment */
 
 th, td {
   padding: 0.75rem 0.5rem;

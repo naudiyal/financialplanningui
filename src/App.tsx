@@ -34,6 +34,13 @@ export default function App() {
 
   const totalAvailable = creditAccounts.reduce((sum, account) => sum + account.availableCredit, 0)
   const totalDue = creditAccounts.reduce((sum, account) => sum + account.lastStatementBalance, 0)
+  const totalLimits = creditAccounts.reduce((sum, account) => sum + account.creditLimit, 0)
+  const totalUtilization = totalLimits > 0 ? (totalDue / totalLimits) * 100 : 0
+  const averageUtilization = creditAccounts.length > 0 ? totalUtilization / creditAccounts.length : 0
+  const totalMinPayments = creditAccounts.reduce((sum, account) => {
+    const minPayment = Math.max(account.lastStatementBalance * 0.02, 25) // 2% or $25 minimum
+    return sum + (account.paidThisMonth ? 0 : minPayment)
+  }, 0)
   const totalSalary = incomeItems.find((item) => item.label === 'Total Salary Per Month')?.amount ?? 0
 
   return (
@@ -56,8 +63,20 @@ export default function App() {
             <strong>{currency(totalDue)}</strong>
           </div>
           <div className="summary-card">
+            <p>Credit utilization</p>
+            <strong>{totalUtilization.toFixed(1)}%</strong>
+          </div>
+          <div className="summary-card">
+            <p>Min. payments due</p>
+            <strong>{currency(totalMinPayments)}</strong>
+          </div>
+          <div className="summary-card">
             <p>Monthly salary estimate</p>
             <strong>{currency(totalSalary)}</strong>
+          </div>
+          <div className="summary-card">
+            <p>Avg utilization</p>
+            <strong>{averageUtilization.toFixed(1)}%</strong>
           </div>
         </div>
       </header>
@@ -79,6 +98,8 @@ export default function App() {
                 <th>Due</th>
                 <th>Curr Payment</th>
                 <th>Next Balance</th>
+                <th>Util %</th>
+                <th>Min Payment</th>
               </tr>
             </thead>
             <tbody>
@@ -88,6 +109,8 @@ export default function App() {
                 const nextMonthStatementBalance = account.statementCycledAfterPayment
                   ? account.lastStatementBalance
                   : totalDue - currentMonthPayment
+                const utilizationPercent = account.creditLimit > 0 ? (account.lastStatementBalance / account.creditLimit) * 100 : 0
+                const minPayment = account.paidThisMonth ? 0 : Math.max(account.lastStatementBalance * 0.02, 25)
 
                 return (
                   <tr key={account.name}>
@@ -144,6 +167,8 @@ export default function App() {
                     <td>{currency(totalDue)}</td>
                     <td>{currency(currentMonthPayment)}</td>
                     <td>{currency(nextMonthStatementBalance)}</td>
+                    <td>{utilizationPercent.toFixed(1)}%</td>
+                    <td>{currency(minPayment)}</td>
                   </tr>
                 )
               })}
