@@ -187,6 +187,7 @@ input.subsection-title-input {
 .table-wrapper {
   background: white;
   border-radius: 1rem;
+  border: 1px solid #e5e7eb;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
@@ -254,12 +255,50 @@ th, td {
   line-height: 1.1;
 }
 
+.credit-accounts-table th:not(:last-child),
+.credit-accounts-table td:not(:last-child),
+.debit-expenses-table th:not(:last-child),
+.debit-expenses-table td:not(:last-child) {
+  border-right: 1px solid #e5e7eb;
+}
+
 th {
   background: #f8fafc;
   font-weight: 700;
   color: #334155;
   text-align: left;
   vertical-align: top;
+}
+
+.sortable-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.12rem;
+  width: 100%;
+}
+
+.sortable-header .table-header-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sort-button {
+  flex: 0 0 auto;
+  min-width: 1rem;
+  min-height: 1rem;
+  padding: 0;
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sort-button:hover {
+  color: #0f172a;
 }
 
 tbody tr:hover {
@@ -432,6 +471,13 @@ tbody tr:hover {
 
 .subsection-block + .subsection-block {
   margin-top: 0.6rem;
+}
+
+.bank-accounts-section .subsection-block {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  padding: 0.3rem;
 }
 
 .income-subsection-grid {
@@ -698,6 +744,20 @@ input.section-title-input {
   padding: 0;
   min-width: 0;
   overflow: hidden;
+}
+
+.bank-accounts-section .info-card {
+  border: 1px solid #eef2f7;
+  border-radius: 0.2rem;
+}
+
+.bank-accounts-section .info-card > :first-child {
+  border-right: 1px solid #e5e7eb;
+  padding-right: 0.2rem;
+}
+
+.bank-accounts-section .info-card > :nth-child(2) {
+  padding-left: 0.2rem;
 }
 
 .compact-side-panel .card-title {

@@ -89,8 +89,71 @@ type ExpenseGroupConfig = {
   setter: React.Dispatch<React.SetStateAction<ExpenseItem[]>>
 }
 
+type SortDirection = 'asc' | 'desc'
+
+type CreditSortKey =
+  | 'name'
+  | 'availableCredit'
+  | 'nextPaymentDate'
+  | 'paidThisMonth'
+  | 'statementCycledAfterPayment'
+  | 'lastStatementDate'
+  | 'lastStatementBalance'
+  | 'creditLimit'
+  | 'totalDueForCard'
+  | 'currentMonthPayment'
+  | 'nextMonthStatementBalance'
+  | 'utilizationPercent'
+
+type ExpenseSortKey = 'label' | 'payDate' | 'current' | 'next'
+
+type SortState<T extends string> = {
+  key: T
+  direction: SortDirection
+}
+
+type ExpenseRow = {
+  item: ExpenseItem
+  setter: React.Dispatch<React.SetStateAction<ExpenseItem[]>>
+}
+
 const sumExpenses = (items: ExpenseItem[], field: 'current' | 'next') =>
   items.reduce((sum, item) => sum + item[field], 0)
+
+const compareValues = (left: string | number | boolean, right: string | number | boolean) => {
+  if (typeof left === 'string' && typeof right === 'string') {
+    return left.localeCompare(right)
+  }
+
+  if (typeof left === 'boolean' && typeof right === 'boolean') {
+    return Number(left) - Number(right)
+  }
+
+  return Number(left) - Number(right)
+}
+
+const sortItems = <T,>(items: T[], getValue: (item: T) => string | number | boolean, direction: SortDirection) => {
+  const multiplier = direction === 'asc' ? 1 : -1
+  return [...items].sort((left, right) => multiplier * compareValues(getValue(left), getValue(right)))
+}
+
+const getCreditMetrics = (account: CreditAccount) => {
+  const totalDueForCard = account.creditLimit - account.availableCredit
+  const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
+  const nextMonthStatementBalance = account.paidThisMonth
+    ? account.statementCycledAfterPayment
+      ? account.lastStatementBalance
+      : totalDueForCard
+    : totalDueForCard - account.lastStatementBalance
+  const utilizationPercent = account.creditLimit > 0 ? (totalDueForCard / account.creditLimit) * 100 : 0
+
+  return {
+    totalDueForCard,
+    currentMonthPayment,
+    nextMonthStatementBalance,
+    utilizationPercent,
+  }
+}
 
 export default function App() {
   const [creditAccounts, setCreditAccounts] = useState(initialCreditAccounts)
@@ -104,6 +167,8 @@ export default function App() {
   const [incomeSubsections, setIncomeSubsections] = useState(defaultIncomeSubsections)
   const [selectedCreditIds, setSelectedCreditIds] = useState<Set<string>>(new Set())
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<Set<string>>(new Set())
+  const [creditSort, setCreditSort] = useState<SortState<CreditSortKey>>({ key: 'name', direction: 'asc' })
+  const [expenseSort, setExpenseSort] = useState<SortState<ExpenseSortKey>>({ key: 'label', direction: 'asc' })
   const [saveState, setSaveState] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('loading')
   const [saveMessage, setSaveMessage] = useState('Loading saved plan...')
 
@@ -154,10 +219,10 @@ export default function App() {
     }
   }, [])
 
-  const updateAccount = (index: number, field: string, value: number | string | boolean) => {
-    const updated = [...creditAccounts]
-    updated[index] = { ...updated[index], [field]: value }
-    setCreditAccounts(updated)
+  const updateAccountById = (accountId: string, field: string, value: number | string | boolean) => {
+    setCreditAccounts((current) =>
+      current.map((account) => (account.id === accountId ? { ...account, [field]: value } : account)),
+    )
   }
 
   const updateIncomeItem = (index: number, amount: number) => {
@@ -190,27 +255,43 @@ export default function App() {
     setBalanceItemsState(updated)
   }
 
-  const updateExpenseItem = (
+  const updateExpenseItemById = (
     setter: React.Dispatch<React.SetStateAction<ExpenseItem[]>>,
-    items: ExpenseItem[],
-    index: number,
+    itemId: string,
     field: 'current' | 'next' | 'payDate',
     value: number | string,
   ) => {
-    const updated = [...items]
-    updated[index] = { ...updated[index], [field]: value }
-    setter(updated)
+    setter((current) => current.map((item) => (item.id === itemId ? { ...item, [field]: value } : item)))
   }
 
-  const updateExpenseLabel = (
+  const updateExpenseLabelById = (
     setter: React.Dispatch<React.SetStateAction<ExpenseItem[]>>,
-    items: ExpenseItem[],
-    index: number,
+    itemId: string,
     label: string,
   ) => {
-    const updated = [...items]
-    updated[index] = { ...updated[index], label }
-    setter(updated)
+    setter((current) => current.map((item) => (item.id === itemId ? { ...item, label } : item)))
+  }
+
+  const toggleCreditSort = (key: CreditSortKey) => {
+    setCreditSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
+    }))
+  }
+
+  const toggleExpenseSort = (key: ExpenseSortKey) => {
+    setExpenseSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
+    }))
+  }
+
+  const getSortIndicator = <T extends string,>(sortState: SortState<T>, key: T) => {
+    if (sortState.key !== key) {
+      return '↕'
+    }
+
+    return sortState.direction === 'asc' ? '↑' : '↓'
   }
 
   const updateColumnLabel = (tableKey: keyof FinancialPlanColumnLabels, index: number, label: string) => {
@@ -721,6 +802,57 @@ export default function App() {
     },
   ]
 
+  const sortedCreditAccounts = sortItems(creditAccounts, (account) => {
+    const metrics = getCreditMetrics(account)
+
+    switch (creditSort.key) {
+      case 'name':
+        return account.name.toLowerCase()
+      case 'availableCredit':
+        return account.availableCredit
+      case 'nextPaymentDate':
+        return account.nextPaymentDate
+      case 'paidThisMonth':
+        return account.paidThisMonth
+      case 'statementCycledAfterPayment':
+        return account.statementCycledAfterPayment
+      case 'lastStatementDate':
+        return account.lastStatementDate
+      case 'lastStatementBalance':
+        return account.lastStatementBalance
+      case 'creditLimit':
+        return account.creditLimit
+      case 'totalDueForCard':
+        return metrics.totalDueForCard
+      case 'currentMonthPayment':
+        return metrics.currentMonthPayment
+      case 'nextMonthStatementBalance':
+        return metrics.nextMonthStatementBalance
+      case 'utilizationPercent':
+        return metrics.utilizationPercent
+    }
+  }, creditSort.direction)
+
+  const expenseRows: ExpenseRow[] = expenseGroups.flatMap((group) =>
+    group.items.map((item) => ({
+      item,
+      setter: group.setter,
+    })),
+  )
+
+  const sortedExpenseRows = sortItems(expenseRows, ({ item }) => {
+    switch (expenseSort.key) {
+      case 'label':
+        return item.label.toLowerCase()
+      case 'payDate':
+        return item.payDate
+      case 'current':
+        return item.current
+      case 'next':
+        return item.next
+    }
+  }, expenseSort.direction)
+
   const buildPayload = (overrides: Partial<FinancialPlanData> = {}): FinancialPlanData => ({
     creditAccounts: overrides.creditAccounts ?? creditAccounts,
     incomeItems: overrides.incomeItems ?? adjustedIncomeItems,
@@ -827,27 +959,56 @@ export default function App() {
                   <th className="select-col"></th>
                   {columnLabels.creditAccounts.map((column, index) => (
                     <th key={column.id}>
-                      <input
-                        type="text"
-                        value={column.label}
-                        onChange={(e) => updateColumnLabel('creditAccounts', index, e.target.value)}
-                        className="label-input table-header-input"
-                        style={{ width: getHeaderInputWidth(column.label) }}
-                      />
+                      <div className="sortable-header">
+                        <input
+                          type="text"
+                          value={column.label}
+                          onChange={(e) => updateColumnLabel('creditAccounts', index, e.target.value)}
+                          className="label-input table-header-input"
+                          style={{ width: getHeaderInputWidth(column.label) }}
+                        />
+                        <button
+                          type="button"
+                          className="sort-button"
+                          onClick={() => toggleCreditSort([
+                            'name',
+                            'availableCredit',
+                            'nextPaymentDate',
+                            'paidThisMonth',
+                            'statementCycledAfterPayment',
+                            'lastStatementDate',
+                            'lastStatementBalance',
+                            'creditLimit',
+                            'totalDueForCard',
+                            'currentMonthPayment',
+                            'nextMonthStatementBalance',
+                            'utilizationPercent',
+                          ][index] as CreditSortKey)}
+                          aria-label={`Sort credit accounts by ${column.label}`}
+                        >
+                          {getSortIndicator(creditSort, [
+                            'name',
+                            'availableCredit',
+                            'nextPaymentDate',
+                            'paidThisMonth',
+                            'statementCycledAfterPayment',
+                            'lastStatementDate',
+                            'lastStatementBalance',
+                            'creditLimit',
+                            'totalDueForCard',
+                            'currentMonthPayment',
+                            'nextMonthStatementBalance',
+                            'utilizationPercent',
+                          ][index] as CreditSortKey)}
+                        </button>
+                      </div>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {creditAccounts.map((account, index) => {
-                const totalDueForCard = account.creditLimit - account.availableCredit
-                const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
-                const nextMonthStatementBalance = account.paidThisMonth
-                  ? account.statementCycledAfterPayment
-                    ? account.lastStatementBalance
-                    : totalDueForCard
-                  : totalDueForCard - account.lastStatementBalance
-                const utilizationPercent = account.creditLimit > 0 ? (totalDueForCard / account.creditLimit) * 100 : 0
+                {sortedCreditAccounts.map((account) => {
+                const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, utilizationPercent } = getCreditMetrics(account)
 
                 return (
                   <tr key={account.id} className={selectedCreditIds.has(account.id) ? 'row-selected' : ''}>
@@ -858,7 +1019,7 @@ export default function App() {
                       <input
                         type="text"
                         value={account.name}
-                        onChange={(e) => updateAccount(index, 'name', e.target.value)}
+                        onChange={(e) => updateAccountById(account.id, 'name', e.target.value)}
                         className="label-input"
                       />
                     </td>
@@ -866,35 +1027,35 @@ export default function App() {
                       <input
                         type="number"
                         value={account.availableCredit}
-                        onChange={(e) => updateAccount(index, 'availableCredit', parseFloat(e.target.value) || 0)}
+                        onChange={(e) => updateAccountById(account.id, 'availableCredit', parseFloat(e.target.value) || 0)}
                       />
                     </td>
                     <td>
                       <input
                         type="date"
                         value={account.nextPaymentDate}
-                        onChange={(e) => updateAccount(index, 'nextPaymentDate', e.target.value)}
+                        onChange={(e) => updateAccountById(account.id, 'nextPaymentDate', e.target.value)}
                       />
                     </td>
                     <td>
                       <input
                         type="checkbox"
                         checked={account.paidThisMonth}
-                        onChange={(e) => updateAccount(index, 'paidThisMonth', e.target.checked)}
+                        onChange={(e) => updateAccountById(account.id, 'paidThisMonth', e.target.checked)}
                       />
                     </td>
                     <td>
                       <input
                         type="checkbox"
                         checked={account.statementCycledAfterPayment}
-                        onChange={(e) => updateAccount(index, 'statementCycledAfterPayment', e.target.checked)}
+                        onChange={(e) => updateAccountById(account.id, 'statementCycledAfterPayment', e.target.checked)}
                       />
                     </td>
                     <td>
                       <input
                         type="date"
                         value={account.lastStatementDate}
-                        onChange={(e) => updateAccount(index, 'lastStatementDate', e.target.value)}
+                        onChange={(e) => updateAccountById(account.id, 'lastStatementDate', e.target.value)}
                       />
                     </td>
                     <td>
@@ -903,7 +1064,7 @@ export default function App() {
                         <input
                           type="number"
                           value={account.lastStatementBalance}
-                          onChange={(e) => updateAccount(index, 'lastStatementBalance', parseFloat(e.target.value) || 0)}
+                          onChange={(e) => updateAccountById(account.id, 'lastStatementBalance', parseFloat(e.target.value) || 0)}
                           className="currency-amount-input"
                         />
                       </div>
@@ -914,7 +1075,7 @@ export default function App() {
                         <input
                           type="number"
                           value={account.creditLimit}
-                          onChange={(e) => updateAccount(index, 'creditLimit', parseFloat(e.target.value) || 0)}
+                          onChange={(e) => updateAccountById(account.id, 'creditLimit', parseFloat(e.target.value) || 0)}
                           className="currency-amount-input"
                         />
                       </div>
@@ -972,20 +1133,28 @@ export default function App() {
                   <th className="select-col"></th>
                   {columnLabels.debitExpenses.map((column, index) => (
                     <th key={column.id}>
-                      <input
-                        type="text"
-                        value={column.label}
-                        onChange={(e) => updateColumnLabel('debitExpenses', index, e.target.value)}
-                        className="label-input table-header-input"
-                      />
+                      <div className="sortable-header">
+                        <input
+                          type="text"
+                          value={column.label}
+                          onChange={(e) => updateColumnLabel('debitExpenses', index, e.target.value)}
+                          className="label-input table-header-input"
+                        />
+                        <button
+                          type="button"
+                          className="sort-button"
+                          onClick={() => toggleExpenseSort(['label', 'payDate', 'current', 'next'][index] as ExpenseSortKey)}
+                          aria-label={`Sort debit expenses by ${column.label}`}
+                        >
+                          {getSortIndicator(expenseSort, ['label', 'payDate', 'current', 'next'][index] as ExpenseSortKey)}
+                        </button>
+                      </div>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {expenseGroups.map((group) => (
-                  <React.Fragment key={group.title}>
-                    {group.items.map((item, index) => (
+                {sortedExpenseRows.map(({ item, setter }) => (
                       <tr key={item.id} className={selectedExpenseIds.has(item.id) ? 'row-selected' : ''}>
                         <td className="select-col">
                           <input type="checkbox" checked={selectedExpenseIds.has(item.id)} onChange={() => toggleExpenseSelection(item.id)} />
@@ -995,7 +1164,7 @@ export default function App() {
                             <input
                               type="text"
                               value={item.label}
-                              onChange={(e) => updateExpenseLabel(group.setter, group.items, index, e.target.value)}
+                              onChange={(e) => updateExpenseLabelById(setter, item.id, e.target.value)}
                               className="label-input"
                             />
                           </div>
@@ -1004,7 +1173,7 @@ export default function App() {
                           <input
                             type="date"
                             value={item.payDate}
-                            onChange={(e) => updateExpenseItem(group.setter, group.items, index, 'payDate', e.target.value)}
+                            onChange={(e) => updateExpenseItemById(setter, item.id, 'payDate', e.target.value)}
                           />
                         </td>
                         <td>
@@ -1013,7 +1182,7 @@ export default function App() {
                             <input
                               type="number"
                               value={item.current}
-                              onChange={(e) => updateExpenseItem(group.setter, group.items, index, 'current', parseFloat(e.target.value) || 0)}
+                              onChange={(e) => updateExpenseItemById(setter, item.id, 'current', parseFloat(e.target.value) || 0)}
                               className="currency-amount-input"
                             />
                           </div>
@@ -1024,15 +1193,12 @@ export default function App() {
                             <input
                               type="number"
                               value={item.next}
-                              onChange={(e) => updateExpenseItem(group.setter, group.items, index, 'next', parseFloat(e.target.value) || 0)}
+                              onChange={(e) => updateExpenseItemById(setter, item.id, 'next', parseFloat(e.target.value) || 0)}
                               className="currency-amount-input"
                             />
                           </div>
                         </td>
                       </tr>
-                    ))}
-
-                  </React.Fragment>
                 ))}
                 <tr className="table-summary-row">
                   <td></td>
