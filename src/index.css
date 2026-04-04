@@ -3,6 +3,9 @@
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: #f4f6fb;
   color: #0f172a;
+  --payment-column-width: 8.5rem;
+  --next-balance-column-width: 8.5rem;
+  --trailing-column-width: 4.5rem;
 }
 
 * {
@@ -21,15 +24,55 @@ html, body, #root {
 }
 
 .app {
-  max-width: 1200px;
+  max-width: 1465px;
   margin: 0 auto;
-  padding: 1rem 0.75rem 1.5rem;
+  padding: 0.625rem 0.625rem 1rem;
 }
 
 .hero {
   display: grid;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  gap: 0.5rem;
+  margin-bottom: 2px;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toolbar-button {
+  min-height: 30px;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.45rem;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toolbar-button:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.status-text {
+  font-size: 0.72rem;
+}
+
+.status-idle,
+.status-saved {
+  color: #166534;
+}
+
+.status-loading {
+  color: #1d4ed8;
+}
+
+.status-error {
+  color: #b91c1c;
 }
 
 .eyebrow {
@@ -41,49 +84,104 @@ html, body, #root {
 }
 
 h1 {
-  margin: 0.25rem 0 0.5rem;
-  font-size: clamp(1.5rem, 2.5vw, 2.5rem);
+  margin: 0.2rem 0 0.35rem;
+  font-size: clamp(1.3rem, 2.1vw, 2rem);
 }
 
 .intro {
-  max-width: 600px;
-  line-height: 1.4;
+  margin: 0;
+  max-width: 720px;
+  line-height: 1.3;
   color: #334155;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
+}
+
+.hero + section {
+  margin-top: 2px;
 }
 
 .summary-grid {
   display: grid;
-  gap: 0.5rem;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.25rem;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .summary-card {
-  padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
+  padding: 0.32rem 0.45rem;
+  border-radius: 0.3rem;
   background: white;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  min-width: 0;
 }
 
 .summary-card p {
-  margin: 0 0 0.25rem;
+  margin: 0;
   color: #64748b;
-  font-size: 0.8rem;
+  font-size: 0.62rem;
+  line-height: 1.15;
 }
 
 .summary-card strong {
   display: block;
-  font-size: 1rem;
+  font-size: 0.78rem;
   color: #0f172a;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.summary-card-emphasis {
+  align-items: center;
+}
+
+.summary-card-emphasis p,
+.summary-card-emphasis strong {
+  text-align: center;
 }
 
 section {
-  margin-top: 1rem;
+  margin-top: 0.75rem;
+}
+
+.credit-accounts-section {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.bank-accounts-section {
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
+}
+
+.section-content-fit {
+  display: inline-grid;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.section-content-fit .section-header {
+  width: 100%;
 }
 
 h2 {
-  margin-bottom: 0.75rem;
-  font-size: 1.1rem;
+  margin: 0 0 0.45rem;
+  font-size: 1rem;
+}
+
+h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.88rem;
+}
+
+input.subsection-title-input {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #0f172a;
+  padding: 0.02rem 0.08rem;
 }
 
 .table-wrapper {
@@ -98,27 +196,62 @@ table {
   table-layout: fixed;
 }
 
-/* Updated column widths - force refresh v2 */
+.compact-credit-table {
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+}
 
-th:nth-child(1), td:nth-child(1) { width: 19% !important; } /* Account */
-th:nth-child(2), td:nth-child(2) { width: 9.25% !important; } /* Avail Credit */
-th:nth-child(3), td:nth-child(3) { width: 12% !important; } /* Pay Date */
-th:nth-child(4), td:nth-child(4) { width: 3% !important; } /* Paid */
-th:nth-child(5), td:nth-child(5) { width: 5% !important; } /* Stmt Cycled */
-th:nth-child(6), td:nth-child(6) { width: 12% !important; } /* Stmt Date */
-th:nth-child(7), td:nth-child(7) { width: 10% !important; } /* Stmt Balance */
-th:nth-child(8), td:nth-child(8) { width: 7.5% !important; } /* Limit */
-th:nth-child(9), td:nth-child(9) { width: 8% !important; } /* Due */
-th:nth-child(10), td:nth-child(10) { width: 10% !important; } /* Curr Payment */
-th:nth-child(11), td:nth-child(11) { width: 10% !important; } /* Next Balance */
-th:nth-child(12), td:nth-child(12) { width: 6% !important; } /* Util % */
-th:nth-child(13), td:nth-child(13) { width: 8% !important; } /* Min Payment */
+.credit-accounts-table {
+  width: auto;
+  table-layout: auto;
+}
+
+.credit-accounts-table th:nth-child(1),
+.credit-accounts-table td:nth-child(1) { width: 1.25rem !important; }
+
+.credit-accounts-table th:nth-child(2),
+.credit-accounts-table td:nth-child(2) { width: 12.1rem !important; }
+
+.credit-accounts-table th:nth-child(3),
+.credit-accounts-table td:nth-child(3) { width: 6.5rem !important; }
+
+.credit-accounts-table th:nth-child(4),
+.credit-accounts-table td:nth-child(4) { width: 7rem !important; }
+
+.credit-accounts-table th:nth-child(5),
+.credit-accounts-table td:nth-child(5) { width: 3rem !important; }
+
+.credit-accounts-table th:nth-child(6),
+.credit-accounts-table td:nth-child(6) { width: 4rem !important; }
+
+.credit-accounts-table th:nth-child(7),
+.credit-accounts-table td:nth-child(7) { width: 7rem !important; }
+
+.credit-accounts-table th:nth-child(8),
+.credit-accounts-table td:nth-child(8) { width: 7rem !important; }
+
+.credit-accounts-table th:nth-child(9),
+.credit-accounts-table td:nth-child(9) { width: 7rem !important; }
+
+.credit-accounts-table th:nth-child(10),
+.credit-accounts-table td:nth-child(10) { width: 5.75rem !important; }
+
+.credit-accounts-table th:nth-child(11),
+.credit-accounts-table td:nth-child(11) { width: 7rem !important; }
+
+.credit-accounts-table th:nth-child(12),
+.credit-accounts-table td:nth-child(12) { width: 7rem !important; }
+
+.credit-accounts-table th:nth-child(13),
+.credit-accounts-table td:nth-child(13) { width: 4.5rem !important; }
 
 th, td {
-  padding: 0.75rem 0.5rem;
+  padding: 0.3rem 0.35rem;
   text-align: left;
   border-bottom: 1px solid #e2e8f0;
-  font-size: 0.9rem;
+  font-size: 0.78rem;
+  line-height: 1.1;
 }
 
 th {
@@ -133,26 +266,283 @@ tbody tr:hover {
   background: #f8fafc;
 }
 
+.credit-accounts-table th:nth-child(11),
+.credit-accounts-table td:nth-child(11),
+.credit-accounts-table th:nth-child(12),
+.credit-accounts-table td:nth-child(12),
+.credit-accounts-table th:nth-child(13),
+.credit-accounts-table td:nth-child(13) {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.credit-accounts-table th:nth-child(8),
+.credit-accounts-table td:nth-child(8),
+.credit-accounts-table th:nth-child(9),
+.credit-accounts-table td:nth-child(9),
+.credit-accounts-table th:nth-child(11),
+.credit-accounts-table td:nth-child(11),
+.credit-accounts-table th:nth-child(12),
+.credit-accounts-table td:nth-child(12) {
+  text-align: right;
+}
+
+.credit-accounts-table th:nth-child(11),
+.credit-accounts-table td:nth-child(11) {
+  width: var(--payment-column-width) !important;
+}
+
+.credit-accounts-table th:nth-child(12),
+.credit-accounts-table td:nth-child(12) {
+  width: var(--next-balance-column-width) !important;
+}
+
+.credit-accounts-table th:nth-child(13),
+.credit-accounts-table td:nth-child(13) {
+  width: var(--trailing-column-width) !important;
+}
+
+.table-summary-row {
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.table-summary-row td {
+  color: #0f172a;
+}
+
+.add-row-tr td {
+  padding: 0.2rem 0.4rem;
+  border-bottom: none;
+}
+
+.add-row-button {
+  padding: 0.12rem 0.5rem;
+  border: 1px dashed #cbd5e1;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.68rem;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.add-row-button:hover {
+  border-color: #94a3b8;
+  color: #334155;
+  background: #f8fafc;
+}
+
+.delete-row-button {
+  padding: 0.12rem 0.5rem;
+  border: 1px solid #fca5a5;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: #dc2626;
+  font-size: 0.68rem;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.delete-row-button:hover {
+  border-color: #ef4444;
+  background: #fff1f2;
+}
+
+.select-col {
+  width: 8px !important;
+  min-width: 8px !important;
+  max-width: 8px !important;
+  text-align: center;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.select-col input[type='checkbox'] {
+  width: 12px;
+  height: 12px;
+  min-height: 0;
+  padding: 0;
+  margin: 0 auto;
+  display: block;
+}
+
+.row-selected {
+  background: #fef9c3 !important;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.section-header h2 {
+  margin: 0;
+}
+
+.section-header-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.subsection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+}
+
+.subsection-header h3 {
+  margin: 0;
+  flex: 1;
+}
+
+.subsection-header .delete-row-button {
+  flex-shrink: 0;
+}
+
+.currency-input-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.12rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.currency-prefix {
+  flex: 0 0 auto;
+  color: #475569;
+  font-size: 0.68rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.currency-amount-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  padding-left: 0 !important;
+}
+
+.subsection-block + .subsection-block {
+  margin-top: 0.6rem;
+}
+
+.income-subsection-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.2rem;
+  align-items: start;
+}
+
+.income-subsection-grid .subsection-block {
+  flex: 0 0 14.1rem;
+  min-width: 0;
+}
+
+.income-subsection-grid .subsection-block + .subsection-block {
+  margin-top: 0;
+}
+
 input {
   max-width: 100%;
   box-sizing: border-box;
+  min-height: 24px;
+  padding: 0.12rem 0.25rem;
+  font-size: 0.74rem;
+}
+
+input.amount-input {
+  width: 100%;
+  padding: 0.14rem 0.25rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.25rem;
+  background: #f8fafc;
+}
+
+input.label-input {
+  width: 100%;
+  min-height: auto;
+  height: auto;
+  margin: 0;
+  padding: 0.02rem 0.1rem;
+  border: 1px solid transparent;
+  border-radius: 0.2rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+}
+
+input.label-input:hover,
+input.label-input:focus {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  outline: none;
+}
+
+input.table-header-input {
+  padding: 0.04rem 0.08rem;
+  text-align: inherit;
+  font-weight: 700;
+  color: #334155;
+}
+
+input.section-title-input {
+  padding: 0.02rem 0.08rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.editable-label-row {
+  display: flex;
+  align-items: center;
 }
 
 .split-section {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.5rem;
   grid-template-columns: 1fr 1fr;
-  margin-top: 1rem;
+  margin-top: 0.625rem;
+}
+
+.finance-overview-row {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  margin-top: 0.625rem;
+}
+
+.finance-overview-row > .compact-section {
+  margin-top: 0;
+}
+
+.finance-overview-row > .expense-section {
+  width: fit-content;
+  max-width: 100%;
+  justify-self: start;
+}
+
+.finance-overview-row > .compact-side-panel {
+  grid-column: auto;
 }
 
 .card-list {
   display: grid;
-  gap: 0.25rem;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.2rem;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
 .info-card {
-  padding: 0.5rem 0.75rem;
+  padding: 0.35rem 0.5rem;
   border-radius: 0.25rem;
   background: white;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
@@ -160,26 +550,277 @@ input {
 
 .card-title {
   margin: 0 0 0.125rem;
-  font-size: 0.8rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: #0f172a;
 }
 
 .card-value {
   margin: 0;
-  font-size: 1rem;
+  font-size: 0.88rem;
   color: #1d4ed8;
 }
 
 .card-meta,
 .card-note {
   margin: 0.125rem 0 0;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: #64748b;
 }
 
+.compact-section {
+  margin-top: 0.625rem;
+}
+
+.compact-section .table-wrapper {
+  border-radius: 0.6rem;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
+.expense-section th,
+.expense-section td {
+  padding: 0.22rem 0.3rem;
+  font-size: 0.72rem;
+}
+
+.expense-section input {
+  padding: 0.1rem 0.2rem;
+  font-size: 0.72rem;
+  min-height: 22px;
+}
+
+.expense-section input.section-title-input {
+  padding: 0.02rem 0.08rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0f172a;
+  min-height: unset;
+}
+
+.compact-expense-table {
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.debit-expenses-table {
+  width: auto;
+  table-layout: fixed;
+}
+
+.debit-expenses-table th,
+.debit-expenses-table td {
+  vertical-align: middle;
+}
+
+.debit-expenses-table th:nth-child(1),
+.debit-expenses-table td:nth-child(1) {
+  width: 1.25rem !important;
+}
+
+.debit-expenses-table th:nth-child(2),
+.debit-expenses-table td:nth-child(2) {
+  width: 12.1rem !important;
+}
+
+.debit-expenses-table th:nth-child(3),
+.debit-expenses-table td:nth-child(3) {
+  width: 6.5rem !important;
+  text-align: center;
+}
+
+.debit-expenses-table th:nth-child(4),
+.debit-expenses-table td:nth-child(4),
+.debit-expenses-table th:nth-child(5),
+.debit-expenses-table td:nth-child(5) {
+  width: 6.4rem !important;
+  text-align: center;
+}
+
+.debit-expenses-table td:nth-child(4) input,
+.debit-expenses-table td:nth-child(5) input {
+  width: calc(100% - 0.1rem);
+  min-width: 0;
+  padding: 0 0.1rem;
+  text-align: center;
+}
+
+.credit-accounts-table th,
+.credit-accounts-table td,
+.debit-expenses-table th,
+.debit-expenses-table td {
+  padding: 0;
+  line-height: 1;
+}
+
+.credit-accounts-table input,
+.debit-expenses-table input {
+  min-height: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.credit-accounts-table th,
+.debit-expenses-table th {
+  padding-top: 0.1rem;
+  padding-bottom: 0.1rem;
+}
+
+.credit-accounts-table .table-summary-row td,
+.debit-expenses-table .table-summary-row td {
+  padding-top: 0.12rem;
+  padding-bottom: 0.12rem;
+}
+
+.debit-expenses-table td:first-child {
+  font-size: 0.72rem;
+}
+
+.expense-summary-grid {
+  margin-top: 0.3rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.compact-side-panel .card-list {
+  grid-template-columns: 1fr;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.compact-side-panel .info-card {
+  display: grid;
+  grid-template-columns: 9.25rem minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.06rem;
+  row-gap: 0;
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.compact-side-panel .card-title {
+  margin: 0;
+  font-size: 0.66rem;
+  line-height: 1;
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
+.compact-side-panel input.label-input.card-title {
+  padding-right: 0;
+  text-overflow: ellipsis;
+}
+
+.compact-side-panel .card-value {
+  text-align: right;
+  font-size: 0.68rem;
+  line-height: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.compact-side-panel .amount-input {
+  width: 100%;
+  max-width: 100%;
+  justify-self: end;
+  min-height: 0;
+  padding: 0;
+}
+
+.compact-side-panel .currency-input-wrap {
+  justify-self: stretch;
+  gap: 0.08rem;
+}
+
+.compact-side-panel .currency-amount-input {
+  text-align: right;
+}
+
+.expense-currency-input-wrap {
+  gap: 0.08rem;
+}
+
+.expense-currency-input-wrap .currency-amount-input {
+  text-align: center;
+}
+
+.compact-side-panel .salary-toggle-checkbox {
+  justify-self: end;
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.compact-side-panel .card-meta,
+.compact-side-panel .card-note {
+  grid-column: 1 / -1;
+  margin-top: 0;
+  font-size: 0.62rem;
+}
+
+.expense-subtotal-row {
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.expense-subtotal-row td {
+  color: #0f172a;
+}
+
+.compact-panels .info-card input,
+.expense-section input {
+  min-height: 22px;
+}
+
 @media (max-width: 900px) {
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .finance-overview-row {
+    grid-template-columns: 1fr;
+  }
+
+  .finance-overview-row > .compact-side-panel {
+    grid-column: auto;
+  }
+
+  .credit-accounts-section,
+  .bank-accounts-section {
+    width: 100%;
+  }
+
+  .section-content-fit {
+    display: block;
+    width: 100%;
+  }
+
+  .finance-overview-row > .expense-section {
+    width: 100%;
+  }
+
+  .income-subsection-grid {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .income-subsection-grid .subsection-block {
+    flex-basis: auto;
+    width: 100%;
+  }
+
+  .income-subsection-grid .subsection-block {
+    width: 100%;
+  }
+
   .split-section {
     grid-template-columns: 1fr;
   }
+
 }

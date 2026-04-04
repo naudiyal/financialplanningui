@@ -1,4 +1,5 @@
 export type CreditAccount = {
+  id: string
   name: string
   availableCredit: number
   nextPaymentDate: string
@@ -10,6 +11,7 @@ export type CreditAccount = {
 }
 
 export type IncomeItem = {
+  id: string
   label: string
   amount: number
   month: string
@@ -17,13 +19,53 @@ export type IncomeItem = {
 }
 
 export type BalanceItem = {
+  id: string
   label: string
   amount: number
   month: string
 }
 
+export type IncomeSubsection = {
+  id: string
+  title: string
+  biMonthlySalaryLabel: string
+  biMonthlySalary: number
+  midMonthSalaryLabel: string
+  midMonthSalaryArrived: boolean
+  monthEndSalaryLabel: string
+  monthEndSalaryArrived: boolean
+  checkingBalanceLabel: string
+  checkingBalance: number
+  additionalPaymentsLabel: string
+  additionalPayments: number
+  totalBalanceLabel: string
+  additionalIncomeLabel: string
+  additionalIncome: number
+  monthEndBalanceLabel: string
+}
+
+export type ColumnLabel = {
+  id: string
+  label: string
+}
+
+export type FinancialPlanColumnLabels = {
+  creditAccounts: ColumnLabel[]
+  debitExpenses: ColumnLabel[]
+}
+
+export type FinancialPlanSectionTitles = {
+  creditAccounts: string
+  debitExpenses: string
+  incomeSchedule: string
+  incomeScheduleChase: string
+}
+
+export const defaultIncomeSubsections: IncomeSubsection[] = []
+
 export const creditAccounts: CreditAccount[] = [
   {
+    id: 'apple-card',
     name: 'Apple Card (2568)',
     availableCredit: 3959.43,
     nextPaymentDate: '2026-03-31',
@@ -34,6 +76,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 4000,
   },
   {
+    id: 'samsclub-store-card',
     name: 'SamsClub Store Card (5873)',
     availableCredit: 11297,
     nextPaymentDate: '2026-03-23',
@@ -44,6 +87,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 12000,
   },
   {
+    id: 'american-express',
     name: 'American Express (72022)',
     availableCredit: 8221,
     nextPaymentDate: '2026-03-28',
@@ -54,7 +98,8 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 8300,
   },
   {
-    name: 'Amazon Store Card (5108)',
+    id: 'amazon-store-card',
+    name: 'Amazon Store Card (5108) - amazon.syf.com',
     availableCredit: 2700,
     nextPaymentDate: '2026-04-01',
     paidThisMonth: true,
@@ -64,6 +109,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 2700,
   },
   {
+    id: 'wellsfargo-card',
     name: 'Wellsfargo (4256)',
     availableCredit: 16652,
     nextPaymentDate: '2026-04-02',
@@ -74,6 +120,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 18000,
   },
   {
+    id: 'target-card',
     name: 'Target (0969)',
     availableCredit: 7218,
     nextPaymentDate: '2026-04-03',
@@ -84,6 +131,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 7400,
   },
   {
+    id: 'barclays-frontier',
     name: 'Barclays Frontier (5640)',
     availableCredit: 8269.86,
     nextPaymentDate: '2026-04-03',
@@ -94,6 +142,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 10000,
   },
   {
+    id: 'fidelity-card',
     name: 'Fidelity (9857)',
     availableCredit: 29723.52,
     nextPaymentDate: '2026-04-06',
@@ -104,6 +153,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 30000,
   },
   {
+    id: 'citi-bestbuy',
     name: 'Citi Bestbuy (5026)',
     availableCredit: 4000,
     nextPaymentDate: '2026-04-05',
@@ -114,6 +164,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 4000,
   },
   {
+    id: 'boa-spirit',
     name: 'BOA Spirit (2795)',
     availableCredit: 28270.06,
     nextPaymentDate: '2026-04-08',
@@ -124,6 +175,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 28300,
   },
   {
+    id: 'chase-amazon-prime',
     name: 'Chase Amazon Prime (1128)',
     availableCredit: 9228.03,
     nextPaymentDate: '2026-04-10',
@@ -134,6 +186,7 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 9600,
   },
   {
+    id: 'chase-marriott',
     name: 'Chase Marriott (4245)',
     availableCredit: 11700,
     nextPaymentDate: '2026-04-10',
@@ -144,7 +197,8 @@ export const creditAccounts: CreditAccount[] = [
     creditLimit: 11700,
   },
   {
-    name: 'Chase Sapphire Res (9140)',
+    id: 'chase-sapphire-reserve',
+    name: 'Chase Sapphire Reserve (9140)',
     availableCredit: 33973.46,
     nextPaymentDate: '2026-04-10',
     paidThisMonth: false,
@@ -157,48 +211,82 @@ export const creditAccounts: CreditAccount[] = [
 
 export const incomeItems: IncomeItem[] = [
   {
-    label: 'Salary Transfer To Chase/Month',
-    amount: 8422.5,
-    month: '',
-    note: 'Monthly salary transfer',
-  },
-  {
-    label: 'Salary Transfers to PNC for Home Loans',
-    amount: 4000,
-    month: '',
-    note: 'Transfer for mortgages',
-  },
-  {
-    label: 'Total Salary Per Month',
-    amount: 12422.5,
-    month: '',
-  },
-  {
+    id: 'bi-monthly-salary',
     label: 'Bi-mon Sal minus(ESPP + 2 Mortgage Payments)',
     amount: 4211.25,
     month: '',
   },
   {
+    id: 'salary-15th',
     label: 'Sal 15th',
     amount: 0,
     month: '',
   },
   {
+    id: 'salary-1st',
     label: 'Sal 1st',
     amount: 0,
+    month: '',
+  },
+  {
+    id: 'salary-transfer-chase-month',
+    label: 'Salary Transfer To Chase/Month',
+    amount: 8422.5,
+    month: '',
+  },
+  {
+    id: 'salary-transfer-pnc-home-loans',
+    label: 'Salary Transfers to PNC for Home Loans',
+    amount: 4000,
+    month: '',
+  },
+  {
+    id: 'total-salary-per-month',
+    label: 'Total Salary Per Month',
+    amount: 12422.5,
     month: '',
   },
 ]
 
 export const balanceItems: BalanceItem[] = [
-  { label: 'Checking Account Balance - Chase', amount: 10530.28, month: '' },
-  { label: 'Additional Payments - Chase', amount: 0, month: '' },
-  { label: 'Total Balance - Chase', amount: 10530.28, month: '' },
-  { label: 'Additional Income - Chase', amount: 0, month: '' },
-  { label: 'Checking Account Balance @Month End - Chase', amount: 7196.87, month: '' },
-  { label: 'Chase CD Balance', amount: 0, month: '' },
-  { label: 'Checking Account Balance - PNC', amount: 100.57, month: '' },
-  { label: 'Additional Other Income', amount: 0, month: '' },
-  { label: 'Net Balance @Month End', amount: 7297.44, month: '' },
-  { label: 'Net Balance @Next Month End', amount: 10311.47, month: '' },
+  { id: 'checking-balance-chase', label: 'Checking Account Balance - Chase', amount: 10530.38, month: '' },
+  { id: 'additional-payments-chase', label: 'Additional Payments - Chase', amount: 0, month: '' },
+  { id: 'total-balance-chase', label: 'Total Balance - Chase', amount: 10530.38, month: '' },
+  { id: 'additional-income-chase', label: 'Additional Income - Chase', amount: 0, month: '' },
+  { id: 'checking-balance-month-end-chase', label: 'Checking Account Balance @Month End - Chase', amount: 7196.97, month: '' },
+  { id: 'chase-cd-balance', label: 'Chase CD Balance', amount: 0, month: '' },
+  { id: 'checking-balance-pnc', label: 'Checking Account Balance - PNC', amount: 100.57, month: '' },
+  { id: 'additional-other-income', label: 'Additional Other Income', amount: 0, month: '' },
+  { id: 'net-balance-month-end', label: 'Net Balance @Month End', amount: 7297.54, month: '' },
+  { id: 'net-balance-next-month-end', label: 'Net Balance @Next Month End', amount: 10311.57, month: '' },
 ]
+
+export const defaultColumnLabels: FinancialPlanColumnLabels = {
+  creditAccounts: [
+    { id: 'account', label: 'Account' },
+    { id: 'available-credit', label: 'Avail Credit' },
+    { id: 'pay-date', label: 'Pay Date' },
+    { id: 'paid', label: 'Paid' },
+    { id: 'statement-cycled', label: 'Stmt Cycled' },
+    { id: 'statement-date', label: 'Stmt Date' },
+    { id: 'statement-balance', label: 'Stmt Balance' },
+    { id: 'credit-limit', label: 'Limit' },
+    { id: 'due', label: 'Due' },
+    { id: 'current-payment', label: 'Curr Payment' },
+    { id: 'next-balance', label: 'Next Balance' },
+    { id: 'utilization', label: 'Util %' },
+  ],
+  debitExpenses: [
+    { id: 'expense', label: 'Expense' },
+    { id: 'pay-date', label: 'Pay Date' },
+    { id: 'current-month', label: 'Current Month' },
+    { id: 'next-month', label: 'Next Month' },
+  ],
+}
+
+export const defaultSectionTitles: FinancialPlanSectionTitles = {
+  creditAccounts: 'Credit & Card Accounts',
+  debitExpenses: 'Debit Card Expenses',
+  incomeSchedule: 'Income Schedule',
+  incomeScheduleChase: 'Chase',
+}
