@@ -128,6 +128,11 @@ tbody tr:hover {
   background: #f8fafc;
 }
 
+input {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
 .split-section {
   display: grid;
   gap: 1.5rem;
