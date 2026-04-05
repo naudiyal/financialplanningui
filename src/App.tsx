@@ -292,6 +292,48 @@ const formatShortDate = (value: string) => {
   return safeDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
+const formatLongDate = (value: Date) =>
+  value.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+
+const formatCompactCycleDate = (value: Date) =>
+  value.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+const createLocalDate = (year: number, monthIndex: number, day: number) => new Date(year, monthIndex, day, 12)
+
+const getBudgetCycleTimeline = (today: Date) => {
+  const cycleAnchorDay = 15
+  const currentDate = createLocalDate(today.getFullYear(), today.getMonth(), today.getDate())
+  const previousMidMonth =
+    currentDate.getDate() >= cycleAnchorDay
+      ? createLocalDate(currentDate.getFullYear(), currentDate.getMonth(), cycleAnchorDay)
+      : createLocalDate(currentDate.getFullYear(), currentDate.getMonth() - 1, cycleAnchorDay)
+  const nextMidMonth = createLocalDate(previousMidMonth.getFullYear(), previousMidMonth.getMonth() + 1, cycleAnchorDay)
+  const endOfMonth = createLocalDate(previousMidMonth.getFullYear(), previousMidMonth.getMonth() + 1, 0)
+  const millisecondsPerDay = 24 * 60 * 60 * 1000
+  const totalDays = Math.max(1, Math.round((nextMidMonth.getTime() - previousMidMonth.getTime()) / millisecondsPerDay))
+  const elapsedDays = Math.min(totalDays, Math.max(0, Math.round((currentDate.getTime() - previousMidMonth.getTime()) / millisecondsPerDay)))
+  const remainingDays = Math.max(0, totalDays - elapsedDays)
+  const progressPercent = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100))
+  const markerPercent = Math.min(96, Math.max(4, progressPercent))
+  const endOfMonthPercent = Math.min(
+    96,
+    Math.max(4, (Math.round((endOfMonth.getTime() - previousMidMonth.getTime()) / millisecondsPerDay) / totalDays) * 100),
+  )
+
+  return {
+    previousMidMonth,
+    currentDate,
+    endOfMonth,
+    nextMidMonth,
+    elapsedDays,
+    remainingDays,
+    totalDays,
+    progressPercent,
+    markerPercent,
+    endOfMonthPercent,
+  }
+}
+
 const shortenLabel = (value: string, maxLength = 18, trailingLength = 0) => {
   if (value.length <= maxLength) {
     return value
@@ -1117,6 +1159,10 @@ export default function App() {
         right.paymentDue - left.paymentDue ||
         right.nextStmtBalance - left.nextStmtBalance,
     )
+
+  const budgetCycleTimeline = useMemo(() => getBudgetCycleTimeline(new Date()), [])
+  const budgetCycleTitle = `${formatCompactCycleDate(budgetCycleTimeline.previousMidMonth)} - ${formatCompactCycleDate(budgetCycleTimeline.nextMidMonth)}`
+  const budgetCycleProgressLabel = `${Math.round(budgetCycleTimeline.progressPercent)}% through cycle • ${budgetCycleTimeline.remainingDays} days left`
 
   const savingsNextMonthPieData = savingsNextMonth >= 0
     ? [
@@ -2045,6 +2091,44 @@ export default function App() {
           </button>
         </section>
       ) : null}
+
+      <section className="budget-cycle-panel" aria-label="Current budget cycle timeline">
+        <div className="budget-cycle-header">
+          <span className="budget-cycle-inline-title">Budget Cycle Timeline</span>
+          <div className="budget-cycle-title-group">
+            <p className="budget-cycle-title">{budgetCycleTitle}</p>
+          </div>
+          <div className="budget-cycle-header-meta">
+            <div className="budget-cycle-progress-pill">{budgetCycleProgressLabel}</div>
+          </div>
+        </div>
+
+        <div className="budget-cycle-track-stage">
+          <div className="budget-cycle-current-label" style={{ left: `${budgetCycleTimeline.markerPercent}%` }}>
+            <strong>Today {formatCompactCycleDate(budgetCycleTimeline.currentDate)}</strong>
+          </div>
+
+          <div className="budget-cycle-track" aria-hidden="true">
+            <div className="budget-cycle-track-fill" style={{ width: `${budgetCycleTimeline.progressPercent}%` }} />
+            <div className="budget-cycle-marker budget-cycle-marker-start" />
+            <div className="budget-cycle-marker budget-cycle-marker-month-end" style={{ left: `${budgetCycleTimeline.endOfMonthPercent}%` }} />
+            <div className="budget-cycle-marker budget-cycle-marker-current" style={{ left: `${budgetCycleTimeline.markerPercent}%` }} />
+            <div className="budget-cycle-marker budget-cycle-marker-end" />
+          </div>
+
+          <div className="budget-cycle-boundaries">
+            <div className="budget-cycle-boundary-card budget-cycle-boundary-card-start">
+              <span>Prev {formatCompactCycleDate(budgetCycleTimeline.previousMidMonth)}</span>
+            </div>
+            <div className="budget-cycle-boundary-card budget-cycle-boundary-card-middle">
+              <span>End {formatCompactCycleDate(budgetCycleTimeline.endOfMonth)}</span>
+            </div>
+            <div className="budget-cycle-boundary-card budget-cycle-boundary-card-end">
+              <span>Next {formatCompactCycleDate(budgetCycleTimeline.nextMidMonth)}</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="analytics-strip" aria-label="Top financial alerts">
         {overdueAlertData.map((item) => (

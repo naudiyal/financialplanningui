@@ -271,7 +271,7 @@ export const defaultColumnLabels: FinancialPlanColumnLabels = {
     { id: 'statement-date', label: 'Stmt Date' },
     { id: 'statement-balance', label: 'Stmt Balance' },
     { id: 'credit-limit', label: 'Limit' },
-    { id: 'due', label: 'Due' },
+    { id: 'due', label: 'Total Due' },
     { id: 'current-payment', label: 'Curr Payment' },
     { id: 'next-balance', label: 'Next Balance' },
     { id: 'utilization', label: 'Util %' },
