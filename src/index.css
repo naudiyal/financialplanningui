@@ -1244,7 +1244,7 @@ tbody tr:hover {
 }
 
 .credit-accounts-table .table-summary-row td:nth-child(3) {
-  text-align: left;
+  text-align: right;
 }
 
 .add-row-tr td {

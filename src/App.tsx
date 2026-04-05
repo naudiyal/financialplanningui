@@ -339,7 +339,7 @@ const shortenLabel = (value: string, maxLength = 18, trailingLength = 0) => {
     return value
   }
 
-  const ellipsis = '....'
+  const ellipsis = '...'
 
   if (trailingLength > 0) {
     const safeTrailingLength = Math.min(trailingLength, Math.max(1, maxLength - ellipsis.length - 1))
@@ -1173,7 +1173,6 @@ export default function App() {
       const metrics = getCreditMetrics(account)
       return {
         fullName: account.name,
-        name: shortenLabel(account.name, 25, 12),
         totalDue: Number(metrics.totalDueForCard.toFixed(2)),
         paymentDue: Number(metrics.currentMonthPayment.toFixed(2)),
         nextStmtBalance: Number(metrics.nextMonthStatementBalance.toFixed(2)),
@@ -1668,6 +1667,19 @@ export default function App() {
   const statusClassName = `status-text status-${isSampleMode ? 'saved' : hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
     const creditWidthCapStyle = creditTableWidth ? { width: `min(100%, ${creditTableWidth}px)` } : undefined
     const creditWidthMaxStyle = creditTableWidth ? { maxWidth: `${creditTableWidth}px` } : undefined
+    const renderCreditTotalDueYAxisTick = ({ x, y, payload }: { x?: number; y?: number; payload?: { value: string } }) => (
+      <text
+        x={(x ?? 0) - 1}
+        y={y ?? 0}
+        dy={4}
+        textAnchor="end"
+        fill={CHART_COLORS.text}
+        fontSize={11}
+      >
+        <title>{payload?.value ?? ''}</title>
+        {shortenLabel(payload?.value ?? '', 23, 11)}
+      </text>
+    )
 
   const applyFinancialPlan = (data: FinancialPlanData) => {
     setCreditAccounts(data.creditAccounts)
@@ -2676,10 +2688,19 @@ export default function App() {
               </div>
               <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={creditTotalDueData} layout="vertical" margin={{ top: 4, right: 12, left: 8, bottom: 4 }}>
+                  <BarChart data={creditTotalDueData} layout="vertical" margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
                     <XAxis type="number" tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={11} />
-                    <YAxis type="category" dataKey="name" width={170} stroke={CHART_COLORS.text} fontSize={11} />
+                    <YAxis
+                      type="category"
+                      dataKey="fullName"
+                      width={128}
+                      stroke={CHART_COLORS.text}
+                      fontSize={11}
+                      tickLine={false}
+                      axisLine={false}
+                      tick={renderCreditTotalDueYAxisTick}
+                    />
                     <Tooltip formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName ?? ''} />
                     <Legend wrapperStyle={{ fontSize: '11px' }} />
                     <Bar dataKey="paymentDue" name="Payment Due" stackId="totalDue" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} />
