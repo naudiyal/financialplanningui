@@ -6,6 +6,8 @@
   --payment-column-width: 8.5rem;
   --next-balance-column-width: 8.5rem;
   --trailing-column-width: 4.5rem;
+  --bank-subsection-width: 14.1rem;
+  --bank-subsection-column-gap: 0.2rem;
 }
 
 * {
@@ -100,6 +102,16 @@ html, body, #root {
   min-width: 0;
 }
 
+.user-chip-button {
+  cursor: pointer;
+  text-align: left;
+}
+
+.user-chip-button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
 .user-chip div {
   display: grid;
   min-width: 0;
@@ -130,6 +142,49 @@ html, body, #root {
   border: 1px solid #dbe4f0;
 }
 
+.user-menu {
+  position: relative;
+}
+
+.user-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  min-width: 10.5rem;
+  padding: 0.12rem;
+  border: 1px solid #dbe4f0;
+  border-radius: 0.55rem;
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+  z-index: 20;
+}
+
+.user-menu-item {
+  width: 100%;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  padding: 0.22rem 0.35rem;
+  text-align: left;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.user-menu-item:hover {
+  background: #f8fafc;
+}
+
+.user-menu-item-danger {
+  color: #b91c1c;
+}
+
+.user-menu-item-danger:hover {
+  background: #fef2f2;
+}
+
 .toolbar-button {
   min-height: 30px;
   padding: 0.3rem 0.7rem;
@@ -145,6 +200,121 @@ html, body, #root {
 .toolbar-button:disabled {
   cursor: default;
   opacity: 0.65;
+}
+
+.budget-cycle-button:disabled {
+  border-color: #cbd5e1;
+  background: #e5e7eb;
+  color: #64748b;
+  box-shadow: none;
+  opacity: 1;
+}
+
+.toolbar-button-wrap {
+  display: inline-flex;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 40;
+}
+
+.modal-card {
+  width: min(30rem, 100%);
+  padding: 1.3rem;
+  border-radius: 1rem;
+  background: #ffffff;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.2);
+}
+
+.help-modal {
+  width: min(52rem, 100%);
+  max-height: min(84vh, 48rem);
+  overflow-y: auto;
+  border: 1px solid #dbe4f0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.help-eyebrow {
+  color: #2563eb;
+}
+
+.help-intro {
+  margin: 0.6rem 0 0;
+  color: #334155;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.help-section {
+  margin-top: 1rem;
+}
+
+.help-section h3 {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #0f172a;
+}
+
+.help-list {
+  margin: 0.45rem 0 0;
+  padding-left: 1.1rem;
+  color: #334155;
+}
+
+.help-list li {
+  margin: 0.22rem 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.danger-modal {
+  border: 1px solid #fecaca;
+  background: linear-gradient(180deg, #fffafa 0%, #ffffff 100%);
+}
+
+.danger-eyebrow {
+  color: #b91c1c;
+}
+
+.danger-copy {
+  margin: 0.55rem 0 0;
+  color: #b91c1c;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.danger-copy-subtle {
+  margin: 0.55rem 0 0;
+  color: #7f1d1d;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.destructive-button {
+  border-color: #b91c1c;
+  background: #b91c1c;
+  color: #ffffff;
+}
+
+.destructive-button:disabled {
+  border-color: #fca5a5;
+  background: #fca5a5;
+  color: #ffffff;
+  opacity: 1;
 }
 
 .status-text {
@@ -191,13 +361,14 @@ h1 {
 
 .analytics-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.35rem;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.3rem;
   margin-top: 0.45rem;
 }
 
 .analytics-kpi-card {
-  padding: 0.45rem 0.55rem;
+  min-width: 0;
+  padding: 0.4rem 0.48rem;
   border: 1px solid #e2e8f0;
   border-radius: 0.6rem;
   background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
@@ -205,10 +376,8 @@ h1 {
 }
 
 .analytics-kpi-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.4rem;
+  display: grid;
+  gap: 0.08rem;
 }
 
 .analytics-kpi-header p,
@@ -217,27 +386,30 @@ h1 {
 }
 
 .analytics-kpi-header p {
-  font-size: 0.66rem;
+  font-size: 0.58rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: #475569;
+  white-space: nowrap;
 }
 
 .analytics-kpi-header strong {
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   color: #0f172a;
+  white-space: nowrap;
 }
 
 .analytics-kpi-card span {
   display: block;
-  margin-top: 0.22rem;
-  font-size: 0.68rem;
+  margin-top: 0.18rem;
+  font-size: 0.63rem;
+  line-height: 1.2;
   color: #64748b;
 }
 
 .analytics-kpi-bar {
   height: 0.36rem;
-  margin-top: 0.35rem;
+  margin-top: 0.28rem;
   border-radius: 999px;
   background: #e2e8f0;
   overflow: hidden;
@@ -322,8 +494,20 @@ section {
   margin-top: 0.45rem;
 }
 
+.section-cluster {
+  padding: 0.45rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.9rem;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
+}
+
+.chart-grid.section-cluster {
+  margin-top: 0.45rem;
+}
+
 .credit-chart-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .credit-chart-grid .chart-card-wide {
@@ -340,7 +524,7 @@ section {
 }
 
 .cross-section-chart-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   margin-top: 0.5rem;
 }
 
@@ -351,6 +535,15 @@ section {
   border-radius: 0.65rem;
   background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
   box-shadow: 0 7px 22px rgba(15, 23, 42, 0.05);
+}
+
+.chart-empty-state {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: #64748b;
+  font-size: 0.82rem;
+  text-align: center;
 }
 
 .chart-card-header {
@@ -689,13 +882,23 @@ tbody tr:hover {
   margin-bottom: 0.35rem;
 }
 
+.subsection-select-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 0.1rem;
+}
+
+.subsection-select-toggle input[type='checkbox'] {
+  width: 12px;
+  height: 12px;
+  min-height: 0;
+  margin: 0;
+}
+
 .subsection-header h3 {
   margin: 0;
   flex: 1;
-}
-
-.subsection-header .delete-row-button {
-  flex-shrink: 0;
 }
 
 .currency-input-wrap {
@@ -734,15 +937,23 @@ tbody tr:hover {
   padding: 0.3rem;
 }
 
+.bank-section-header {
+  width: 100%;
+}
+
+.bank-section-header h2 {
+  flex: 0 1 auto;
+}
+
 .income-subsection-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem 0.2rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.3rem var(--bank-subsection-column-gap);
   align-items: start;
 }
 
 .income-subsection-grid .subsection-block {
-  flex: 0 0 14.1rem;
+  width: auto;
   min-width: 0;
 }
 
@@ -816,9 +1027,13 @@ input.section-title-input {
 .finance-overview-row {
   display: grid;
   gap: 0.5rem;
-  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-columns: minmax(0, 67%) minmax(0, 33%);
   align-items: start;
   margin-top: 0.625rem;
+}
+
+.finance-overview-row.section-cluster {
+  padding: 0.5rem;
 }
 
 .finance-overview-row > .compact-section {
@@ -826,13 +1041,23 @@ input.section-title-input {
 }
 
 .finance-overview-row > .expense-section {
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
-  justify-self: start;
+  justify-self: stretch;
 }
 
 .finance-overview-row > .compact-side-panel {
   grid-column: auto;
+  width: 100%;
+}
+
+.finance-overview-row > .chart-card {
+  margin-top: 0;
+  min-width: 0;
+}
+
+.finance-overview-row > .cashflow-side-panel {
+  align-self: start;
 }
 
 .card-list {
@@ -898,14 +1123,14 @@ input.section-title-input {
 }
 
 .compact-expense-table {
-  display: inline-block;
-  width: fit-content;
+  display: block;
+  width: 100%;
   max-width: 100%;
 }
 
 .debit-expenses-table {
-  width: auto;
-  table-layout: fixed;
+  width: 100%;
+  table-layout: auto;
 }
 
 .debit-expenses-table th,
@@ -920,7 +1145,12 @@ input.section-title-input {
 
 .debit-expenses-table th:nth-child(2),
 .debit-expenses-table td:nth-child(2) {
-  width: 12.1rem !important;
+  width: auto !important;
+}
+
+.debit-expenses-table td:nth-child(2) .editable-label-row,
+.debit-expenses-table td:nth-child(2) .label-input {
+  width: 100%;
 }
 
 .debit-expenses-table th:nth-child(3),
@@ -1183,6 +1413,10 @@ input.section-title-input {
   .income-subsection-grid {
     display: flex;
     flex-direction: column;
+  }
+
+  .bank-section-header {
+    width: 100%;
   }
 
   .income-subsection-grid .subsection-block {

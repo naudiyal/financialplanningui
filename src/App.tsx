@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { NumericFormat } from 'react-number-format'
 import {
   Bar,
   BarChart,
@@ -56,6 +57,18 @@ type AuthStatusResponse = {
   pictureUrl: string | null
 }
 
+type AnalyticsKpiCard = {
+  label: string
+  value: string | number
+  detail: string
+  ratio: number
+  cardStyle?: React.CSSProperties
+  labelStyle?: React.CSSProperties
+  valueStyle?: React.CSSProperties
+  detailStyle?: React.CSSProperties
+  barStyle?: React.CSSProperties
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
 const LOGIN_URL = `${API_BASE_URL}/oauth2/authorization/google`
 
@@ -81,7 +94,45 @@ const convertToISODate = (dateStr: string) => {
 const currency = (value: number) =>
   value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
-const formatCurrencyInputValue = (value: number) => value.toFixed(2)
+const advanceIsoDateByOneMonth = (value: string) => {
+  const [year, month, day] = value.split('-').map(Number)
+
+  if (!year || !month || !day) {
+    return value
+  }
+
+  const targetMonth = month
+  const targetDate = new Date(year, targetMonth, 1)
+  const lastDayOfTargetMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0).getDate()
+  targetDate.setDate(Math.min(day, lastDayOfTargetMonth))
+
+  return `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`
+}
+
+const joinClassNames = (...classNames: Array<string | undefined>) => classNames.filter(Boolean).join(' ')
+
+type CurrencyInputProps = {
+  value: number
+  onValueChange: (value: number) => void
+  wrapClassName?: string
+  inputClassName?: string
+}
+
+const CurrencyInput = ({ value, onValueChange, wrapClassName, inputClassName }: CurrencyInputProps) => (
+  <div className={joinClassNames('currency-input-wrap', wrapClassName)}>
+    <span className="currency-prefix">$</span>
+    <NumericFormat
+      value={value}
+      thousandSeparator
+      decimalScale={2}
+      fixedDecimalScale
+      allowNegative={false}
+      inputMode="decimal"
+      onValueChange={({ floatValue }) => onValueChange(floatValue ?? 0)}
+      className={inputClassName ?? 'currency-amount-input'}
+    />
+  </div>
+)
 
 const isPastDate = (value: string) => {
   const [year, month, day] = value.split('-').map(Number)
@@ -260,6 +311,16 @@ const getNewBankSubsectionTitle = (index: number) => {
   return `Bank ${suffix}`
 }
 
+const getExpenseCategoryFromLabel = (label: string) => {
+  if (!label.includes(' - ')) {
+    return 'Other'
+  }
+
+  const [prefix] = label.split(' - ', 1)
+  const normalizedPrefix = prefix.trim()
+  return normalizedPrefix.length > 0 ? normalizedPrefix : 'Other'
+}
+
 const CHART_COLORS = {
   current: '#0f766e',
   next: '#2563eb',
@@ -271,6 +332,152 @@ const CHART_COLORS = {
   forecast: '#1d4ed8',
   grid: '#dbe4f0',
   text: '#334155',
+}
+
+const getSavingsNextMonthCardStyles = (amount: number, monthlyIncome: number) => {
+  const neutralBand = Math.max(monthlyIncome * 0.05, 250)
+
+  if (amount < -neutralBand) {
+    const severity = Math.min(1, (Math.abs(amount) - neutralBand) / Math.max(monthlyIncome * 0.25, 1))
+    return {
+      cardStyle: {
+        borderColor: `hsl(0 72% ${58 - severity * 10}%)`,
+        background: `linear-gradient(180deg, hsl(0 100% ${98 - severity * 2}%) 0%, hsl(8 100% ${94 - severity * 4}%) 100%)`,
+      },
+      labelStyle: { color: `hsl(0 42% ${34 - severity * 4}%)` },
+      valueStyle: { color: `hsl(0 72% ${30 - severity * 4}%)` },
+      detailStyle: { color: `hsl(0 30% ${42 - severity * 6}%)` },
+      barStyle: {
+        background: `linear-gradient(90deg, hsl(14 90% ${62 - severity * 8}%), hsl(0 78% ${50 - severity * 6}%))`,
+      },
+    }
+  }
+
+  if (amount <= neutralBand) {
+    const calm = 1 - Math.min(1, Math.abs(amount) / Math.max(neutralBand, 1))
+    return {
+      cardStyle: {
+        borderColor: `hsl(42 72% ${66 - calm * 6}%)`,
+        background: `linear-gradient(180deg, hsl(42 100% ${98 - calm}%) 0%, hsl(44 100% ${94 - calm * 2}%) 100%)`,
+      },
+      labelStyle: { color: 'hsl(32 28% 34%)' },
+      valueStyle: { color: 'hsl(30 52% 30%)' },
+      detailStyle: { color: 'hsl(34 22% 42%)' },
+      barStyle: {
+        background: `linear-gradient(90deg, hsl(42 90% ${62 - calm * 4}%), hsl(34 86% ${56 - calm * 4}%))`,
+      },
+    }
+  }
+
+  const strength = Math.min(1, (amount - neutralBand) / Math.max(monthlyIncome * 0.3, 1))
+  return {
+    cardStyle: {
+      borderColor: `hsl(${124 + strength * 12} 52% ${48 - strength * 4}%)`,
+      background: `linear-gradient(180deg, hsl(140 55% ${98 - strength * 2}%) 0%, hsl(138 60% ${93 - strength * 5}%) 100%)`,
+    },
+    labelStyle: { color: `hsl(145 36% ${30 - strength * 4}%)` },
+    valueStyle: { color: `hsl(150 62% ${26 - strength * 4}%)` },
+    detailStyle: { color: `hsl(146 22% ${40 - strength * 4}%)` },
+    barStyle: {
+      background: `linear-gradient(90deg, hsl(90 58% ${48 - strength * 4}%), hsl(152 68% ${40 - strength * 4}%))`,
+    },
+  }
+}
+
+const getCountRiskCardStyles = (count: number, warningCount = 4) => {
+  if (count <= 0) {
+    return {
+      cardStyle: {
+        borderColor: 'hsl(145 44% 52%)',
+        background: 'linear-gradient(180deg, hsl(142 53% 98%) 0%, hsl(144 53% 94%) 100%)',
+      },
+      labelStyle: { color: 'hsl(145 34% 30%)' },
+      valueStyle: { color: 'hsl(149 58% 26%)' },
+      detailStyle: { color: 'hsl(145 18% 40%)' },
+      barStyle: {
+        background: 'linear-gradient(90deg, hsl(104 48% 50%), hsl(154 63% 40%))',
+      },
+    }
+  }
+
+  const severity = Math.min(1, count / Math.max(warningCount, 1))
+  return {
+    cardStyle: {
+      borderColor: `hsl(2 72% ${58 - severity * 10}%)`,
+      background: `linear-gradient(180deg, hsl(0 100% ${98 - severity * 2}%) 0%, hsl(10 100% ${94 - severity * 4}%) 100%)`,
+    },
+    labelStyle: { color: `hsl(0 42% ${34 - severity * 4}%)` },
+    valueStyle: { color: `hsl(1 72% ${30 - severity * 4}%)` },
+    detailStyle: { color: `hsl(0 28% ${42 - severity * 6}%)` },
+    barStyle: {
+      background: `linear-gradient(90deg, hsl(22 92% ${60 - severity * 8}%), hsl(0 76% ${48 - severity * 6}%))`,
+    },
+  }
+}
+
+const getExposureCardStyles = (exposureAmount: number, monthlySalary: number) => {
+  if (monthlySalary <= 0) {
+    return {
+      cardStyle: {
+        borderColor: 'hsl(214 32% 78%)',
+        background: 'linear-gradient(180deg, hsl(210 20% 98%) 0%, hsl(215 24% 94%) 100%)',
+      },
+      labelStyle: { color: 'hsl(215 20% 34%)' },
+      valueStyle: { color: 'hsl(215 32% 26%)' },
+      detailStyle: { color: 'hsl(215 16% 42%)' },
+      barStyle: {
+        background: 'linear-gradient(90deg, hsl(210 18% 66%), hsl(215 24% 56%))',
+      },
+    }
+  }
+
+  const exposureRatio = exposureAmount / monthlySalary
+
+  if (exposureRatio > 1) {
+    const severity = Math.min(1, exposureRatio - 1)
+    return {
+      cardStyle: {
+        borderColor: `hsl(0 72% ${58 - severity * 10}%)`,
+        background: `linear-gradient(180deg, hsl(0 100% ${98 - severity * 2}%) 0%, hsl(10 100% ${94 - severity * 4}%) 100%)`,
+      },
+      labelStyle: { color: `hsl(0 42% ${34 - severity * 4}%)` },
+      valueStyle: { color: `hsl(0 72% ${30 - severity * 4}%)` },
+      detailStyle: { color: `hsl(0 28% ${42 - severity * 6}%)` },
+      barStyle: {
+        background: `linear-gradient(90deg, hsl(22 92% ${60 - severity * 8}%), hsl(0 76% ${48 - severity * 6}%))`,
+      },
+    }
+  }
+
+  if (exposureRatio >= 0.75) {
+    const concern = Math.min(1, (exposureRatio - 0.75) / 0.25)
+    return {
+      cardStyle: {
+        borderColor: `hsl(34 76% ${62 - concern * 8}%)`,
+        background: `linear-gradient(180deg, hsl(40 100% ${98 - concern}%) 0%, hsl(38 100% ${94 - concern * 3}%) 100%)`,
+      },
+      labelStyle: { color: `hsl(30 30% ${34 - concern * 3}%)` },
+      valueStyle: { color: `hsl(28 54% ${30 - concern * 4}%)` },
+      detailStyle: { color: `hsl(30 22% ${42 - concern * 4}%)` },
+      barStyle: {
+        background: `linear-gradient(90deg, hsl(48 90% ${60 - concern * 6}%), hsl(24 88% ${52 - concern * 4}%))`,
+      },
+    }
+  }
+
+  const comfort = Math.min(1, (0.75 - exposureRatio) / 0.75)
+  return {
+    cardStyle: {
+      borderColor: `hsl(${126 + comfort * 10} 48% ${50 - comfort * 4}%)`,
+      background: `linear-gradient(180deg, hsl(142 53% ${98 - comfort * 2}%) 0%, hsl(144 53% ${94 - comfort * 5}%) 100%)`,
+    },
+    labelStyle: { color: `hsl(145 34% ${30 - comfort * 3}%)` },
+    valueStyle: { color: `hsl(149 58% ${26 - comfort * 4}%)` },
+    detailStyle: { color: `hsl(145 18% ${40 - comfort * 4}%)` },
+    barStyle: {
+      background: `linear-gradient(90deg, hsl(104 48% ${50 - comfort * 4}%), hsl(154 63% ${40 - comfort * 4}%))`,
+    },
+  }
 }
 
 const defaultFinancialPlanData = normalizeFinancialPlanData({
@@ -296,6 +503,7 @@ export default function App() {
   const [sectionTitles, setSectionTitles] = useState(defaultSectionTitles)
   const [incomeSubsections, setIncomeSubsections] = useState(defaultIncomeSubsections)
   const [newBankSubsectionIds, setNewBankSubsectionIds] = useState<Set<string>>(new Set())
+  const [selectedBankSubsectionIds, setSelectedBankSubsectionIds] = useState<Set<string>>(new Set())
   const [selectedCreditIds, setSelectedCreditIds] = useState<Set<string>>(new Set())
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<Set<string>>(new Set())
   const [creditSort, setCreditSort] = useState<SortState<CreditSortKey>>({
@@ -309,6 +517,12 @@ export default function App() {
   const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking')
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthStatusResponse | null>(null)
   const [authMessage, setAuthMessage] = useState('Checking sign-in status...')
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
+  const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [deleteState, setDeleteState] = useState<'idle' | 'deleting' | 'error'>('idle')
+  const [deleteMessage, setDeleteMessage] = useState('')
+  const userMenuRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let isMounted = true
@@ -331,6 +545,7 @@ export default function App() {
       setSectionTitles(normalizeSectionTitles(data.sectionTitles))
       setIncomeSubsections(data.incomeSubsections ?? defaultIncomeSubsections)
       setNewBankSubsectionIds(new Set())
+      setSelectedBankSubsectionIds(new Set())
     }
 
     const loadFinancialPlan = async () => {
@@ -426,6 +641,24 @@ export default function App() {
       isMounted = false
     }
   }, [])
+
+  useEffect(() => {
+    if (!isUserMenuOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+    }
+  }, [isUserMenuOpen])
 
   const updateAccountById = (accountId: string, field: string, value: number | string | boolean) => {
     setCreditAccounts((current) =>
@@ -550,7 +783,7 @@ export default function App() {
         midMonthSalaryArrived: false,
         monthEndSalaryLabel: 'Month end salary Arrived',
         monthEndSalaryArrived: false,
-        checkingBalanceLabel: 'Checking Account Balance',
+        checkingBalanceLabel: 'Account Balance',
         checkingBalance: 0,
         additionalPaymentsLabel: 'Additional Payments',
         additionalPayments: 0,
@@ -565,22 +798,40 @@ export default function App() {
     setNewBankSubsectionIds((current) => new Set(current).add(subsectionId))
   }
 
-  const deleteIncomeSubsection = (subsectionId: string) => {
-    if (!window.confirm('Delete this subsection?')) {
+  const toggleBankSubsectionSelection = (subsectionId: string) => {
+    setSelectedBankSubsectionIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(subsectionId)) {
+        next.delete(subsectionId)
+      } else {
+        next.add(subsectionId)
+      }
+      return next
+    })
+  }
+
+  const deleteSelectedBankSubsections = () => {
+    if (selectedBankSubsectionIds.size === 0) {
+      return
+    }
+
+    if (!window.confirm(`Delete ${selectedBankSubsectionIds.size} selected subsection${selectedBankSubsectionIds.size === 1 ? '' : 's'}?`)) {
       return
     }
 
     setNewBankSubsectionIds((current) => {
       const next = new Set(current)
-      next.delete(subsectionId)
+      selectedBankSubsectionIds.forEach((subsectionId) => next.delete(subsectionId))
       return next
     })
 
+    setSelectedBankSubsectionIds(new Set())
+
     void persistFinancialPlan(
       buildPayload({
-        incomeSubsections: incomeSubsections.filter((subsection) => subsection.id !== subsectionId),
+        incomeSubsections: incomeSubsections.filter((subsection) => !selectedBankSubsectionIds.has(subsection.id)),
       }),
-      'Subsection deleted',
+      selectedBankSubsectionIds.size === 1 ? 'Subsection deleted' : 'Subsections deleted',
     )
   }
 
@@ -700,7 +951,7 @@ export default function App() {
 
   const checkingAccountBalanceMonthEndChase = totalBalanceChase + additionalIncomeChase - j36
   const netBalanceMonthEnd = checkingAccountBalanceMonthEndChase + chaseCDBalance + checkingAccountBalancePNC + additionalOtherIncome
-  const netBalanceNextMonth = netBalanceMonthEnd + salaryTransferToChase - k36
+  const savingsNextMonth = salaryTransferToChase - k36
 
   const adjustedIncomeItems = incomeItemsState.map((item) => {
     switch (item.id) {
@@ -727,8 +978,8 @@ export default function App() {
         return { ...item, amount: checkingAccountBalanceMonthEndChase }
       case 'net-balance-month-end':
         return { ...item, amount: netBalanceMonthEnd }
-      case 'net-balance-next-month-end':
-        return { ...item, amount: netBalanceNextMonth }
+      case 'savings-next-month':
+        return { ...item, amount: savingsNextMonth }
       default:
         return item
     }
@@ -741,30 +992,55 @@ export default function App() {
     (item) => isPastDate(item.payDate) && Math.abs(item.current) > 0.004,
   )
 
-  const overdueAlertData = [
+  const savingsNextMonthCardStyles = getSavingsNextMonthCardStyles(savingsNextMonth, salaryTransferToChase)
+  const overdueCardsStyles = getCountRiskCardStyles(overdueCreditAccounts.length, 4)
+  const overdueExpensesStyles = getCountRiskCardStyles(overdueExpenses.length, 6)
+  const currentMonthExposureStyles = getExposureCardStyles(j36, checkingAccountBalanceChase)
+  const nextMonthExposureStyles = getExposureCardStyles(k36, salaryTransferToChase)
+  const monthAfterNextMonthStyles = getExposureCardStyles(monthAfterNextMonthExpense, salaryTransferToChase)
+
+  const overdueAlertData: AnalyticsKpiCard[] = [
+    {
+      label: 'Savings Next Month',
+      value: currency(savingsNextMonth),
+      detail: 'Projected leftover after next month expenses',
+      ratio: Math.min(100, salaryTransferToChase === 0 ? 0 : Math.max(0, (savingsNextMonth / salaryTransferToChase) * 100)),
+      ...savingsNextMonthCardStyles,
+    },
     {
       label: 'Overdue Cards',
       value: overdueCreditAccounts.length,
       detail: overdueCreditAccounts.length === 1 ? '1 account needs payment' : `${overdueCreditAccounts.length} accounts need payment`,
       ratio: Math.min(100, creditAccounts.length === 0 ? 0 : (overdueCreditAccounts.length / creditAccounts.length) * 100),
+      ...overdueCardsStyles,
     },
     {
       label: 'Overdue Expenses',
       value: overdueExpenses.length,
       detail: overdueExpenses.length === 1 ? '1 debit row is late' : `${overdueExpenses.length} debit rows are late`,
       ratio: Math.min(100, debitCardExpenseItems.length === 0 ? 0 : (overdueExpenses.length / debitCardExpenseItems.length) * 100),
+      ...overdueExpensesStyles,
     },
     {
       label: 'Current Month Exposure',
-      value: chartCurrency(j36),
+      value: currency(j36),
       detail: 'Cards plus current debit expenses',
       ratio: Math.min(100, totalLimits === 0 ? 0 : (j36 / totalLimits) * 100),
+      ...currentMonthExposureStyles,
     },
     {
       label: 'Next Month Exposure',
-      value: chartCurrency(k36),
+      value: currency(k36),
       detail: 'Projected next statement pressure',
       ratio: Math.min(100, totalLimits === 0 ? 0 : (k36 / totalLimits) * 100),
+      ...nextMonthExposureStyles,
+    },
+    {
+      label: 'Month After Next Month Exposure',
+      value: currency(monthAfterNextMonthExpense),
+      detail: 'Projected carry beyond next month',
+      ratio: Math.min(100, totalLimits === 0 ? 0 : (monthAfterNextMonthExpense / totalLimits) * 100),
+      ...monthAfterNextMonthStyles,
     },
   ]
 
@@ -801,31 +1077,72 @@ export default function App() {
         right.nextStmtBalance - left.nextStmtBalance,
     )
 
-  const creditVerticalChartHeight = Math.max(320, creditAccounts.length * 30)
+  const savingsNextMonthPieData = savingsNextMonth >= 0
+    ? [
+        {
+          name: 'Next Month Expenses',
+          value: Number(Math.max(0, k36).toFixed(2)),
+          color: CHART_COLORS.next,
+        },
+        {
+          name: 'Savings Next Month',
+          value: Number(Math.max(0, savingsNextMonth).toFixed(2)),
+          color: CHART_COLORS.positive,
+        },
+      ].filter((entry) => entry.value > 0)
+    : [
+        {
+          name: 'Chase Transfer',
+          value: Number(Math.max(0, salaryTransferToChase).toFixed(2)),
+          color: CHART_COLORS.forecast,
+        },
+        {
+          name: 'Shortfall',
+          value: Number(Math.abs(savingsNextMonth).toFixed(2)),
+          color: CHART_COLORS.overdue,
+        },
+      ].filter((entry) => entry.value > 0)
 
-  const expenseCategoryData = [
-    {
-      name: 'Plano',
-      current: Number(sumExpenses(planoExpenses, 'current').toFixed(2)),
-      next: Number(sumExpenses(planoExpenses, 'next').toFixed(2)),
-    },
-    {
-      name: 'Sanford',
-      current: Number(sumExpenses(sanfordExpenses, 'current').toFixed(2)),
-      next: Number(sumExpenses(sanfordExpenses, 'next').toFixed(2)),
-    },
-    {
-      name: 'Other',
-      current: Number(sumExpenses(otherExpenses, 'current').toFixed(2)),
-      next: Number(sumExpenses(otherExpenses, 'next').toFixed(2)),
-    },
+  const hasSavingsNextMonthPieData = savingsNextMonthPieData.length > 0
+
+  const creditChartHeight = 200
+  const overviewChartHeight = 200
+
+  const expenseCategoryPalette = [
+    CHART_COLORS.current,
+    CHART_COLORS.next,
+    CHART_COLORS.deferred,
+    CHART_COLORS.positive,
+    CHART_COLORS.negative,
+    CHART_COLORS.forecast,
+    CHART_COLORS.overdue,
   ]
+
+  const expenseCategoryTotals = debitCardExpenseItems.reduce<Map<string, { current: number; next: number }>>((totals, item) => {
+    const categoryName = getExpenseCategoryFromLabel(item.label)
+    const existingTotals = totals.get(categoryName) ?? { current: 0, next: 0 }
+
+    totals.set(categoryName, {
+      current: existingTotals.current + item.current,
+      next: existingTotals.next + item.next,
+    })
+
+    return totals
+  }, new Map())
+
+  const expenseCategoryData = [...expenseCategoryTotals.entries()]
+    .map(([name, totals]) => ({
+      name,
+      current: Number(totals.current.toFixed(2)),
+      next: Number(totals.next.toFixed(2)),
+    }))
+    .sort((left, right) => right.current + right.next - (left.current + left.next) || left.name.localeCompare(right.name))
 
   const expenseCategoryShareData = expenseCategoryData
     .map((item, index) => ({
       name: item.name,
       value: Number((item.current + item.next).toFixed(2)),
-      color: [CHART_COLORS.current, CHART_COLORS.next, CHART_COLORS.deferred][index],
+      color: expenseCategoryPalette[index % expenseCategoryPalette.length],
     }))
     .filter((item) => item.value > 0)
 
@@ -882,16 +1199,11 @@ export default function App() {
             className="salary-toggle-checkbox"
           />
         ) : editableIncomeIds.has(item.id) ? (
-          <div className="currency-input-wrap">
-            <span className="currency-prefix">$</span>
-            <input
-              type="number"
-              value={formatCurrencyInputValue(item.amount)}
-              step="0.01"
-              onChange={(e) => updateIncomeItem(itemIndex, parseFloat(e.target.value) || 0)}
-              className="amount-input currency-amount-input"
-            />
-          </div>
+          <CurrencyInput
+            value={item.amount}
+            onValueChange={(value) => updateIncomeItem(itemIndex, value)}
+            inputClassName="amount-input currency-amount-input"
+          />
         ) : (
           <p className="card-value">{currency(item.amount)}</p>
         )}
@@ -913,16 +1225,11 @@ export default function App() {
           className="card-title label-input"
         />
         {editableBalanceIds.has(item.id) ? (
-          <div className="currency-input-wrap">
-            <span className="currency-prefix">$</span>
-            <input
-              type="number"
-              value={formatCurrencyInputValue(item.amount)}
-              step="0.01"
-              onChange={(e) => updateBalanceItem(itemIndex, parseFloat(e.target.value) || 0)}
-              className="amount-input currency-amount-input"
-            />
-          </div>
+          <CurrencyInput
+            value={item.amount}
+            onValueChange={(value) => updateBalanceItem(itemIndex, value)}
+            inputClassName="amount-input currency-amount-input"
+          />
         ) : (
           <p className="card-value">{currency(item.amount)}</p>
         )}
@@ -938,8 +1245,15 @@ export default function App() {
     const monthEndBalance = totalBalance + subsection.additionalIncome
 
     return (
-      <div key={subsection.id} className="subsection-block">
+      <div key={subsection.id} className={selectedBankSubsectionIds.has(subsection.id) ? 'subsection-block row-selected' : 'subsection-block'}>
         <div className="subsection-header">
+          <label className="subsection-select-toggle">
+            <input
+              type="checkbox"
+              checked={selectedBankSubsectionIds.has(subsection.id)}
+              onChange={() => toggleBankSubsectionSelection(subsection.id)}
+            />
+          </label>
           <h3>
             <input
               type="text"
@@ -948,9 +1262,6 @@ export default function App() {
               className="label-input subsection-title-input"
             />
           </h3>
-          <button type="button" className="delete-row-button" onClick={() => deleteIncomeSubsection(subsection.id)}>
-            Delete
-          </button>
         </div>
         <div className="card-list">
           <article className="info-card">
@@ -960,16 +1271,11 @@ export default function App() {
               onChange={(e) => updateIncomeSubsection(index, 'biMonthlySalaryLabel', e.target.value)}
               className="card-title label-input"
             />
-            <div className="currency-input-wrap">
-              <span className="currency-prefix">$</span>
-              <input
-                type="number"
-                value={formatCurrencyInputValue(subsection.biMonthlySalary)}
-                step="0.01"
-                onChange={(e) => updateIncomeSubsection(index, 'biMonthlySalary', parseFloat(e.target.value) || 0)}
-                className="amount-input currency-amount-input"
-              />
-            </div>
+            <CurrencyInput
+              value={subsection.biMonthlySalary}
+              onValueChange={(value) => updateIncomeSubsection(index, 'biMonthlySalary', value)}
+              inputClassName="amount-input currency-amount-input"
+            />
           </article>
           <article className="info-card">
             <input
@@ -1006,16 +1312,11 @@ export default function App() {
               onChange={(e) => updateIncomeSubsection(index, 'checkingBalanceLabel', e.target.value)}
               className="card-title label-input"
             />
-            <div className="currency-input-wrap">
-              <span className="currency-prefix">$</span>
-              <input
-                type="number"
-                value={formatCurrencyInputValue(subsection.checkingBalance)}
-                step="0.01"
-                onChange={(e) => updateIncomeSubsection(index, 'checkingBalance', parseFloat(e.target.value) || 0)}
-                className="amount-input currency-amount-input"
-              />
-            </div>
+            <CurrencyInput
+              value={subsection.checkingBalance}
+              onValueChange={(value) => updateIncomeSubsection(index, 'checkingBalance', value)}
+              inputClassName="amount-input currency-amount-input"
+            />
           </article>
           <article className="info-card">
             <input
@@ -1024,16 +1325,11 @@ export default function App() {
               onChange={(e) => updateIncomeSubsection(index, 'additionalPaymentsLabel', e.target.value)}
               className="card-title label-input"
             />
-            <div className="currency-input-wrap">
-              <span className="currency-prefix">$</span>
-              <input
-                type="number"
-                value={formatCurrencyInputValue(subsection.additionalPayments)}
-                step="0.01"
-                onChange={(e) => updateIncomeSubsection(index, 'additionalPayments', parseFloat(e.target.value) || 0)}
-                className="amount-input currency-amount-input"
-              />
-            </div>
+            <CurrencyInput
+              value={subsection.additionalPayments}
+              onValueChange={(value) => updateIncomeSubsection(index, 'additionalPayments', value)}
+              inputClassName="amount-input currency-amount-input"
+            />
           </article>
           <article className="info-card">
             <input
@@ -1051,16 +1347,11 @@ export default function App() {
               onChange={(e) => updateIncomeSubsection(index, 'additionalIncomeLabel', e.target.value)}
               className="card-title label-input"
             />
-            <div className="currency-input-wrap">
-              <span className="currency-prefix">$</span>
-              <input
-                type="number"
-                value={formatCurrencyInputValue(subsection.additionalIncome)}
-                step="0.01"
-                onChange={(e) => updateIncomeSubsection(index, 'additionalIncome', parseFloat(e.target.value) || 0)}
-                className="amount-input currency-amount-input"
-              />
-            </div>
+            <CurrencyInput
+              value={subsection.additionalIncome}
+              onValueChange={(value) => updateIncomeSubsection(index, 'additionalIncome', value)}
+              inputClassName="amount-input currency-amount-input"
+            />
           </article>
           <article className="info-card">
             <input
@@ -1193,6 +1484,40 @@ export default function App() {
     summary: overrides.summary,
   })
 
+  const canStartNewBudgetCycle =
+    creditAccounts.length > 0 &&
+    creditAccounts.every((account) => account.paidThisMonth && account.statementCycledAfterPayment) &&
+    debitCardExpenseItems.every((item) => Math.abs(item.current) < 0.004)
+
+  const budgetCycleButtonTooltip = canStartNewBudgetCycle
+    ? 'Start New Budget Cycle\n- Clears all paid checkboxes\n- Clears all statement cycled checkboxes\n- Copies next month debit expenses to current month\n- Moves debit pay dates ahead by one month\n- Leaves debit next month expense values unchanged'
+    : 'Start New Budget Cycle is disabled until:\n- All credit cards are marked paid\n- All statements are marked statement cycled\n- All debit card current month expenses are 0\n\nWhen enabled, it will:\n- Clears all paid checkboxes\n- Clears all statement cycled checkboxes\n- Copies next month debit expenses to current month\n- Moves debit pay dates ahead by one month\n- Leaves debit next month expense values unchanged'
+
+  const handleStartNewBudgetCycle = () => {
+    if (!canStartNewBudgetCycle) {
+      return
+    }
+
+    setCreditAccounts((current) =>
+      current.map((account) => ({
+        ...account,
+        paidThisMonth: false,
+        statementCycledAfterPayment: false,
+      })),
+    )
+
+    const rollExpenseItems = (items: ExpenseItem[]) =>
+      items.map((item) => ({
+        ...item,
+        current: item.next,
+        payDate: advanceIsoDateByOneMonth(item.payDate),
+      }))
+
+    setPlanoExpenses((current) => rollExpenseItems(current))
+    setSanfordExpenses((current) => rollExpenseItems(current))
+    setOtherExpenses((current) => rollExpenseItems(current))
+  }
+
   const currentPlanSignature = useMemo(
     () => getFinancialPlanSignature(buildPayload()),
     [
@@ -1304,6 +1629,96 @@ export default function App() {
     setSaveMessage('')
   }
 
+  const handleDeleteTrackerClick = () => {
+    setIsUserMenuOpen(false)
+    setDeleteState('idle')
+    setDeleteMessage('')
+    setIsDeleteDialogOpen(true)
+  }
+
+  const handleHelpClick = () => {
+    setIsUserMenuOpen(false)
+    setIsHelpDialogOpen(true)
+  }
+
+  const handleHelpClose = () => {
+    setIsHelpDialogOpen(false)
+  }
+
+  const handleDeleteTrackerCancel = () => {
+    if (deleteState === 'deleting') {
+      return
+    }
+
+    setIsDeleteDialogOpen(false)
+    setDeleteState('idle')
+    setDeleteMessage('')
+  }
+
+  const handleDeleteTrackerConfirm = async () => {
+    setDeleteState('deleting')
+    setDeleteMessage('Deleting your tracker data...')
+    setSaveState('loading')
+    setSaveMessage('Deleting tracker...')
+
+    try {
+      const deleteResponse = await fetch(`${API_BASE_URL}/api/financial-plan`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+
+      if (deleteResponse.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setIsDeleteDialogOpen(false)
+        setDeleteState('idle')
+        setDeleteMessage('')
+        setSaveState('idle')
+        setSaveMessage('')
+        return
+      }
+
+      if (!deleteResponse.ok) {
+        throw new Error(`Failed to delete financial plan: ${deleteResponse.status}`)
+      }
+
+      const reloadResponse = await fetch(`${API_BASE_URL}/api/financial-plan`, {
+        credentials: 'include',
+      })
+
+      if (reloadResponse.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setIsDeleteDialogOpen(false)
+        setDeleteState('idle')
+        setDeleteMessage('')
+        setSaveState('idle')
+        setSaveMessage('')
+        return
+      }
+
+      if (!reloadResponse.ok) {
+        throw new Error(`Failed to reload financial plan: ${reloadResponse.status}`)
+      }
+
+      const freshData: FinancialPlanData = await reloadResponse.json()
+      applyFinancialPlan(freshData)
+      setLoadedPlanSignature(getFinancialPlanSignature(freshData))
+      setIsDeleteDialogOpen(false)
+      setDeleteState('idle')
+      setDeleteMessage('')
+      setSaveState('saved')
+      setSaveMessage('Tracker deleted. Started fresh with a new plan.')
+    } catch {
+      setDeleteState('error')
+      setDeleteMessage('Delete failed. Check the API server.')
+      setSaveState('error')
+      setSaveMessage('Delete failed. Check the API server.')
+    }
+  }
+
   if (authState !== 'authenticated') {
     return (
       <div className="auth-shell">
@@ -1334,16 +1749,44 @@ export default function App() {
         </div>
         <div className="hero-actions">
           {authenticatedUser ? (
-            <div className="user-chip">
-              {authenticatedUser.pictureUrl ? (
-                <img src={authenticatedUser.pictureUrl} alt={authenticatedUser.name ?? authenticatedUser.email ?? 'Signed in user'} className="user-avatar" />
+            <div className="user-menu" ref={userMenuRef}>
+              <button
+                type="button"
+                className="user-chip user-chip-button"
+                onClick={() => setIsUserMenuOpen((current) => !current)}
+                aria-expanded={isUserMenuOpen}
+                aria-haspopup="menu"
+              >
+                {authenticatedUser.pictureUrl ? (
+                  <img src={authenticatedUser.pictureUrl} alt={authenticatedUser.name ?? authenticatedUser.email ?? 'Signed in user'} className="user-avatar" />
+                ) : null}
+                <div>
+                  <strong>{authenticatedUser.name ?? authenticatedUser.email}</strong>
+                  <span>{authenticatedUser.email}</span>
+                </div>
+              </button>
+              {isUserMenuOpen ? (
+                <div className="user-menu-dropdown" role="menu">
+                  <button type="button" className="user-menu-item" onClick={handleHelpClick} role="menuitem">
+                    Help
+                  </button>
+                  <button type="button" className="user-menu-item user-menu-item-danger" onClick={handleDeleteTrackerClick} role="menuitem">
+                    Delete My Tracker
+                  </button>
+                </div>
               ) : null}
-              <div>
-                <strong>{authenticatedUser.name ?? authenticatedUser.email}</strong>
-                <span>{authenticatedUser.email}</span>
-              </div>
             </div>
           ) : null}
+          <span className="toolbar-button-wrap" title={budgetCycleButtonTooltip}>
+            <button
+              type="button"
+              className="toolbar-button budget-cycle-button"
+              onClick={handleStartNewBudgetCycle}
+              disabled={!canStartNewBudgetCycle || saveState === 'loading' || saveState === 'saving'}
+            >
+              Start New Budget Cycle
+            </button>
+          </span>
           <button type="button" className="toolbar-button" onClick={handleSave} disabled={saveState === 'loading' || saveState === 'saving'}>
             {saveState === 'saving' ? 'Saving...' : 'Save Changes'}
           </button>
@@ -1354,18 +1797,130 @@ export default function App() {
 
       <section className="analytics-strip" aria-label="Top financial alerts">
         {overdueAlertData.map((item) => (
-          <article key={item.label} className="analytics-kpi-card">
+          <article key={item.label} className="analytics-kpi-card" style={item.cardStyle}>
             <div className="analytics-kpi-header">
-              <p>{item.label}</p>
-              <strong>{item.value}</strong>
+              <p style={item.labelStyle}>{item.label}</p>
+              <strong style={item.valueStyle}>{item.value}</strong>
             </div>
-            <span>{item.detail}</span>
+            <span style={item.detailStyle}>{item.detail}</span>
             <div className="analytics-kpi-bar">
-              <div style={{ width: `${item.ratio}%` }} />
+              <div style={{ width: `${item.ratio}%`, ...item.barStyle }} />
             </div>
           </article>
         ))}
       </section>
+
+      {isHelpDialogOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+            <p className="eyebrow help-eyebrow">Help</p>
+            <h2 id="help-title">How This Financial Tracker Works</h2>
+            <p className="help-intro">
+              This application helps you manage near-term cash flow by combining credit card obligations, debit card expenses,
+              and bank account balances in one place. It is designed to show what needs attention now, what pressure is coming
+              next month, and how today&apos;s decisions affect your projected balances.
+            </p>
+
+            <div className="help-section">
+              <h3>What This Application Helps You Manage</h3>
+              <ul className="help-list">
+                <li>Credit card balances, payment dates, statement balances, and projected next statement balances.</li>
+                <li>Debit card expenses that belong to the current month and the next month.</li>
+                <li>Bank account balances, salary timing, additional income, and additional payments.</li>
+                <li>Projected financial exposure across current month, next month, and month after next month.</li>
+              </ul>
+            </div>
+
+            <div className="help-section">
+              <h3>How To Read The Main Sections</h3>
+              <ul className="help-list">
+                <li>Credit Card Accounts shows what is still owed, what is already paid, and what may roll into the next statement cycle.</li>
+                <li>Debit Card Expenses separates expected spending into Current Month and Next Month so you can see near-term cash needs clearly.</li>
+                <li>Bank Accounts lets you track balances and salary inflows for each bank subsection so projections reflect how cash is actually distributed.</li>
+                <li>Top KPI tiles summarize savings, overdue items, and projected exposure so you can quickly spot risk areas.</li>
+              </ul>
+            </div>
+
+            <div className="help-section">
+              <h3>What The Key Metrics Mean</h3>
+              <ul className="help-list">
+                <li>Savings Next Month shows the projected amount left after next month expenses are covered from the transfer-to-Chase amount.</li>
+                <li>Current Month Exposure shows current month credit card payments plus current month debit card expenses.</li>
+                <li>Next Month Exposure shows projected next statement balances plus next month debit card expenses.</li>
+                <li>Month After Next Month Exposure shows projected carry-forward pressure beyond next month.</li>
+                <li>Overdue Cards and Overdue Expenses show how many items are already past due based on the dates in the tracker.</li>
+              </ul>
+            </div>
+
+            <div className="help-section">
+              <h3>How The Charts Should Be Interpreted</h3>
+              <ul className="help-list">
+                <li>Savings Next Month compares expected next month expense load against projected leftover savings or shortfall.</li>
+                <li>Total Due by Card shows which cards are contributing the most to your total card burden.</li>
+                <li>Payment Due Timeline shows when payment pressure is arriving by due date.</li>
+                <li>Debit Card Expense Category groups debit expenses by the text before ` - ` in each expense label.</li>
+                <li>If an expense label does not include a prefix before ` - `, it is grouped under Other.</li>
+                <li>Cash In vs Cash Out shows the major drivers of projected month-end cash position.</li>
+              </ul>
+            </div>
+
+            <div className="help-section">
+              <h3>Important Workflow Actions</h3>
+              <ul className="help-list">
+                <li>Save Changes writes your current tracker data for your signed-in account.</li>
+                <li>Start New Budget Cycle clears paid and statement-cycled flags, copies next month debit expenses into current month, advances pay dates by one month, and keeps debit next month values unchanged.</li>
+                <li>Start New Budget Cycle is only enabled when all credit cards are marked paid, all statements are marked statement cycled, and all debit card current month expenses are 0.</li>
+                <li>Delete My Tracker removes only your saved tracker data and then starts you fresh with a new seeded tracker.</li>
+              </ul>
+            </div>
+
+            <div className="help-section">
+              <h3>Business Rules To Keep In Mind</h3>
+              <ul className="help-list">
+                <li>Your data is tied to your signed-in Google account, so each user works with their own saved tracker.</li>
+                <li>Projections are only as accurate as the payment dates, balances, and current versus next month assignments you maintain.</li>
+                <li>Debit expense labels affect chart grouping, so consistent label prefixes make the category chart more useful.</li>
+                <li>Deleting your tracker does not delete other users&apos; data. It only resets your own saved plan.</li>
+              </ul>
+            </div>
+
+            <div className="modal-actions">
+              <button type="button" className="toolbar-button" onClick={handleHelpClose}>
+                Close
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isDeleteDialogOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card danger-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-tracker-title">
+            <p className="eyebrow danger-eyebrow">Danger Zone</p>
+            <h2 id="delete-tracker-title">Delete My Tracker?</h2>
+            <p className="danger-copy">
+              This will delete your saved tracker data from the database. You will have to start everything from scratch.
+            </p>
+            <p className="danger-copy-subtle">
+              If you cancel, nothing happens. If you confirm, your current saved tracker will be removed and a fresh tracker will be created for you.
+            </p>
+            {deleteState === 'error' ? <p className="auth-message auth-error">{deleteMessage}</p> : null}
+            <div className="modal-actions">
+              <button type="button" className="toolbar-button" onClick={handleDeleteTrackerCancel} disabled={deleteState === 'deleting'}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="toolbar-button destructive-button"
+                onClick={handleDeleteTrackerConfirm}
+                disabled={deleteState === 'deleting'}
+              >
+                {deleteState === 'deleting' ? 'Deleting...' : 'Delete My Tracker'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <section className="credit-accounts-section">
         <div className="section-content-fit">
@@ -1458,10 +2013,9 @@ export default function App() {
                       />
                     </td>
                     <td>
-                      <input
-                        type="number"
+                      <CurrencyInput
                         value={account.availableCredit}
-                        onChange={(e) => updateAccountById(account.id, 'availableCredit', parseFloat(e.target.value) || 0)}
+                        onValueChange={(value) => updateAccountById(account.id, 'availableCredit', value)}
                       />
                     </td>
                     <td>
@@ -1494,28 +2048,16 @@ export default function App() {
                       />
                     </td>
                     <td>
-                      <div className="currency-input-wrap">
-                        <span className="currency-prefix">$</span>
-                        <input
-                          type="number"
-                          value={formatCurrencyInputValue(account.lastStatementBalance)}
-                          step="0.01"
-                          onChange={(e) => updateAccountById(account.id, 'lastStatementBalance', parseFloat(e.target.value) || 0)}
-                          className="currency-amount-input"
-                        />
-                      </div>
+                      <CurrencyInput
+                        value={account.lastStatementBalance}
+                        onValueChange={(value) => updateAccountById(account.id, 'lastStatementBalance', value)}
+                      />
                     </td>
                     <td>
-                      <div className="currency-input-wrap">
-                        <span className="currency-prefix">$</span>
-                        <input
-                          type="number"
-                          value={formatCurrencyInputValue(account.creditLimit)}
-                          step="0.01"
-                          onChange={(e) => updateAccountById(account.id, 'creditLimit', parseFloat(e.target.value) || 0)}
-                          className="currency-amount-input"
-                        />
-                      </div>
+                      <CurrencyInput
+                        value={account.creditLimit}
+                        onValueChange={(value) => updateAccountById(account.id, 'creditLimit', value)}
+                      />
                     </td>
                     <td>{currency(totalDueForCard)}</td>
                     <td>{currency(currentMonthPayment)}</td>
@@ -1542,13 +2084,43 @@ export default function App() {
               </tbody>
             </table>
           </div>
-          <div className="chart-grid credit-chart-grid">
+          <div className="section-cluster chart-grid credit-chart-grid">
+            <article className="chart-card">
+              <div className="chart-card-header">
+                <h3>Savings Next Month</h3>
+                <span>{savingsNextMonth >= 0 ? 'Next month expenses vs remaining savings' : 'Next month expenses exceed transfer'}</span>
+              </div>
+              <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
+                {hasSavingsNextMonthPieData ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={savingsNextMonthPieData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={54}
+                        outerRadius={84}
+                        paddingAngle={2}
+                      >
+                        {savingsNextMonthPieData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: number) => currency(value)} />
+                      <Legend wrapperStyle={{ fontSize: '11px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="chart-empty-state">No next month savings data yet</div>
+                )}
+              </div>
+            </article>
             <article className="chart-card">
               <div className="chart-card-header">
                 <h3>Total Due by Card</h3>
                 <span>Highest total due cards shown first</span>
               </div>
-              <div className="chart-shell" style={{ height: `${creditVerticalChartHeight}px` }}>
+              <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={creditTotalDueData} layout="vertical" margin={{ top: 4, right: 12, left: 8, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
@@ -1567,7 +2139,7 @@ export default function App() {
                 <h3>Payment Due Timeline</h3>
                 <span>Upcoming payment pressure by pay date</span>
               </div>
-              <div className="chart-shell">
+              <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={paymentTimelineData} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
@@ -1585,7 +2157,7 @@ export default function App() {
         </div>
       </section>
 
-      <div className="finance-overview-row">
+      <div className="section-cluster finance-overview-row">
         <section className="expense-section compact-section">
           <div className="section-header">
             <h2>
@@ -1657,28 +2229,19 @@ export default function App() {
                           />
                         </td>
                         <td>
-                          <div className="currency-input-wrap expense-currency-input-wrap">
-                            <span className="currency-prefix">$</span>
-                            <input
-                              type="number"
-                              value={formatCurrencyInputValue(item.current)}
-                              step="0.01"
-                              onChange={(e) => updateExpenseItemById(setter, item.id, 'current', parseFloat(e.target.value) || 0)}
-                              className={`currency-amount-input${isPastDueCurrentExpense ? ' overdue-amount-input' : ''}`}
-                            />
-                          </div>
+                          <CurrencyInput
+                            value={item.current}
+                            onValueChange={(value) => updateExpenseItemById(setter, item.id, 'current', value)}
+                            wrapClassName="expense-currency-input-wrap"
+                            inputClassName={joinClassNames('currency-amount-input', isPastDueCurrentExpense ? 'overdue-amount-input' : undefined)}
+                          />
                         </td>
                         <td>
-                          <div className="currency-input-wrap expense-currency-input-wrap">
-                            <span className="currency-prefix">$</span>
-                            <input
-                              type="number"
-                              value={formatCurrencyInputValue(item.next)}
-                              step="0.01"
-                              onChange={(e) => updateExpenseItemById(setter, item.id, 'next', parseFloat(e.target.value) || 0)}
-                              className="currency-amount-input"
-                            />
-                          </div>
+                          <CurrencyInput
+                            value={item.next}
+                            onValueChange={(value) => updateExpenseItemById(setter, item.id, 'next', value)}
+                            wrapClassName="expense-currency-input-wrap"
+                          />
                         </td>
                       </tr>
                       )
@@ -1693,37 +2256,55 @@ export default function App() {
               </tbody>
             </table>
           </div>
-          <div className="expense-summary-section">
-            <h3>Expense Grand Total</h3>
-            <div className="summary-grid expense-summary-grid">
-              <div className="summary-card">
-                <p>Current Month</p>
-                <strong>{currency(j36)}</strong>
-              </div>
-              <div className="summary-card">
-                <p>Next Month</p>
-                <strong>{currency(k36)}</strong>
-              </div>
-              <div className="summary-card">
-                <p>Month After Next Month</p>
-                <strong>{currency(monthAfterNextMonthExpense)}</strong>
-              </div>
-            </div>
-          </div>
         </section>
+
+        <article className="chart-card compact-section expense-category-side-panel">
+          <div className="chart-card-header">
+            <h3>Debit Card Expense Category</h3>
+            <span>Grouped by label prefix across current and next month</span>
+          </div>
+          <div className="chart-shell" style={{ height: `${overviewChartHeight}px` }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={expenseCategoryShareData}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius={54}
+                  outerRadius={84}
+                  paddingAngle={2}
+                >
+                  {expenseCategoryShareData.map((entry) => (
+                    <Cell key={entry.name} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value: number) => currency(value)} />
+                <Legend wrapperStyle={{ fontSize: '11px' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+
+      </div>
+
+      <div className="section-cluster finance-overview-row">
 
         <section className="compact-section compact-side-panel bank-accounts-section">
           <div className="section-content-fit">
-            <div className="section-header">
+            <div className="section-header bank-section-header">
               <h2>
                 <input
                   type="text"
                   value={sectionTitles.incomeSchedule}
                   onChange={(e) => updateSectionTitle('incomeSchedule', e.target.value)}
                   className="label-input section-title-input"
+                  style={{ width: getHeaderInputWidth(sectionTitles.incomeSchedule, 14) }}
                 />
               </h2>
               <div className="section-header-actions">
+                {selectedBankSubsectionIds.size > 0 && (
+                  <button type="button" className="delete-row-button" onClick={deleteSelectedBankSubsections}>Delete ({selectedBankSubsectionIds.size})</button>
+                )}
                 <button type="button" className="add-row-button" onClick={addIncomeSubsection}>+ Add</button>
               </div>
             </div>
@@ -1754,41 +2335,12 @@ export default function App() {
           </div>
         </section>
 
-      </div>
-
-      <div className="chart-grid cross-section-chart-grid">
-        <article className="chart-card">
-          <div className="chart-card-header">
-            <h3>Expense Category Share</h3>
-            <span>Plano, Sanford, and Other across current and next month</span>
-          </div>
-          <div className="chart-shell">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={expenseCategoryShareData}
-                  dataKey="value"
-                  nameKey="name"
-                  innerRadius={54}
-                  outerRadius={84}
-                  paddingAngle={2}
-                >
-                  {expenseCategoryShareData.map((entry) => (
-                    <Cell key={entry.name} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value: number) => currency(value)} />
-                <Legend wrapperStyle={{ fontSize: '11px' }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </article>
-        <article className="chart-card">
+        <article className="chart-card compact-section cashflow-side-panel">
           <div className="chart-card-header">
             <h3>Cash In vs Cash Out</h3>
             <span>Month-end balance drivers</span>
           </div>
-          <div className="chart-shell chart-shell-bank">
+          <div className="chart-shell chart-shell-bank" style={{ height: `${overviewChartHeight}px` }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={cashFlowDriverData} margin={{ top: 4, right: 8, left: -12, bottom: 16 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
@@ -1804,6 +2356,7 @@ export default function App() {
             </ResponsiveContainer>
           </div>
         </article>
+
       </div>
     </div>
   )

@@ -258,7 +258,7 @@ export const balanceItems: BalanceItem[] = [
   { id: 'checking-balance-pnc', label: 'Checking Account Balance - PNC', amount: 100.57, month: '' },
   { id: 'additional-other-income', label: 'Additional Other Income', amount: 0, month: '' },
   { id: 'net-balance-month-end', label: 'Net Balance @Month End', amount: 7297.54, month: '' },
-  { id: 'net-balance-next-month-end', label: 'Net Balance @Next Month End', amount: 10311.57, month: '' },
+  { id: 'savings-next-month', label: 'Savings Next Month', amount: 3014.03, month: '' },
 ]
 
 export const defaultColumnLabels: FinancialPlanColumnLabels = {
@@ -285,8 +285,8 @@ export const defaultColumnLabels: FinancialPlanColumnLabels = {
 }
 
 export const defaultSectionTitles: FinancialPlanSectionTitles = {
-  creditAccounts: 'Credit & Card Accounts',
+  creditAccounts: 'Credit Card Accounts',
   debitExpenses: 'Debit Card Expenses',
-  incomeSchedule: 'Income Schedule',
+  incomeSchedule: 'Bank Accounts',
   defaultBank: 'Chase',
 }
