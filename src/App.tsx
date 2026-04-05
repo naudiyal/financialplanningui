@@ -578,7 +578,9 @@ export default function App() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [deleteState, setDeleteState] = useState<'idle' | 'deleting' | 'error'>('idle')
   const [deleteMessage, setDeleteMessage] = useState('')
+  const [creditTableWidth, setCreditTableWidth] = useState<number | null>(null)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
+  const creditTableWrapperRef = useRef<HTMLDivElement | null>(null)
   const dismissSamplePromptOnMenuCloseRef = useRef(false)
 
   useEffect(() => {
@@ -742,6 +744,30 @@ export default function App() {
       document.removeEventListener('mousedown', handlePointerDown)
     }
   }, [isUserMenuOpen, showSamplePrompt])
+
+  useEffect(() => {
+    const wrapper = creditTableWrapperRef.current
+
+    if (!wrapper) {
+      return
+    }
+
+    const updateCreditTableWidth = () => {
+      setCreditTableWidth(wrapper.getBoundingClientRect().width)
+    }
+
+    updateCreditTableWidth()
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateCreditTableWidth()
+    })
+
+    resizeObserver.observe(wrapper)
+
+    return () => {
+      resizeObserver.disconnect()
+    }
+  }, [columnLabels.creditAccounts, creditAccounts])
 
   const updateAccountById = (accountId: string, field: string, value: number | string | boolean) => {
     setCreditAccounts((current) =>
@@ -1639,6 +1665,8 @@ export default function App() {
           : ''
 
   const statusClassName = `status-text status-${isSampleMode ? 'saved' : hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
+    const creditWidthCapStyle = creditTableWidth ? { width: `min(100%, ${creditTableWidth}px)` } : undefined
+    const creditWidthMaxStyle = creditTableWidth ? { maxWidth: `${creditTableWidth}px` } : undefined
 
   const applyFinancialPlan = (data: FinancialPlanData) => {
     setCreditAccounts(data.creditAccounts)
@@ -2008,7 +2036,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="hero">
+      <header className="hero" style={creditWidthCapStyle}>
         <div>
           <p className="eyebrow">Financial Planning</p>
           <h1>Personal Finance Tracker</h1>
@@ -2092,7 +2120,7 @@ export default function App() {
         </section>
       ) : null}
 
-      <section className="budget-cycle-panel" aria-label="Current budget cycle timeline">
+      <section className="budget-cycle-panel" aria-label="Current budget cycle timeline" style={creditWidthCapStyle}>
         <div className="budget-cycle-header">
           <span className="budget-cycle-inline-title">Budget Cycle Timeline</span>
           <div className="budget-cycle-title-group">
@@ -2130,7 +2158,7 @@ export default function App() {
         </div>
       </section>
 
-      <section className="analytics-strip" aria-label="Top financial alerts">
+      <section className="analytics-strip" aria-label="Top financial alerts" style={creditWidthCapStyle}>
         {overdueAlertData.map((item) => (
           <article key={item.label} className="analytics-kpi-card" style={item.cardStyle}>
             <div className="analytics-kpi-header">
@@ -2298,7 +2326,7 @@ export default function App() {
               <button type="button" className="add-row-button" onClick={addCreditAccount}>+ Add</button>
             </div>
           </div>
-          <div className="table-wrapper compact-credit-table">
+          <div className="table-wrapper compact-credit-table" ref={creditTableWrapperRef}>
             <table className="credit-accounts-table">
               <thead>
                 <tr>
@@ -2442,7 +2470,7 @@ export default function App() {
               </tbody>
             </table>
           </div>
-          <div className="section-cluster chart-grid credit-chart-grid">
+          <div className="section-cluster chart-grid credit-chart-grid" style={creditWidthCapStyle}>
             <article className="chart-card">
               <div className="chart-card-header">
                 <h3>Savings Next Month</h3>
@@ -2515,7 +2543,7 @@ export default function App() {
         </div>
       </section>
 
-      <div className="section-cluster finance-overview-row">
+      <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
         <section className="expense-section compact-section">
           <div className="section-header">
             <h2>
@@ -2533,7 +2561,10 @@ export default function App() {
               <button type="button" className="add-row-button" onClick={() => addExpenseRow(setOtherExpenses, otherExpenses, 'other')}>+ Add</button>
             </div>
           </div>
-          <div className="table-wrapper compact-expense-table">
+          <div
+            className="table-wrapper compact-expense-table"
+            style={creditWidthMaxStyle}
+          >
             <table className="debit-expenses-table">
               <thead>
                 <tr>
@@ -2645,7 +2676,7 @@ export default function App() {
 
       </div>
 
-      <div className="section-cluster finance-overview-row">
+      <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
 
         <section className="compact-section compact-side-panel bank-accounts-section">
           <div className="section-content-fit">

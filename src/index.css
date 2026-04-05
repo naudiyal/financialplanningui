@@ -870,48 +870,43 @@ table {
 }
 
 .credit-accounts-table {
-  width: auto;
+  width: max-content;
+  max-width: 100%;
   table-layout: auto;
 }
 
-.credit-accounts-table th:nth-child(1),
-.credit-accounts-table td:nth-child(1) { width: 1.25rem !important; }
+.credit-accounts-table th,
+.credit-accounts-table td {
+  width: auto !important;
+  white-space: nowrap;
+}
 
 .credit-accounts-table th:nth-child(2),
-.credit-accounts-table td:nth-child(2) { width: 12.1rem !important; }
+.credit-accounts-table td:nth-child(2) {
+  min-width: 16.3296rem;
+}
 
-.credit-accounts-table th:nth-child(3),
-.credit-accounts-table td:nth-child(3) { width: 6.5rem !important; }
+.credit-accounts-table .sortable-header {
+  width: max-content;
+}
 
-.credit-accounts-table th:nth-child(4),
-.credit-accounts-table td:nth-child(4) { width: 7rem !important; }
+.credit-accounts-table .table-header-input,
+.credit-accounts-table input {
+  width: auto;
+  max-width: 100%;
+  field-sizing: content;
+}
 
-.credit-accounts-table th:nth-child(5),
-.credit-accounts-table td:nth-child(5) { width: 3rem !important; }
+.credit-accounts-table .currency-input-wrap {
+  width: auto;
+  max-width: 100%;
+}
 
-.credit-accounts-table th:nth-child(6),
-.credit-accounts-table td:nth-child(6) { width: 4rem !important; }
-
-.credit-accounts-table th:nth-child(7),
-.credit-accounts-table td:nth-child(7) { width: 7rem !important; }
-
-.credit-accounts-table th:nth-child(8),
-.credit-accounts-table td:nth-child(8) { width: 7rem !important; }
-
-.credit-accounts-table th:nth-child(9),
-.credit-accounts-table td:nth-child(9) { width: 7rem !important; }
-
-.credit-accounts-table th:nth-child(10),
-.credit-accounts-table td:nth-child(10) { width: 5.75rem !important; }
-
-.credit-accounts-table th:nth-child(11),
-.credit-accounts-table td:nth-child(11) { width: 7rem !important; }
-
-.credit-accounts-table th:nth-child(12),
-.credit-accounts-table td:nth-child(12) { width: 7rem !important; }
-
-.credit-accounts-table th:nth-child(13),
-.credit-accounts-table td:nth-child(13) { width: 4.5rem !important; }
+.credit-accounts-table .currency-amount-input {
+  flex: 0 1 auto;
+  width: auto;
+  field-sizing: content;
+}
 
 th, td {
   padding: 0.3rem 0.35rem;
@@ -1028,17 +1023,17 @@ tbody tr:hover {
 
 .credit-accounts-table th:nth-child(11),
 .credit-accounts-table td:nth-child(11) {
-  width: var(--payment-column-width) !important;
+  width: auto !important;
 }
 
 .credit-accounts-table th:nth-child(12),
 .credit-accounts-table td:nth-child(12) {
-  width: var(--next-balance-column-width) !important;
+  width: auto !important;
 }
 
 .credit-accounts-table th:nth-child(13),
 .credit-accounts-table td:nth-child(13) {
-  width: var(--trailing-column-width) !important;
+  width: auto !important;
 }
 
 .table-summary-row {
@@ -1048,6 +1043,10 @@ tbody tr:hover {
 
 .table-summary-row td {
   color: #0f172a;
+}
+
+.credit-accounts-table .table-summary-row td:nth-child(3) {
+  text-align: left;
 }
 
 .add-row-tr td {
@@ -1089,17 +1088,17 @@ tbody tr:hover {
 }
 
 .select-col {
-  width: 8px !important;
-  min-width: 8px !important;
-  max-width: 8px !important;
+  width: 16px !important;
+  min-width: 16px !important;
+  max-width: 16px !important;
   text-align: center;
   padding: 0 !important;
   overflow: hidden;
 }
 
 .select-col input[type='checkbox'] {
-  width: 12px;
-  height: 12px;
+  width: 24px;
+  height: 24px;
   min-height: 0;
   padding: 0;
   margin: 0 auto;
@@ -1377,13 +1376,15 @@ input.section-title-input {
 }
 
 .compact-expense-table {
-  display: block;
-  width: 100%;
+  display: inline-block;
+  width: fit-content;
   max-width: 100%;
+  overflow-x: auto;
 }
 
 .debit-expenses-table {
-  width: 100%;
+  width: max-content;
+  max-width: 100%;
   table-layout: auto;
 }
 
@@ -1400,6 +1401,7 @@ input.section-title-input {
 .debit-expenses-table th:nth-child(2),
 .debit-expenses-table td:nth-child(2) {
   width: auto !important;
+  min-width: 16.3296rem;
 }
 
 .debit-expenses-table td:nth-child(2) .editable-label-row,
@@ -1435,10 +1437,13 @@ input.section-title-input {
 .debit-expenses-table td {
   padding: 0;
   line-height: 1;
+  overflow: hidden;
 }
 
 .credit-accounts-table input,
 .debit-expenses-table input {
+  min-width: 0;
+  max-width: 100%;
   min-height: 18px;
   height: 18px;
   padding: 0;
