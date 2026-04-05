@@ -57,6 +57,15 @@ type AuthStatusResponse = {
   pictureUrl: string | null
 }
 
+type PlanViewMode = 'personal' | 'sample'
+
+type PersonalPlanSnapshot = {
+  data: FinancialPlanData
+  loadedSignature: string | null
+  saveState: 'idle' | 'loading' | 'saving' | 'saved' | 'error'
+  saveMessage: string
+}
+
 type AnalyticsKpiCard = {
   label: string
   value: string | number
@@ -514,11 +523,15 @@ export default function App() {
   const [saveState, setSaveState] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('loading')
   const [saveMessage, setSaveMessage] = useState('Loading saved plan...')
   const [loadedPlanSignature, setLoadedPlanSignature] = useState<string | null>(null)
+  const [planViewMode, setPlanViewMode] = useState<PlanViewMode>('personal')
+  const [personalPlanSnapshot, setPersonalPlanSnapshot] = useState<PersonalPlanSnapshot | null>(null)
+  const [hasSavedPersonalPlan, setHasSavedPersonalPlan] = useState(false)
   const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking')
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthStatusResponse | null>(null)
   const [authMessage, setAuthMessage] = useState('Checking sign-in status...')
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false)
+  const [isSampleConfirmDialogOpen, setIsSampleConfirmDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [deleteState, setDeleteState] = useState<'idle' | 'deleting' | 'error'>('idle')
   const [deleteMessage, setDeleteMessage] = useState('')
@@ -546,6 +559,8 @@ export default function App() {
       setIncomeSubsections(data.incomeSubsections ?? defaultIncomeSubsections)
       setNewBankSubsectionIds(new Set())
       setSelectedBankSubsectionIds(new Set())
+      setSelectedCreditIds(new Set())
+      setSelectedExpenseIds(new Set())
     }
 
     const loadFinancialPlan = async () => {
@@ -572,11 +587,20 @@ export default function App() {
         }
 
         const data: FinancialPlanData = await response.json()
+        const hasSavedPlanHeader = response.headers.get('X-Has-Saved-Plan')
         if (!isMounted) {
           return
         }
 
         applyFinancialPlan(data)
+        setPlanViewMode('personal')
+        setPersonalPlanSnapshot({
+          data,
+          loadedSignature: getFinancialPlanSignature(data),
+          saveState: 'idle',
+          saveMessage: '',
+        })
+        setHasSavedPersonalPlan(hasSavedPlanHeader === 'true')
         setLoadedPlanSignature(getFinancialPlanSignature(data))
         setAuthState('authenticated')
         setSaveState('idle')
@@ -587,6 +611,7 @@ export default function App() {
         }
 
         setLoadedPlanSignature(getFinancialPlanSignature(defaultFinancialPlanData))
+        setHasSavedPersonalPlan(false)
         setAuthState('error')
         setAuthMessage('Authentication or API service unavailable.')
         setSaveState('error')
@@ -611,6 +636,7 @@ export default function App() {
 
         if (!authData.authenticated) {
           setAuthenticatedUser(null)
+          setHasSavedPersonalPlan(false)
           setAuthState('unauthenticated')
           setAuthMessage(loginStatus === 'error' ? 'Google sign-in failed. Try again.' : 'Sign in with Google to continue.')
           setSaveState('idle')
@@ -628,6 +654,7 @@ export default function App() {
         }
 
         setAuthenticatedUser(null)
+        setHasSavedPersonalPlan(false)
         setAuthState('error')
         setAuthMessage('Authentication service unavailable.')
         setSaveState('error')
@@ -1533,10 +1560,17 @@ export default function App() {
     ],
   )
 
-  const hasUnsavedChanges = loadedPlanSignature !== null && currentPlanSignature !== loadedPlanSignature
+  const isSampleMode = planViewMode === 'sample'
+  const sampleHasLocalChanges = isSampleMode && loadedPlanSignature !== null && currentPlanSignature !== loadedPlanSignature
+
+  const hasUnsavedChanges = !isSampleMode && loadedPlanSignature !== null && currentPlanSignature !== loadedPlanSignature
 
   const statusText =
-    saveState === 'loading' || saveState === 'saving'
+    isSampleMode
+      ? sampleHasLocalChanges
+        ? 'Sample changes are local only'
+        : 'Viewing sample plan'
+      : saveState === 'loading' || saveState === 'saving'
       ? saveMessage
       : hasUnsavedChanges
         ? 'Unsaved changes'
@@ -1544,7 +1578,7 @@ export default function App() {
           ? saveMessage
           : ''
 
-  const statusClassName = `status-text status-${hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
+  const statusClassName = `status-text status-${isSampleMode ? 'saved' : hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
 
   const applyFinancialPlan = (data: FinancialPlanData) => {
     setCreditAccounts(data.creditAccounts)
@@ -1557,6 +1591,9 @@ export default function App() {
     setSectionTitles(normalizeSectionTitles(data.sectionTitles))
     setIncomeSubsections(data.incomeSubsections ?? defaultIncomeSubsections)
     setNewBankSubsectionIds(new Set())
+    setSelectedBankSubsectionIds(new Set())
+    setSelectedCreditIds(new Set())
+    setSelectedExpenseIds(new Set())
   }
 
   const persistFinancialPlan = async (
@@ -1564,6 +1601,14 @@ export default function App() {
     successMessage = 'Saved to server',
     onSuccess?: () => void,
   ) => {
+    if (isSampleMode) {
+      applyFinancialPlan(payload)
+      onSuccess?.()
+      setSaveState('idle')
+      setSaveMessage('')
+      return true
+    }
+
     setSaveState('saving')
     setSaveMessage('Saving...')
 
@@ -1592,7 +1637,14 @@ export default function App() {
 
       const savedData: FinancialPlanData = await response.json()
       applyFinancialPlan(savedData)
-  setLoadedPlanSignature(getFinancialPlanSignature(savedData))
+        setLoadedPlanSignature(getFinancialPlanSignature(savedData))
+      setPersonalPlanSnapshot({
+        data: savedData,
+        loadedSignature: getFinancialPlanSignature(savedData),
+        saveState: 'saved',
+        saveMessage: successMessage,
+      })
+        setHasSavedPersonalPlan(true)
       onSuccess?.()
       setSaveState('saved')
       setSaveMessage(successMessage)
@@ -1605,6 +1657,12 @@ export default function App() {
   }
 
   const handleSave = async () => {
+    if (isSampleMode) {
+      setSaveState('idle')
+      setSaveMessage('')
+      return
+    }
+
     await persistFinancialPlan(buildPayload())
   }
 
@@ -1625,11 +1683,147 @@ export default function App() {
     setAuthenticatedUser(null)
     setAuthState('unauthenticated')
     setAuthMessage('Signed out.')
+    setPlanViewMode('personal')
+    setPersonalPlanSnapshot(null)
+    setHasSavedPersonalPlan(false)
     setSaveState('idle')
     setSaveMessage('')
   }
 
+  const openSamplePlan = async () => {
+    if (isSampleMode) {
+      return
+    }
+
+    setIsUserMenuOpen(false)
+    setIsSampleConfirmDialogOpen(false)
+    setSaveState('loading')
+    setSaveMessage('Loading sample plan...')
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/sample`, {
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setPlanViewMode('personal')
+        setPersonalPlanSnapshot(null)
+        setSaveState('idle')
+        setSaveMessage('')
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to load sample financial plan: ${response.status}`)
+      }
+
+      const sampleData: FinancialPlanData = await response.json()
+      applyFinancialPlan(sampleData)
+      setPlanViewMode('sample')
+      setLoadedPlanSignature(getFinancialPlanSignature(sampleData))
+      setSaveState('idle')
+      setSaveMessage('')
+    } catch {
+      setSaveState('error')
+      setSaveMessage('Sample plan failed to load. Check the API server.')
+    }
+  }
+
+  const shouldWarnBeforeSwitchingToSample = !isSampleMode && hasUnsavedChanges
+
+  const handleSampleClick = async () => {
+    if (shouldWarnBeforeSwitchingToSample) {
+      setIsUserMenuOpen(false)
+      setIsSampleConfirmDialogOpen(true)
+      return
+    }
+
+    await openSamplePlan()
+  }
+
+  const handleSampleConfirmCancel = () => {
+    if (saveState === 'saving') {
+      return
+    }
+
+    setIsSampleConfirmDialogOpen(false)
+  }
+
+  const handleSampleConfirmProceed = async () => {
+    await openSamplePlan()
+  }
+
+  const handleSampleConfirmSaveAndProceed = async () => {
+    const saved = await persistFinancialPlan(buildPayload(), 'Saved to server')
+    if (!saved) {
+      return
+    }
+
+    await openSamplePlan()
+  }
+
+  const handleReturnToMyPlan = async () => {
+    setIsUserMenuOpen(false)
+    setSaveState('loading')
+    setSaveMessage('Loading your plan...')
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan`, {
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setPlanViewMode('personal')
+        setPersonalPlanSnapshot(null)
+        setSaveState('idle')
+        setSaveMessage('')
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to load financial plan: ${response.status}`)
+      }
+
+      const data: FinancialPlanData = await response.json()
+      const hasSavedPlanHeader = response.headers.get('X-Has-Saved-Plan')
+
+      applyFinancialPlan(data)
+      setLoadedPlanSignature(getFinancialPlanSignature(data))
+      setPersonalPlanSnapshot({
+        data,
+        loadedSignature: getFinancialPlanSignature(data),
+        saveState: 'idle',
+        saveMessage: '',
+      })
+      setHasSavedPersonalPlan(hasSavedPlanHeader === 'true')
+      setPlanViewMode('personal')
+      setSaveState('idle')
+      setSaveMessage('')
+    } catch {
+      if (personalPlanSnapshot) {
+        applyFinancialPlan(personalPlanSnapshot.data)
+        setLoadedPlanSignature(personalPlanSnapshot.loadedSignature)
+        setSaveState(personalPlanSnapshot.saveState === 'loading' || personalPlanSnapshot.saveState === 'saving' ? 'idle' : personalPlanSnapshot.saveState)
+        setSaveMessage(personalPlanSnapshot.saveMessage)
+        setPlanViewMode('personal')
+      } else {
+        setSaveState('error')
+        setSaveMessage('Failed to reload your plan. Check the API server.')
+      }
+    }
+  }
+
   const handleDeleteTrackerClick = () => {
+    if (isSampleMode) {
+      return
+    }
+
     setIsUserMenuOpen(false)
     setDeleteState('idle')
     setDeleteMessage('')
@@ -1656,6 +1850,11 @@ export default function App() {
   }
 
   const handleDeleteTrackerConfirm = async () => {
+    if (isSampleMode) {
+      setIsDeleteDialogOpen(false)
+      return
+    }
+
     setDeleteState('deleting')
     setDeleteMessage('Deleting your tracker data...')
     setSaveState('loading')
@@ -1706,6 +1905,13 @@ export default function App() {
       const freshData: FinancialPlanData = await reloadResponse.json()
       applyFinancialPlan(freshData)
       setLoadedPlanSignature(getFinancialPlanSignature(freshData))
+      setPersonalPlanSnapshot({
+        data: freshData,
+        loadedSignature: getFinancialPlanSignature(freshData),
+        saveState: 'saved',
+        saveMessage: 'Tracker deleted. Started fresh with a new plan.',
+      })
+      setHasSavedPersonalPlan(false)
       setIsDeleteDialogOpen(false)
       setDeleteState('idle')
       setDeleteMessage('')
@@ -1767,12 +1973,23 @@ export default function App() {
               </button>
               {isUserMenuOpen ? (
                 <div className="user-menu-dropdown" role="menu">
+                  {isSampleMode ? (
+                    <button type="button" className="user-menu-item" onClick={handleReturnToMyPlan} role="menuitem">
+                      Back to My Plan
+                    </button>
+                  ) : (
+                    <button type="button" className="user-menu-item" onClick={handleSampleClick} role="menuitem">
+                      Sample
+                    </button>
+                  )}
                   <button type="button" className="user-menu-item" onClick={handleHelpClick} role="menuitem">
                     Help
                   </button>
-                  <button type="button" className="user-menu-item user-menu-item-danger" onClick={handleDeleteTrackerClick} role="menuitem">
-                    Delete My Tracker
-                  </button>
+                  {!isSampleMode ? (
+                    <button type="button" className="user-menu-item user-menu-item-danger" onClick={handleDeleteTrackerClick} role="menuitem">
+                      Delete My Tracker
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -1787,13 +2004,25 @@ export default function App() {
               Start New Budget Cycle
             </button>
           </span>
-          <button type="button" className="toolbar-button" onClick={handleSave} disabled={saveState === 'loading' || saveState === 'saving'}>
-            {saveState === 'saving' ? 'Saving...' : 'Save Changes'}
+          <button type="button" className="toolbar-button" onClick={handleSave} disabled={isSampleMode || saveState === 'loading' || saveState === 'saving'}>
+            {isSampleMode ? 'Sample Not Saved' : saveState === 'saving' ? 'Saving...' : 'Save Changes'}
           </button>
           <button type="button" className="toolbar-button" onClick={handleLogout}>Sign Out</button>
           <span className={statusClassName}>{statusText}</span>
         </div>
       </header>
+
+      {isSampleMode ? (
+        <section className="sample-banner" aria-label="Sample plan mode">
+          <div>
+            <strong>Viewing sample plan</strong>
+            <span>Changes stay only in this browser session and are not saved to the server.</span>
+          </div>
+          <button type="button" className="toolbar-button" onClick={handleReturnToMyPlan}>
+            Go Back To My Plan
+          </button>
+        </section>
+      ) : null}
 
       <section className="analytics-strip" aria-label="Top financial alerts">
         {overdueAlertData.map((item) => (
@@ -1887,6 +2116,29 @@ export default function App() {
             <div className="modal-actions">
               <button type="button" className="toolbar-button" onClick={handleHelpClose}>
                 Close
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isSampleConfirmDialogOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="sample-switch-title">
+            <p className="eyebrow help-eyebrow">Unsaved Changes</p>
+            <h2 id="sample-switch-title">Switch To Sample Plan?</h2>
+            <p className="help-intro">
+              You have unsaved changes in your plan. You can save first, or proceed to the sample plan and lose those unsaved changes.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="toolbar-button" onClick={handleSampleConfirmCancel} disabled={saveState === 'saving'}>
+                Cancel
+              </button>
+              <button type="button" className="toolbar-button" onClick={handleSampleConfirmProceed} disabled={saveState === 'saving'}>
+                Proceed To Sample
+              </button>
+              <button type="button" className="toolbar-button" onClick={handleSampleConfirmSaveAndProceed} disabled={saveState === 'saving'}>
+                {saveState === 'saving' ? 'Saving...' : 'Save And Proceed'}
               </button>
             </div>
           </section>
