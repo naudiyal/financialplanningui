@@ -139,6 +139,25 @@ html, body, #root {
   outline-offset: 2px;
 }
 
+.user-chip-highlight {
+  border-color: #2563eb;
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+  animation: samplePromptPulse 1.15s ease-in-out infinite;
+}
+
+@keyframes samplePromptPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.12);
+    transform: translateY(0);
+  }
+
+  50% {
+    box-shadow: 0 0 0 0.28rem rgba(37, 99, 235, 0.22);
+    transform: translateY(-1px);
+  }
+}
+
 .user-chip div {
   display: grid;
   min-width: 0;
@@ -202,6 +221,16 @@ html, body, #root {
 
 .user-menu-item:hover {
   background: #f8fafc;
+}
+
+.user-menu-item-highlight {
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.28);
+  animation: samplePromptPulse 1.15s ease-in-out infinite;
+}
+
+.user-menu-item-highlight:hover {
+  background: linear-gradient(180deg, #f8fbff 0%, #dbeafe 100%);
 }
 
 .user-menu-item-danger {

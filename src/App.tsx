@@ -530,12 +530,14 @@ export default function App() {
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthStatusResponse | null>(null)
   const [authMessage, setAuthMessage] = useState('Checking sign-in status...')
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
+  const [showSamplePrompt, setShowSamplePrompt] = useState(false)
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false)
   const [isSampleConfirmDialogOpen, setIsSampleConfirmDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [deleteState, setDeleteState] = useState<'idle' | 'deleting' | 'error'>('idle')
   const [deleteMessage, setDeleteMessage] = useState('')
   const userMenuRef = useRef<HTMLDivElement | null>(null)
+  const dismissSamplePromptOnMenuCloseRef = useRef(false)
 
   useEffect(() => {
     let isMounted = true
@@ -601,6 +603,7 @@ export default function App() {
           saveMessage: '',
         })
         setHasSavedPersonalPlan(hasSavedPlanHeader === 'true')
+        setShowSamplePrompt(hasSavedPlanHeader !== 'true')
         setLoadedPlanSignature(getFinancialPlanSignature(data))
         setAuthState('authenticated')
         setSaveState('idle')
@@ -612,6 +615,7 @@ export default function App() {
 
         setLoadedPlanSignature(getFinancialPlanSignature(defaultFinancialPlanData))
         setHasSavedPersonalPlan(false)
+        setShowSamplePrompt(false)
         setAuthState('error')
         setAuthMessage('Authentication or API service unavailable.')
         setSaveState('error')
@@ -637,6 +641,7 @@ export default function App() {
         if (!authData.authenticated) {
           setAuthenticatedUser(null)
           setHasSavedPersonalPlan(false)
+          setShowSamplePrompt(false)
           setAuthState('unauthenticated')
           setAuthMessage(loginStatus === 'error' ? 'Google sign-in failed. Try again.' : 'Sign in with Google to continue.')
           setSaveState('idle')
@@ -655,6 +660,7 @@ export default function App() {
 
         setAuthenticatedUser(null)
         setHasSavedPersonalPlan(false)
+        setShowSamplePrompt(false)
         setAuthState('error')
         setAuthMessage('Authentication service unavailable.')
         setSaveState('error')
@@ -671,7 +677,15 @@ export default function App() {
 
   useEffect(() => {
     if (!isUserMenuOpen) {
+      if (dismissSamplePromptOnMenuCloseRef.current && showSamplePrompt) {
+        dismissSamplePromptOnMenuCloseRef.current = false
+        setShowSamplePrompt(false)
+      }
       return
+    }
+
+    if (showSamplePrompt) {
+      dismissSamplePromptOnMenuCloseRef.current = true
     }
 
     const handlePointerDown = (event: MouseEvent) => {
@@ -685,7 +699,7 @@ export default function App() {
     return () => {
       document.removeEventListener('mousedown', handlePointerDown)
     }
-  }, [isUserMenuOpen])
+  }, [isUserMenuOpen, showSamplePrompt])
 
   const updateAccountById = (accountId: string, field: string, value: number | string | boolean) => {
     setCreditAccounts((current) =>
@@ -1645,6 +1659,7 @@ export default function App() {
         saveMessage: successMessage,
       })
         setHasSavedPersonalPlan(true)
+      setShowSamplePrompt(false)
       onSuccess?.()
       setSaveState('saved')
       setSaveMessage(successMessage)
@@ -1686,6 +1701,7 @@ export default function App() {
     setPlanViewMode('personal')
     setPersonalPlanSnapshot(null)
     setHasSavedPersonalPlan(false)
+    setShowSamplePrompt(false)
     setSaveState('idle')
     setSaveMessage('')
   }
@@ -1912,6 +1928,7 @@ export default function App() {
         saveMessage: 'Tracker deleted. Started fresh with a new plan.',
       })
       setHasSavedPersonalPlan(false)
+      setShowSamplePrompt(false)
       setIsDeleteDialogOpen(false)
       setDeleteState('idle')
       setDeleteMessage('')
@@ -1958,7 +1975,7 @@ export default function App() {
             <div className="user-menu" ref={userMenuRef}>
               <button
                 type="button"
-                className="user-chip user-chip-button"
+                className={joinClassNames('user-chip user-chip-button', showSamplePrompt ? 'user-chip-highlight' : undefined)}
                 onClick={() => setIsUserMenuOpen((current) => !current)}
                 aria-expanded={isUserMenuOpen}
                 aria-haspopup="menu"
@@ -1978,18 +1995,23 @@ export default function App() {
                       Back to My Plan
                     </button>
                   ) : (
-                    <button type="button" className="user-menu-item" onClick={handleSampleClick} role="menuitem">
-                      Sample
+                    <button
+                      type="button"
+                      className={joinClassNames('user-menu-item', showSamplePrompt ? 'user-menu-item-highlight' : undefined)}
+                      onClick={handleSampleClick}
+                      role="menuitem"
+                    >
+                      Sample Tracker
                     </button>
                   )}
-                  <button type="button" className="user-menu-item" onClick={handleHelpClick} role="menuitem">
-                    Help
-                  </button>
                   {!isSampleMode ? (
                     <button type="button" className="user-menu-item user-menu-item-danger" onClick={handleDeleteTrackerClick} role="menuitem">
                       Delete My Tracker
                     </button>
                   ) : null}
+                  <button type="button" className="user-menu-item" onClick={handleHelpClick} role="menuitem">
+                    Help
+                  </button>
                 </div>
               ) : null}
             </div>
