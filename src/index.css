@@ -329,6 +329,204 @@ html, body, #root {
   line-height: 1.55;
 }
 
+.help-visual-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.55rem;
+}
+
+.help-visual-card {
+  padding: 0.7rem;
+  border: 1px solid #dbe4f0;
+  border-radius: 0.85rem;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.help-visual-card h4 {
+  margin: 0.55rem 0 0;
+  font-size: 0.82rem;
+  color: #0f172a;
+}
+
+.help-visual-card p {
+  margin: 0.22rem 0 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.help-visual-frame {
+  padding: 0.65rem;
+  border: 1px solid #dbe4f0;
+  border-radius: 0.75rem;
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 42%),
+    linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
+}
+
+.help-mock-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.help-mock-chip,
+.help-mock-button,
+.help-mock-banner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.45rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.help-mock-chip {
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.help-mock-button {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.help-mock-button-muted {
+  color: #64748b;
+}
+
+.help-mock-banner {
+  margin-top: 0.45rem;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid #bfdbfe;
+  border-radius: 0.6rem;
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+  color: #1d4ed8;
+}
+
+.help-mock-table {
+  display: grid;
+  gap: 0.24rem;
+}
+
+.help-mock-table-header,
+.help-mock-table-row,
+.help-mock-table-total {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.28rem 0.38rem;
+  border-radius: 0.45rem;
+  font-size: 0.62rem;
+}
+
+.help-mock-table-header {
+  background: #e2e8f0;
+  color: #334155;
+  font-weight: 700;
+}
+
+.help-mock-table-row {
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+}
+
+.help-mock-table-total {
+  background: #dbeafe;
+  color: #1e3a8a;
+  font-weight: 700;
+}
+
+.help-mock-table-compact .help-mock-table-header,
+.help-mock-table-compact .help-mock-table-row {
+  grid-template-columns: minmax(0, 1.8fr) repeat(2, minmax(0, 0.9fr));
+}
+
+.help-mock-split-bars {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.help-mock-bar {
+  height: 0.7rem;
+  border-radius: 999px;
+}
+
+.help-mock-bar-current {
+  background: linear-gradient(90deg, #f97316 0%, #fb923c 100%);
+}
+
+.help-mock-bar-next {
+  background: linear-gradient(90deg, #0f766e 0%, #14b8a6 100%);
+}
+
+.help-mock-bank-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.help-mock-bank-card {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.45rem;
+  border: 1px solid #dbe4f0;
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.help-mock-bank-card strong {
+  font-size: 0.64rem;
+  color: #0f172a;
+}
+
+.help-mock-bank-card span {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #1d4ed8;
+}
+
+.help-mock-chart {
+  display: flex;
+  align-items: end;
+  gap: 0.45rem;
+  height: 4.2rem;
+  margin-top: 0.55rem;
+  padding: 0.35rem 0.2rem 0;
+  border-top: 1px solid #cbd5e1;
+}
+
+.help-mock-chart-bar {
+  flex: 1 1 0;
+  border-radius: 0.4rem 0.4rem 0 0;
+}
+
+.help-mock-chart-bar-in {
+  height: 78%;
+  background: linear-gradient(180deg, #34d399 0%, #059669 100%);
+}
+
+.help-mock-chart-bar-out {
+  height: 56%;
+  background: linear-gradient(180deg, #fb7185 0%, #e11d48 100%);
+}
+
+.help-mock-chart-bar-net {
+  height: 42%;
+  background: linear-gradient(180deg, #93c5fd 0%, #2563eb 100%);
+}
+
 .danger-modal {
   border: 1px solid #fecaca;
   background: linear-gradient(180deg, #fffafa 0%, #ffffff 100%);
@@ -883,7 +1081,7 @@ table {
 
 .credit-accounts-table th:nth-child(2),
 .credit-accounts-table td:nth-child(2) {
-  min-width: 16.3296rem;
+  min-width: 14.69664rem;
 }
 
 .credit-accounts-table .sortable-header {
@@ -1401,7 +1599,7 @@ input.section-title-input {
 .debit-expenses-table th:nth-child(2),
 .debit-expenses-table td:nth-child(2) {
   width: auto !important;
-  min-width: 16.3296rem;
+  min-width: 14.69664rem;
 }
 
 .debit-expenses-table td:nth-child(2) .editable-label-row,
@@ -1625,6 +1823,14 @@ input.section-title-input {
 
   .analytics-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .help-visual-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .help-mock-bank-grid {
+    grid-template-columns: 1fr;
   }
 
   .budget-cycle-header {

@@ -575,6 +575,7 @@ export default function App() {
   const [showSamplePrompt, setShowSamplePrompt] = useState(false)
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false)
   const [isSampleConfirmDialogOpen, setIsSampleConfirmDialogOpen] = useState(false)
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [deleteState, setDeleteState] = useState<'idle' | 'deleting' | 'error'>('idle')
   const [deleteMessage, setDeleteMessage] = useState('')
@@ -1755,6 +1756,35 @@ export default function App() {
     await persistFinancialPlan(buildPayload())
   }
 
+  const handleResetClick = () => {
+    if (isSampleMode || !hasUnsavedChanges || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving') {
+      return
+    }
+
+    setIsResetDialogOpen(true)
+  }
+
+  const handleResetCancel = () => {
+    if (saveState === 'loading' || saveState === 'saving') {
+      return
+    }
+
+    setIsResetDialogOpen(false)
+  }
+
+  const handleResetConfirm = () => {
+    if (!personalPlanSnapshot) {
+      setIsResetDialogOpen(false)
+      return
+    }
+
+    applyFinancialPlan(personalPlanSnapshot.data)
+    setLoadedPlanSignature(personalPlanSnapshot.loadedSignature)
+    setSaveState('saved')
+    setSaveMessage('Reset to last saved version.')
+    setIsResetDialogOpen(false)
+  }
+
   const handleLogin = () => {
     window.location.href = LOGIN_URL
   }
@@ -2103,13 +2133,21 @@ export default function App() {
           <button type="button" className="toolbar-button" onClick={handleSave} disabled={isSampleMode || saveState === 'loading' || saveState === 'saving'}>
             {isSampleMode ? 'Sample Not Saved' : saveState === 'saving' ? 'Saving...' : 'Save Changes'}
           </button>
+          <button
+            type="button"
+            className="toolbar-button"
+            onClick={handleResetClick}
+            disabled={isSampleMode || !hasUnsavedChanges || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving'}
+          >
+            Reset
+          </button>
           <button type="button" className="toolbar-button" onClick={handleLogout}>Sign Out</button>
           <span className={statusClassName}>{statusText}</span>
         </div>
       </header>
 
       {isSampleMode ? (
-        <section className="sample-banner" aria-label="Sample plan mode">
+        <section className="sample-banner" aria-label="Sample plan mode" style={creditWidthCapStyle}>
           <div>
             <strong>Viewing sample plan</strong>
             <span>Changes stay only in this browser session and are not saved to the server.</span>
@@ -2185,6 +2223,103 @@ export default function App() {
             </p>
 
             <div className="help-section">
+              <h3>Visual Walkthrough</h3>
+              <div className="help-visual-grid">
+                <article className="help-visual-card">
+                  <div className="help-visual-frame" aria-hidden="true">
+                    <div className="help-mock-toolbar">
+                      <span className="help-mock-chip">Sample Tracker</span>
+                      <span className="help-mock-button">Save Changes</span>
+                      <span className="help-mock-button help-mock-button-muted">Reset</span>
+                    </div>
+                    <div className="help-mock-banner">Viewing sample plan</div>
+                  </div>
+                  <h4>Top Toolbar</h4>
+                  <p>Use this area to save, reset local edits, enter sample mode, or start a new budget cycle.</p>
+                </article>
+
+                <article className="help-visual-card">
+                  <div className="help-visual-frame" aria-hidden="true">
+                    <div className="help-mock-table">
+                      <div className="help-mock-table-header">
+                        <span>Account</span>
+                        <span>Avail Credit</span>
+                        <span>Total Due</span>
+                      </div>
+                      <div className="help-mock-table-row">
+                        <span>Chase Freedom</span>
+                        <span>$4,250</span>
+                        <span>$320</span>
+                      </div>
+                      <div className="help-mock-table-row">
+                        <span>Amex Gold</span>
+                        <span>$2,880</span>
+                        <span>$145</span>
+                      </div>
+                      <div className="help-mock-table-total">
+                        <span>Credit Card Totals</span>
+                        <span>$7,130</span>
+                        <span>$465</span>
+                      </div>
+                    </div>
+                  </div>
+                  <h4>Credit Card Accounts</h4>
+                  <p>Track balances, due dates, and statement-cycle state. Totals at the bottom summarize overall exposure.</p>
+                </article>
+
+                <article className="help-visual-card">
+                  <div className="help-visual-frame" aria-hidden="true">
+                    <div className="help-mock-table help-mock-table-compact">
+                      <div className="help-mock-table-header">
+                        <span>Expense</span>
+                        <span>Current</span>
+                        <span>Next</span>
+                      </div>
+                      <div className="help-mock-table-row">
+                        <span>Rent - Plano</span>
+                        <span>$1,800</span>
+                        <span>$1,800</span>
+                      </div>
+                      <div className="help-mock-table-row">
+                        <span>Utilities - Home</span>
+                        <span>$240</span>
+                        <span>$210</span>
+                      </div>
+                    </div>
+                    <div className="help-mock-split-bars">
+                      <span className="help-mock-bar help-mock-bar-current"></span>
+                      <span className="help-mock-bar help-mock-bar-next"></span>
+                    </div>
+                  </div>
+                  <h4>Debit Card Expenses</h4>
+                  <p>Separate what belongs to the current month from what should roll into next month.</p>
+                </article>
+
+                <article className="help-visual-card">
+                  <div className="help-visual-frame" aria-hidden="true">
+                    <div className="help-mock-bank-grid">
+                      <div className="help-mock-bank-card">
+                        <strong>Chase Checking</strong>
+                        <span>$6,420</span>
+                      </div>
+                      <div className="help-mock-bank-card">
+                        <strong>Month-End Salary</strong>
+                        <span>$3,100</span>
+                      </div>
+                    </div>
+                    <div className="help-mock-chart">
+                      <span className="help-mock-chart-bar help-mock-chart-bar-in"></span>
+                      <span className="help-mock-chart-bar help-mock-chart-bar-out"></span>
+                      <span className="help-mock-chart-bar help-mock-chart-bar-net"></span>
+                    </div>
+                  </div>
+                  <h4>Bank Accounts And Cash Flow</h4>
+                  <p>Use balances and income timing together with the chart to understand how much cash remains after expenses.</p>
+                </article>
+              </div>
+            </div>
+
+            <div className="help-section">
               <h3>What This Application Helps You Manage</h3>
               <ul className="help-list">
                 <li>Credit card balances, payment dates, statement balances, and projected next statement balances.</li>
@@ -2230,7 +2365,10 @@ export default function App() {
             <div className="help-section">
               <h3>Important Workflow Actions</h3>
               <ul className="help-list">
-                <li>Save Changes writes your current tracker data for your signed-in account.</li>
+                <li>Save Changes writes your current tracker data for your signed-in account and makes that version your new saved baseline.</li>
+                <li>Reset discards unsaved local edits and restores the tracker to the last loaded or saved version after you confirm the warning.</li>
+                <li>Sample Tracker opens a temporary sample plan view. Changes there stay only in the current browser session and are not written to your saved plan.</li>
+                <li>Go Back To My Plan leaves sample mode and reloads your personal tracker.</li>
                 <li>Start New Budget Cycle clears paid and statement-cycled flags, copies next month debit expenses into current month, advances pay dates by one month, and keeps debit next month values unchanged.</li>
                 <li>Start New Budget Cycle is only enabled when all credit cards are marked paid, all statements are marked statement cycled, and all debit card current month expenses are 0.</li>
                 <li>Delete My Tracker removes only your saved tracker data and then starts you fresh with a new seeded tracker.</li>
@@ -2241,8 +2379,10 @@ export default function App() {
               <h3>Business Rules To Keep In Mind</h3>
               <ul className="help-list">
                 <li>Your data is tied to your signed-in Google account, so each user works with their own saved tracker.</li>
+                <li>Unsaved edits are only local until you use Save Changes.</li>
                 <li>Projections are only as accurate as the payment dates, balances, and current versus next month assignments you maintain.</li>
                 <li>Debit expense labels affect chart grouping, so consistent label prefixes make the category chart more useful.</li>
+                <li>Reset only affects your current unsaved edits. Delete My Tracker affects your saved personal data.</li>
                 <li>Deleting your tracker does not delete other users&apos; data. It only resets your own saved plan.</li>
               </ul>
             </div>
@@ -2273,6 +2413,34 @@ export default function App() {
               </button>
               <button type="button" className="toolbar-button" onClick={handleSampleConfirmSaveAndProceed} disabled={saveState === 'saving'}>
                 {saveState === 'saving' ? 'Saving...' : 'Save And Proceed'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isResetDialogOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card danger-modal" role="alertdialog" aria-modal="true" aria-labelledby="reset-tracker-title">
+            <p className="eyebrow danger-eyebrow">Unsaved Changes</p>
+            <h2 id="reset-tracker-title">Reset Tracker Changes?</h2>
+            <p className="danger-copy">
+              This will discard your unsaved changes and restore the tracker to the last saved version.
+            </p>
+            <p className="danger-copy-subtle">
+              If you continue, you will lose the changes you made since the last load or save.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="toolbar-button" onClick={handleResetCancel} disabled={saveState === 'loading' || saveState === 'saving'}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="toolbar-button destructive-button"
+                onClick={handleResetConfirm}
+                disabled={saveState === 'loading' || saveState === 'saving'}
+              >
+                Reset Changes
               </button>
             </div>
           </section>
