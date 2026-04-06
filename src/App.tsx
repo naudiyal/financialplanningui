@@ -59,11 +59,35 @@ type AuthStatusResponse = {
 
 type PlanViewMode = 'personal' | 'sample'
 
+type CycleSelection = 'current' | 'previous'
+
+type CyclePeriod = {
+  startDate: string
+  endDate: string
+}
+
+type FinancialPlanCycleResponse = {
+  data: FinancialPlanData
+  selectedCycle: CycleSelection
+  currentCycle: CyclePeriod
+  previousCycle: CyclePeriod | null
+  hasPreviousCycle: boolean
+  readOnly: boolean
+  hasSavedPlan: boolean
+  canCloseCycle: boolean
+}
+
 type PersonalPlanSnapshot = {
   data: FinancialPlanData
   loadedSignature: string | null
   saveState: 'idle' | 'loading' | 'saving' | 'saved' | 'error'
   saveMessage: string
+}
+
+type PendingCloseCycleReset = {
+  currentCycle: CyclePeriod
+  previousCycle: CyclePeriod
+  previousData: FinancialPlanData
 }
 
 type AnalyticsKpiCard = {
@@ -276,7 +300,11 @@ const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData 
   incomeSubsections: data.incomeSubsections ?? defaultIncomeSubsections,
 })
 
-const getFinancialPlanSignature = (data: FinancialPlanData) => JSON.stringify(normalizeFinancialPlanData(data))
+const getFinancialPlanSignature = (data: FinancialPlanData) =>
+  JSON.stringify(normalizeFinancialPlanData({
+    ...data,
+    summary: undefined,
+  }))
 
 const chartCurrency = (value: number) =>
   new Intl.NumberFormat('en-US', {
@@ -298,39 +326,65 @@ const formatLongDate = (value: Date) =>
 const formatCompactCycleDate = (value: Date) =>
   value.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
-const createLocalDate = (year: number, monthIndex: number, day: number) => new Date(year, monthIndex, day, 12)
+const formatCycleBoundaryDate = (value: string) =>
+  new Date(`${value}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
-const getBudgetCycleTimeline = (today: Date) => {
-  const cycleAnchorDay = 15
+const formatCompactCycleBoundaryDate = (value: string) =>
+  new Date(`${value}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+const formatCycleRangeLabel = (cyclePeriod: CyclePeriod) =>
+  `${formatCycleBoundaryDate(cyclePeriod.startDate)} - ${formatCycleBoundaryDate(cyclePeriod.endDate)}`
+
+const buildNaturalCurrentCycle = (today: Date): CyclePeriod => {
   const currentDate = createLocalDate(today.getFullYear(), today.getMonth(), today.getDate())
-  const previousMidMonth =
-    currentDate.getDate() >= cycleAnchorDay
-      ? createLocalDate(currentDate.getFullYear(), currentDate.getMonth(), cycleAnchorDay)
-      : createLocalDate(currentDate.getFullYear(), currentDate.getMonth() - 1, cycleAnchorDay)
-  const nextMidMonth = createLocalDate(previousMidMonth.getFullYear(), previousMidMonth.getMonth() + 1, cycleAnchorDay)
-  const endOfMonth = createLocalDate(previousMidMonth.getFullYear(), previousMidMonth.getMonth() + 1, 0)
-  const millisecondsPerDay = 24 * 60 * 60 * 1000
-  const totalDays = Math.max(1, Math.round((nextMidMonth.getTime() - previousMidMonth.getTime()) / millisecondsPerDay))
-  const elapsedDays = Math.min(totalDays, Math.max(0, Math.round((currentDate.getTime() - previousMidMonth.getTime()) / millisecondsPerDay)))
-  const remainingDays = Math.max(0, totalDays - elapsedDays)
-  const progressPercent = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100))
-  const markerPercent = Math.min(96, Math.max(4, progressPercent))
-  const endOfMonthPercent = Math.min(
-    96,
-    Math.max(4, (Math.round((endOfMonth.getTime() - previousMidMonth.getTime()) / millisecondsPerDay) / totalDays) * 100),
-  )
+  const cycleStart =
+    currentDate.getDate() >= 16
+      ? createLocalDate(currentDate.getFullYear(), currentDate.getMonth(), 16)
+      : createLocalDate(currentDate.getFullYear(), currentDate.getMonth() - 1, 16)
+  const cycleEnd = createLocalDate(cycleStart.getFullYear(), cycleStart.getMonth() + 1, 15)
 
   return {
-    previousMidMonth,
+    startDate: cycleStart.toISOString().slice(0, 10),
+    endDate: cycleEnd.toISOString().slice(0, 10),
+  }
+}
+
+const buildNaturalPreviousCycle = (today: Date): CyclePeriod => {
+  const currentCycle = buildNaturalCurrentCycle(today)
+  const currentStart = new Date(`${currentCycle.startDate}T12:00:00`)
+  const previousStart = createLocalDate(currentStart.getFullYear(), currentStart.getMonth() - 1, 16)
+  const previousEnd = createLocalDate(currentStart.getFullYear(), currentStart.getMonth(), 15)
+
+  return {
+    startDate: previousStart.toISOString().slice(0, 10),
+    endDate: previousEnd.toISOString().slice(0, 10),
+  }
+}
+
+const createLocalDate = (year: number, monthIndex: number, day: number) => new Date(year, monthIndex, day, 12)
+
+const getBudgetCycleTimeline = (cyclePeriod: CyclePeriod, today: Date) => {
+  const currentDate = createLocalDate(today.getFullYear(), today.getMonth(), today.getDate())
+  const cycleStart = new Date(`${cyclePeriod.startDate}T12:00:00`)
+  const cycleEnd = new Date(`${cyclePeriod.endDate}T12:00:00`)
+  const millisecondsPerDay = 24 * 60 * 60 * 1000
+  const totalDays = Math.max(1, Math.round((cycleEnd.getTime() - cycleStart.getTime()) / millisecondsPerDay) + 1)
+  const isBeforeCycleStart = currentDate < cycleStart
+  const isAfterCycleEnd = currentDate > cycleEnd
+  const elapsedDays = Math.min(totalDays, Math.max(0, Math.round((currentDate.getTime() - cycleStart.getTime()) / millisecondsPerDay)))
+  const remainingDays = Math.max(0, totalDays - elapsedDays)
+  const progressPercent = Math.min(100, Math.max(0, (elapsedDays / totalDays) * 100))
+  const markerPercent = isBeforeCycleStart ? 0 : isAfterCycleEnd ? 100 : Math.min(96, Math.max(4, progressPercent))
+
+  return {
+    cycleStart,
     currentDate,
-    endOfMonth,
-    nextMidMonth,
+    cycleEnd,
     elapsedDays,
     remainingDays,
     totalDays,
     progressPercent,
     markerPercent,
-    endOfMonthPercent,
   }
 }
 
@@ -575,14 +629,27 @@ export default function App() {
   const [showSamplePrompt, setShowSamplePrompt] = useState(false)
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false)
   const [isSampleConfirmDialogOpen, setIsSampleConfirmDialogOpen] = useState(false)
+  const [isCycleSwitchDialogOpen, setIsCycleSwitchDialogOpen] = useState(false)
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isCloseCycleDialogOpen, setIsCloseCycleDialogOpen] = useState(false)
+  const [isRevertCycleDialogOpen, setIsRevertCycleDialogOpen] = useState(false)
   const [deleteState, setDeleteState] = useState<'idle' | 'deleting' | 'error'>('idle')
   const [deleteMessage, setDeleteMessage] = useState('')
+  const [selectedCycle, setSelectedCycle] = useState<CycleSelection>('current')
+  const [pendingCycleSelection, setPendingCycleSelection] = useState<CycleSelection | null>(null)
+  const [currentCyclePeriod, setCurrentCyclePeriod] = useState<CyclePeriod>(() => buildNaturalCurrentCycle(new Date()))
+  const [previousCyclePeriod, setPreviousCyclePeriod] = useState<CyclePeriod | null>(null)
+  const [pendingCloseCycleReset, setPendingCloseCycleReset] = useState<PendingCloseCycleReset | null>(null)
+  const [suppressCycleSwitchWarning, setSuppressCycleSwitchWarning] = useState(false)
+  const [hasCurrentCycleUserEdits, setHasCurrentCycleUserEdits] = useState(false)
+  const [needsPostCloseBaselineSync, setNeedsPostCloseBaselineSync] = useState(false)
+  const [closeCycleCarryoverBankData, setCloseCycleCarryoverBankData] = useState<Pick<FinancialPlanData, 'incomeItems' | 'balanceItems'> | null>(null)
   const [creditTableWidth, setCreditTableWidth] = useState<number | null>(null)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
   const creditTableWrapperRef = useRef<HTMLDivElement | null>(null)
   const dismissSamplePromptOnMenuCloseRef = useRef(false)
+  const skipNextCarryoverResetRef = useRef(false)
 
   useEffect(() => {
     let isMounted = true
@@ -592,80 +659,6 @@ export default function App() {
       const nextUrl = new URL(window.location.href)
       nextUrl.searchParams.delete('login')
       window.history.replaceState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`)
-    }
-
-    const applyFinancialPlan = (data: FinancialPlanData) => {
-      setCreditAccounts(data.creditAccounts)
-      setIncomeItemsState(data.incomeItems)
-      setBalanceItemsState(data.balanceItems)
-      setPlanoExpenses(data.planoExpenses)
-      setSanfordExpenses(data.sanfordExpenses)
-      setOtherExpenses(data.otherExpenses)
-      setColumnLabels(data.columnLabels ?? defaultColumnLabels)
-      setSectionTitles(normalizeSectionTitles(data.sectionTitles))
-      setIncomeSubsections(data.incomeSubsections ?? defaultIncomeSubsections)
-      setNewBankSubsectionIds(new Set())
-      setSelectedBankSubsectionIds(new Set())
-      setSelectedCreditIds(new Set())
-      setSelectedExpenseIds(new Set())
-    }
-
-    const loadFinancialPlan = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/financial-plan`, {
-          credentials: 'include',
-        })
-
-        if (response.status === 401) {
-          if (!isMounted) {
-            return
-          }
-
-          setAuthenticatedUser(null)
-          setAuthState('unauthenticated')
-          setAuthMessage('Session expired. Sign in with Google to continue.')
-          setSaveState('idle')
-          setSaveMessage('')
-          return
-        }
-
-        if (!response.ok) {
-          throw new Error(`Failed to load financial plan: ${response.status}`)
-        }
-
-        const data: FinancialPlanData = await response.json()
-        const hasSavedPlanHeader = response.headers.get('X-Has-Saved-Plan')
-        if (!isMounted) {
-          return
-        }
-
-        applyFinancialPlan(data)
-        setPlanViewMode('personal')
-        setPersonalPlanSnapshot({
-          data,
-          loadedSignature: getFinancialPlanSignature(data),
-          saveState: 'idle',
-          saveMessage: '',
-        })
-        setHasSavedPersonalPlan(hasSavedPlanHeader === 'true')
-        setShowSamplePrompt(hasSavedPlanHeader !== 'true')
-        setLoadedPlanSignature(getFinancialPlanSignature(data))
-        setAuthState('authenticated')
-        setSaveState('idle')
-        setSaveMessage('')
-      } catch {
-        if (!isMounted) {
-          return
-        }
-
-        setLoadedPlanSignature(getFinancialPlanSignature(defaultFinancialPlanData))
-        setHasSavedPersonalPlan(false)
-        setShowSamplePrompt(false)
-        setAuthState('error')
-        setAuthMessage('Authentication or API service unavailable.')
-        setSaveState('error')
-        setSaveMessage('API unavailable. Using local defaults.')
-      }
     }
 
     const loadAuthAndPlan = async () => {
@@ -697,7 +690,7 @@ export default function App() {
         setAuthenticatedUser(authData)
         setAuthState('authenticated')
         setAuthMessage('')
-        await loadFinancialPlan()
+        await loadPersonalPlan('current', 'Loading saved plan...')
       } catch {
         if (!isMounted) {
           return
@@ -706,6 +699,10 @@ export default function App() {
         setAuthenticatedUser(null)
         setHasSavedPersonalPlan(false)
         setShowSamplePrompt(false)
+        setSelectedCycle('current')
+        setCurrentCyclePeriod(buildNaturalCurrentCycle(new Date()))
+        setPreviousCyclePeriod(null)
+        setPendingCloseCycleReset(null)
         setAuthState('error')
         setAuthMessage('Authentication service unavailable.')
         setSaveState('error')
@@ -770,37 +767,98 @@ export default function App() {
     }
   }, [columnLabels.creditAccounts, creditAccounts])
 
+  useEffect(() => {
+    if (!closeCycleCarryoverBankData) {
+      return
+    }
+
+    if (skipNextCarryoverResetRef.current) {
+      skipNextCarryoverResetRef.current = false
+      return
+    }
+
+    setCloseCycleCarryoverBankData(null)
+  }, [
+    closeCycleCarryoverBankData,
+    creditAccounts,
+    incomeItemsState,
+    balanceItemsState,
+    planoExpenses,
+    sanfordExpenses,
+    otherExpenses,
+    columnLabels,
+    sectionTitles,
+    incomeSubsections,
+    selectedCycle,
+  ])
+
   const updateAccountById = (accountId: string, field: string, value: number | string | boolean) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     setCreditAccounts((current) =>
       current.map((account) => (account.id === accountId ? { ...account, [field]: value } : account)),
     )
   }
 
   const updateIncomeItem = (index: number, amount: number) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     const updated = [...incomeItemsState]
     updated[index] = { ...updated[index], amount }
     setIncomeItemsState(updated)
   }
 
   const updateIncomeItemById = (id: string, amount: number) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     setIncomeItemsState((current) =>
       current.map((item) => (item.id === id ? { ...item, amount } : item)),
     )
   }
 
   const updateIncomeLabel = (index: number, label: string) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     const updated = [...incomeItemsState]
     updated[index] = { ...updated[index], label }
     setIncomeItemsState(updated)
   }
 
   const updateBalanceItem = (index: number, amount: number) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     const updated = [...balanceItemsState]
     updated[index] = { ...updated[index], amount }
     setBalanceItemsState(updated)
   }
 
   const updateBalanceLabel = (index: number, label: string) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     const updated = [...balanceItemsState]
     updated[index] = { ...updated[index], label }
     setBalanceItemsState(updated)
@@ -812,6 +870,12 @@ export default function App() {
     field: 'current' | 'next' | 'payDate',
     value: number | string,
   ) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     setter((current) => current.map((item) => (item.id === itemId ? { ...item, [field]: value } : item)))
   }
 
@@ -820,6 +884,12 @@ export default function App() {
     itemId: string,
     label: string,
   ) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     setter((current) => current.map((item) => (item.id === itemId ? { ...item, label } : item)))
   }
 
@@ -846,6 +916,12 @@ export default function App() {
   }
 
   const updateColumnLabel = (tableKey: keyof FinancialPlanColumnLabels, index: number, label: string) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     setColumnLabels((current) => {
       const updatedLabels = [...current[tableKey]]
       updatedLabels[index] = { ...updatedLabels[index], label }
@@ -857,6 +933,12 @@ export default function App() {
   }
 
   const updateSectionTitle = (sectionKey: keyof FinancialPlanSectionTitles, value: string) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     setSectionTitles((current) => ({
       ...current,
       [sectionKey]: value,
@@ -864,6 +946,12 @@ export default function App() {
   }
 
   const updateIncomeSubsectionTitle = (index: number, title: string) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     setIncomeSubsections((current) => {
       const updated = [...current]
       updated[index] = { ...updated[index], title }
@@ -872,6 +960,12 @@ export default function App() {
   }
 
   const updateIncomeSubsection = <K extends keyof IncomeSubsection>(index: number, field: K, value: IncomeSubsection[K]) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     setIncomeSubsections((current) => {
       const updated = [...current]
       updated[index] = { ...updated[index], [field]: value }
@@ -880,6 +974,12 @@ export default function App() {
   }
 
   const addIncomeSubsection = () => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     const subsectionId = `income-subsection-${Date.now()}`
     const newBankCount = incomeSubsections.filter((subsection) => newBankSubsectionIds.has(subsection.id)).length
     const nextSubsections = [
@@ -909,6 +1009,10 @@ export default function App() {
   }
 
   const toggleBankSubsectionSelection = (subsectionId: string) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
     setSelectedBankSubsectionIds((prev) => {
       const next = new Set(prev)
       if (next.has(subsectionId)) {
@@ -921,6 +1025,10 @@ export default function App() {
   }
 
   const deleteSelectedBankSubsections = () => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
     if (selectedBankSubsectionIds.size === 0) {
       return
     }
@@ -946,6 +1054,10 @@ export default function App() {
   }
 
   const toggleCreditSelection = (id: string) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
     setSelectedCreditIds((prev) => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
@@ -954,6 +1066,10 @@ export default function App() {
   }
 
   const toggleExpenseSelection = (id: string) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
     setSelectedExpenseIds((prev) => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
@@ -962,6 +1078,10 @@ export default function App() {
   }
 
   const deleteSelectedCredits = () => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
     if (selectedCreditIds.size === 0) {
       return
     }
@@ -980,6 +1100,10 @@ export default function App() {
   }
 
   const deleteSelectedExpenses = () => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
     if (selectedExpenseIds.size === 0) {
       return
     }
@@ -1053,7 +1177,7 @@ export default function App() {
   const debitCardExpenseItems = [...planoExpenses, ...sanfordExpenses, ...otherExpenses]
   const debitCardExpensesTotalCurrent = sumExpenses(debitCardExpenseItems, 'current')
   const debitCardExpensesTotalNext = sumExpenses(debitCardExpenseItems, 'next')
-  const monthAfterNextMonthExpense = totalCardDue - creditCardCurrentMonthPayments - creditCardNextMonthBalance
+  const monthAfterNextMonthExpense = totalCardDue - creditCardCurrentMonthPayments - creditCardNextMonthBalance + debitCardExpensesTotalNext
   const j15 = creditCardCurrentMonthPayments
   const k15 = creditCardNextMonthBalance
   const j36 = j15 + debitCardExpensesTotalCurrent
@@ -1094,6 +1218,13 @@ export default function App() {
         return item
     }
   })
+
+  const bankSectionIncomeItems = selectedCycle === 'current' && closeCycleCarryoverBankData
+    ? closeCycleCarryoverBankData.incomeItems
+    : adjustedIncomeItems
+  const bankSectionBalanceItems = selectedCycle === 'current' && closeCycleCarryoverBankData
+    ? closeCycleCarryoverBankData.balanceItems
+    : adjustedBalanceItems
 
   const overdueCreditAccounts = creditAccounts.filter(
     (account) => isPastDate(account.nextPaymentDate) && !account.paidThisMonth,
@@ -1186,9 +1317,91 @@ export default function App() {
         right.nextStmtBalance - left.nextStmtBalance,
     )
 
-  const budgetCycleTimeline = useMemo(() => getBudgetCycleTimeline(new Date()), [])
-  const budgetCycleTitle = `${formatCompactCycleDate(budgetCycleTimeline.previousMidMonth)} - ${formatCompactCycleDate(budgetCycleTimeline.nextMidMonth)}`
-  const budgetCycleProgressLabel = `${Math.round(budgetCycleTimeline.progressPercent)}% through cycle • ${budgetCycleTimeline.remainingDays} days left`
+  const activeCyclePeriod = selectedCycle === 'previous' && previousCyclePeriod ? previousCyclePeriod : currentCyclePeriod
+  const budgetCycleTimeline = useMemo(() => getBudgetCycleTimeline(activeCyclePeriod, new Date()), [activeCyclePeriod])
+  const budgetCycleTitle = formatCycleRangeLabel(activeCyclePeriod)
+  const budgetCycleProgressLabel =
+    selectedCycle === 'previous'
+      ? 'Archived cycle • read only'
+      : budgetCycleTimeline.currentDate < budgetCycleTimeline.cycleStart
+        ? `Upcoming cycle • starts ${formatLongDate(budgetCycleTimeline.cycleStart)}`
+        : `${Math.round(budgetCycleTimeline.progressPercent)}% through cycle • ${budgetCycleTimeline.remainingDays} days left`
+  const isUpcomingCycleView = budgetCycleTimeline.currentDate < budgetCycleTimeline.cycleStart
+  const budgetCycleStartLabel = formatCompactCycleBoundaryDate(activeCyclePeriod.startDate)
+  const budgetCycleTodayLabel = formatCompactCycleDate(budgetCycleTimeline.currentDate)
+  const budgetCycleCloseLabel = formatCompactCycleBoundaryDate(activeCyclePeriod.endDate)
+
+  const leftTimelineSlot = (() => {
+    if (budgetCycleTimeline.currentDate < budgetCycleTimeline.cycleStart) {
+      return {
+        label: budgetCycleTodayLabel,
+        toneClass: 'budget-cycle-slot-today',
+        date: budgetCycleTimeline.currentDate,
+      }
+    }
+
+    return {
+      label: budgetCycleStartLabel,
+      toneClass: 'budget-cycle-slot-start',
+      date: budgetCycleTimeline.cycleStart,
+    }
+  })()
+
+  const middleTimelineSlot = (() => {
+    if (budgetCycleTimeline.currentDate < budgetCycleTimeline.cycleStart) {
+      return {
+        label: budgetCycleStartLabel,
+        toneClass: 'budget-cycle-slot-start',
+        date: budgetCycleTimeline.cycleStart,
+      }
+    }
+
+    if (budgetCycleTimeline.currentDate > budgetCycleTimeline.cycleEnd) {
+      return {
+        label: budgetCycleCloseLabel,
+        toneClass: 'budget-cycle-slot-close',
+        date: budgetCycleTimeline.cycleEnd,
+      }
+    }
+
+    return {
+      label: budgetCycleTodayLabel,
+      toneClass: 'budget-cycle-slot-today',
+      date: budgetCycleTimeline.currentDate,
+    }
+  })()
+
+  const rightTimelineSlot = (() => {
+    if (budgetCycleTimeline.currentDate > budgetCycleTimeline.cycleEnd) {
+      return {
+        label: budgetCycleTodayLabel,
+        toneClass: 'budget-cycle-slot-today',
+        date: budgetCycleTimeline.currentDate,
+      }
+    }
+
+    return {
+      label: budgetCycleCloseLabel,
+      toneClass: 'budget-cycle-slot-close',
+      date: budgetCycleTimeline.cycleEnd,
+    }
+  })()
+
+  const middleTimelinePositionPercent = (() => {
+    const spanDuration = rightTimelineSlot.date.getTime() - leftTimelineSlot.date.getTime()
+
+    if (spanDuration <= 0) {
+      return 50
+    }
+
+    const normalizedPosition = (middleTimelineSlot.date.getTime() - leftTimelineSlot.date.getTime()) / spanDuration
+    const clampedPosition = Math.min(1, Math.max(0, normalizedPosition))
+    return Number((clampedPosition * 100).toFixed(3))
+  })()
+
+  const middleTimelineInlineStyle = {
+    left: `${middleTimelinePositionPercent}%`,
+  }
 
   const savingsNextMonthPieData = savingsNextMonth >= 0
     ? [
@@ -1269,7 +1482,7 @@ export default function App() {
     { name: 'Month End', amount: Number(checkingAccountBalanceMonthEndChase.toFixed(2)), fill: CHART_COLORS.forecast },
   ]
 
-  const displayedIncomeItems = adjustedIncomeItems.filter(
+  const displayedIncomeItems = bankSectionIncomeItems.filter(
     (item) => item.id !== 'salary-transfer-pnc-home-loans' && item.id !== 'salary-transfer-chase-month',
   )
   const chaseIncomeOrder = [
@@ -1287,7 +1500,7 @@ export default function App() {
   const chaseIncomeItems = chaseIncomeOrder
     .map((id) => displayedIncomeItems.find((item) => item.id === id))
     .filter((item): item is IncomeItem => item !== undefined)
-  const chaseBalanceItems = adjustedBalanceItems.filter((item) => chaseBalanceIds.has(item.id))
+  const chaseBalanceItems = bankSectionBalanceItems.filter((item) => chaseBalanceIds.has(item.id))
   const otherIncomeItems = displayedIncomeItems.filter(
     (item) => !chaseIncomeOrder.includes(item.id) && item.id !== 'total-salary-per-month',
   )
@@ -1481,6 +1694,12 @@ export default function App() {
   }
 
   const addCreditAccount = () => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     const today = new Date().toISOString().split('T')[0]
     const newAccount: CreditAccount = {
       id: `credit-${Date.now()}`,
@@ -1501,6 +1720,12 @@ export default function App() {
     items: ExpenseItem[],
     prefix: string,
   ) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
     const today = new Date().toISOString().split('T')[0]
     const newItem: ExpenseItem = {
       id: `${prefix}-${Date.now()}`,
@@ -1586,8 +1811,8 @@ export default function App() {
 
   const buildPayload = (overrides: Partial<FinancialPlanData> = {}): FinancialPlanData => ({
     creditAccounts: overrides.creditAccounts ?? creditAccounts,
-    incomeItems: overrides.incomeItems ?? adjustedIncomeItems,
-    balanceItems: overrides.balanceItems ?? adjustedBalanceItems,
+    incomeItems: overrides.incomeItems ?? bankSectionIncomeItems,
+    balanceItems: overrides.balanceItems ?? bankSectionBalanceItems,
     planoExpenses: overrides.planoExpenses ?? planoExpenses,
     sanfordExpenses: overrides.sanfordExpenses ?? sanfordExpenses,
     otherExpenses: overrides.otherExpenses ?? otherExpenses,
@@ -1597,65 +1822,103 @@ export default function App() {
     summary: overrides.summary,
   })
 
-  const canStartNewBudgetCycle =
+  const canCloseCurrentCycle =
     creditAccounts.length > 0 &&
     creditAccounts.every((account) => account.paidThisMonth && account.statementCycledAfterPayment) &&
     debitCardExpenseItems.every((item) => Math.abs(item.current) < 0.004)
 
-  const budgetCycleButtonTooltip = canStartNewBudgetCycle
-    ? 'Start New Budget Cycle\n- Clears all paid checkboxes\n- Clears all statement cycled checkboxes\n- Copies next month debit expenses to current month\n- Moves debit pay dates ahead by one month\n- Leaves debit next month expense values unchanged'
-    : 'Start New Budget Cycle is disabled until:\n- All credit cards are marked paid\n- All statements are marked statement cycled\n- All debit card current month expenses are 0\n\nWhen enabled, it will:\n- Clears all paid checkboxes\n- Clears all statement cycled checkboxes\n- Copies next month debit expenses to current month\n- Moves debit pay dates ahead by one month\n- Leaves debit next month expense values unchanged'
+  const closeCycleRequirements = [
+    {
+      label: 'All credit cards are marked paid',
+      met: creditAccounts.length > 0 && creditAccounts.every((account) => account.paidThisMonth),
+    },
+    {
+      label: 'All statements are marked statement cycled',
+      met: creditAccounts.length > 0 && creditAccounts.every((account) => account.statementCycledAfterPayment),
+    },
+    {
+      label: 'All current-month debit expenses are 0',
+      met: debitCardExpenseItems.every((item) => Math.abs(item.current) < 0.004),
+    },
+  ]
 
-  const handleStartNewBudgetCycle = () => {
-    if (!canStartNewBudgetCycle) {
-      return
-    }
-
-    setCreditAccounts((current) =>
-      current.map((account) => ({
-        ...account,
-        paidThisMonth: false,
-        statementCycledAfterPayment: false,
-      })),
-    )
-
-    const rollExpenseItems = (items: ExpenseItem[]) =>
-      items.map((item) => ({
-        ...item,
-        current: item.next,
-        payDate: advanceIsoDateByOneMonth(item.payDate),
-      }))
-
-    setPlanoExpenses((current) => rollExpenseItems(current))
-    setSanfordExpenses((current) => rollExpenseItems(current))
-    setOtherExpenses((current) => rollExpenseItems(current))
-  }
+  const budgetCycleButtonTooltip =
+    selectedCycle === 'previous'
+      ? 'Previous cycle is read only.'
+      : canCloseCurrentCycle
+        ? 'Close Cycle\n- Archives the current cycle as previous\n- Replaces any existing previous cycle\n- Applies the new-cycle rollover rules to the next current cycle'
+        : 'Close Cycle is disabled until:\n- All credit cards are marked paid\n- All statements are marked statement cycled\n- All debit card current month expenses are 0\n\nWhen enabled, it will:\n- Archive the current cycle as previous\n- Replace any existing previous cycle\n- Apply the new-cycle rollover rules to the next current cycle'
 
   const currentPlanSignature = useMemo(
     () => getFinancialPlanSignature(buildPayload()),
     [
+      bankSectionBalanceItems,
+      bankSectionIncomeItems,
       adjustedBalanceItems,
       adjustedIncomeItems,
       columnLabels,
+      closeCycleCarryoverBankData,
       creditAccounts,
       incomeSubsections,
       otherExpenses,
       planoExpenses,
       sanfordExpenses,
+      selectedCycle,
       sectionTitles,
     ],
   )
 
+  useEffect(() => {
+    if (!needsPostCloseBaselineSync) {
+      return
+    }
+
+    const syncedData = buildPayload()
+    setLoadedPlanSignature(currentPlanSignature)
+    setPersonalPlanSnapshot((current) => current == null
+      ? current
+      : {
+          ...current,
+          data: syncedData,
+          loadedSignature: currentPlanSignature,
+        })
+    setNeedsPostCloseBaselineSync(false)
+  }, [buildPayload, currentPlanSignature, needsPostCloseBaselineSync])
+
+  useEffect(() => {
+    if (
+      planViewMode !== 'personal' ||
+      selectedCycle !== 'current' ||
+      !hasCurrentCycleUserEdits ||
+      loadedPlanSignature === null ||
+      currentPlanSignature !== loadedPlanSignature
+    ) {
+      return
+    }
+
+    setHasCurrentCycleUserEdits(false)
+  }, [currentPlanSignature, hasCurrentCycleUserEdits, loadedPlanSignature, planViewMode, selectedCycle])
+
   const isSampleMode = planViewMode === 'sample'
+  const isViewingPreviousCycle = !isSampleMode && selectedCycle === 'previous'
   const sampleHasLocalChanges = isSampleMode && loadedPlanSignature !== null && currentPlanSignature !== loadedPlanSignature
 
-  const hasUnsavedChanges = !isSampleMode && loadedPlanSignature !== null && currentPlanSignature !== loadedPlanSignature
+  const hasUnsavedChanges =
+    !isSampleMode &&
+    selectedCycle === 'current' &&
+    hasCurrentCycleUserEdits &&
+    loadedPlanSignature !== null &&
+    currentPlanSignature !== loadedPlanSignature
+  const canUseReset = hasUnsavedChanges
+  const canRevertClosedCycle = !isSampleMode && previousCyclePeriod !== null
 
   const statusText =
     isSampleMode
       ? sampleHasLocalChanges
         ? 'Sample changes are local only'
         : 'Viewing sample plan'
+      : isViewingPreviousCycle && saveState === 'idle'
+        ? 'Viewing previous cycle'
       : saveState === 'loading' || saveState === 'saving'
       ? saveMessage
       : hasUnsavedChanges
@@ -1663,6 +1926,9 @@ export default function App() {
         : saveState === 'error' || saveState === 'saved'
           ? saveMessage
           : ''
+
+  const shouldWarnBeforeSwitchingCycle =
+    !isSampleMode && selectedCycle === 'current' && hasUnsavedChanges && !suppressCycleSwitchWarning && !needsPostCloseBaselineSync
 
   const statusClassName = `status-text status-${isSampleMode ? 'saved' : hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
     const creditWidthCapStyle = creditTableWidth ? { width: `min(100%, ${creditTableWidth}px)` } : undefined
@@ -1697,6 +1963,95 @@ export default function App() {
     setSelectedExpenseIds(new Set())
   }
 
+  const applyPersonalCycleResponse = (
+    response: FinancialPlanCycleResponse,
+    successMessage = '',
+    preserveCloseCycleBankData = false,
+  ) => {
+    if (preserveCloseCycleBankData) {
+      skipNextCarryoverResetRef.current = true
+      setCloseCycleCarryoverBankData({
+        incomeItems: response.data.incomeItems,
+        balanceItems: response.data.balanceItems,
+      })
+    } else {
+      setCloseCycleCarryoverBankData(null)
+    }
+
+    applyFinancialPlan(response.data)
+    setSelectedCycle(response.selectedCycle)
+    setCurrentCyclePeriod(response.currentCycle)
+    setPreviousCyclePeriod(response.previousCycle)
+    setLoadedPlanSignature(getFinancialPlanSignature(response.data))
+    setPersonalPlanSnapshot({
+      data: response.data,
+      loadedSignature: getFinancialPlanSignature(response.data),
+      saveState: successMessage ? 'saved' : 'idle',
+      saveMessage: successMessage,
+    })
+    setHasSavedPersonalPlan(response.hasSavedPlan)
+    setShowSamplePrompt(!response.hasSavedPlan)
+    setPlanViewMode('personal')
+    setHasCurrentCycleUserEdits(false)
+    setSaveState(successMessage ? 'saved' : 'idle')
+    setSaveMessage(successMessage)
+    setNeedsPostCloseBaselineSync(true)
+    if (!preserveCloseCycleBankData) {
+      setSuppressCycleSwitchWarning(false)
+    }
+  }
+
+  const markCurrentCycleEdited = () => {
+    setHasCurrentCycleUserEdits(true)
+    setSuppressCycleSwitchWarning(false)
+
+    if (pendingCloseCycleReset) {
+      setPendingCloseCycleReset(null)
+    }
+  }
+
+  const loadPersonalPlan = async (cycle: CycleSelection = 'current', loadingMessage = 'Loading your plan...') => {
+    setSaveState('loading')
+    setSaveMessage(loadingMessage)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${cycle}`, {
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setSaveState('idle')
+        setSaveMessage('')
+        return false
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to load financial plan: ${response.status}`)
+      }
+
+      const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      applyPersonalCycleResponse(cycleResponse)
+      setAuthState('authenticated')
+      return true
+    } catch {
+      setLoadedPlanSignature(getFinancialPlanSignature(defaultFinancialPlanData))
+      setHasCurrentCycleUserEdits(false)
+      setHasSavedPersonalPlan(false)
+      setShowSamplePrompt(false)
+      setSelectedCycle('current')
+      setCurrentCyclePeriod(buildNaturalCurrentCycle(new Date()))
+      setPreviousCyclePeriod(null)
+      setAuthState('error')
+      setAuthMessage('Authentication or API service unavailable.')
+      setSaveState('error')
+      setSaveMessage('API unavailable. Using local defaults.')
+      return false
+    }
+  }
+
   const persistFinancialPlan = async (
     payload: FinancialPlanData,
     successMessage = 'Saved to server',
@@ -1710,11 +2065,15 @@ export default function App() {
       return true
     }
 
+    if (isViewingPreviousCycle) {
+      return false
+    }
+
     setSaveState('saving')
     setSaveMessage('Saving...')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/financial-plan`, {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=current`, {
         method: 'PUT',
         credentials: 'include',
         headers: {
@@ -1736,20 +2095,11 @@ export default function App() {
         throw new Error(`Failed to save financial plan: ${response.status}`)
       }
 
-      const savedData: FinancialPlanData = await response.json()
-      applyFinancialPlan(savedData)
-        setLoadedPlanSignature(getFinancialPlanSignature(savedData))
-      setPersonalPlanSnapshot({
-        data: savedData,
-        loadedSignature: getFinancialPlanSignature(savedData),
-        saveState: 'saved',
-        saveMessage: successMessage,
-      })
-        setHasSavedPersonalPlan(true)
-      setShowSamplePrompt(false)
+      const savedResponse: FinancialPlanCycleResponse = await response.json()
+      applyPersonalCycleResponse(savedResponse, successMessage)
+      setPendingCloseCycleReset(null)
+      setSuppressCycleSwitchWarning(false)
       onSuccess?.()
-      setSaveState('saved')
-      setSaveMessage(successMessage)
       return true
     } catch {
       setSaveState('error')
@@ -1759,7 +2109,7 @@ export default function App() {
   }
 
   const handleSave = async () => {
-    if (isSampleMode) {
+    if (isSampleMode || isViewingPreviousCycle) {
       setSaveState('idle')
       setSaveMessage('')
       return
@@ -1768,8 +2118,149 @@ export default function App() {
     await persistFinancialPlan(buildPayload())
   }
 
+  const switchToCycle = async (cycle: CycleSelection) => {
+    if (cycle === selectedCycle) {
+      return
+    }
+
+    setIsCycleSwitchDialogOpen(false)
+    setPendingCycleSelection(null)
+
+    if (
+      cycle === 'previous' &&
+      pendingCloseCycleReset &&
+      previousCyclePeriod &&
+      pendingCloseCycleReset.previousCycle.startDate === previousCyclePeriod.startDate &&
+      pendingCloseCycleReset.previousCycle.endDate === previousCyclePeriod.endDate
+    ) {
+      applyPersonalCycleResponse({
+        data: pendingCloseCycleReset.previousData,
+        selectedCycle: 'previous',
+        currentCycle: pendingCloseCycleReset.currentCycle,
+        previousCycle: pendingCloseCycleReset.previousCycle,
+        hasPreviousCycle: true,
+        readOnly: true,
+        hasSavedPlan: true,
+        canCloseCycle: false,
+      })
+      return
+    }
+
+    await loadPersonalPlan(cycle, cycle === 'previous' ? 'Loading previous cycle...' : 'Loading current cycle...')
+  }
+
+  const handleCycleSelectionChange = async (nextCycle: CycleSelection) => {
+    if (nextCycle === selectedCycle) {
+      return
+    }
+
+    if (shouldWarnBeforeSwitchingCycle) {
+      setPendingCycleSelection(nextCycle)
+      setIsCycleSwitchDialogOpen(true)
+      return
+    }
+
+    await switchToCycle(nextCycle)
+  }
+
+  const handleCycleSwitchCancel = () => {
+    if (saveState === 'loading' || saveState === 'saving') {
+      return
+    }
+
+    setPendingCycleSelection(null)
+    setIsCycleSwitchDialogOpen(false)
+  }
+
+  const handleCycleSwitchProceed = async () => {
+    if (!pendingCycleSelection) {
+      return
+    }
+
+    await switchToCycle(pendingCycleSelection)
+  }
+
+  const handleCycleSwitchSaveAndProceed = async () => {
+    if (!pendingCycleSelection) {
+      return
+    }
+
+    const saved = await persistFinancialPlan(buildPayload(), 'Saved to server')
+    if (!saved) {
+      return
+    }
+
+    await switchToCycle(pendingCycleSelection)
+  }
+
+  const handleCloseCycleClick = () => {
+    if (isSampleMode || isViewingPreviousCycle || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle) {
+      return
+    }
+
+    setIsCloseCycleDialogOpen(true)
+  }
+
+  const handleCloseCycleCancel = () => {
+    if (saveState === 'loading' || saveState === 'saving') {
+      return
+    }
+
+    setIsCloseCycleDialogOpen(false)
+  }
+
+  const handleCloseCycleConfirm = async () => {
+    setSaveState('saving')
+    setSaveMessage('Closing cycle...')
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/close-cycle`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          financialPlanData: buildPayload(),
+          expectedCurrentCycle: currentCyclePeriod,
+        }),
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setSaveState('idle')
+        setSaveMessage('')
+        setIsCloseCycleDialogOpen(false)
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to close cycle: ${response.status}`)
+      }
+
+      const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      const archivedCurrentData = buildPayload()
+      applyPersonalCycleResponse(cycleResponse, 'Cycle closed. Started a new current cycle.', true)
+      setSuppressCycleSwitchWarning(true)
+      setNeedsPostCloseBaselineSync(true)
+      if (cycleResponse.previousCycle) {
+        setPendingCloseCycleReset({
+          currentCycle: cycleResponse.currentCycle,
+          previousCycle: cycleResponse.previousCycle,
+          previousData: archivedCurrentData,
+        })
+      }
+      setIsCloseCycleDialogOpen(false)
+    } catch {
+      setSaveState('error')
+      setSaveMessage('Close cycle failed. Reload and try again.')
+    }
+  }
+
   const handleResetClick = () => {
-    if (isSampleMode || !hasUnsavedChanges || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving') {
+    if (isSampleMode || isViewingPreviousCycle || !canUseReset || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving') {
       return
     }
 
@@ -1792,9 +2283,79 @@ export default function App() {
 
     applyFinancialPlan(personalPlanSnapshot.data)
     setLoadedPlanSignature(personalPlanSnapshot.loadedSignature)
+    setHasCurrentCycleUserEdits(false)
+    setCloseCycleCarryoverBankData(null)
+    setSuppressCycleSwitchWarning(false)
     setSaveState('saved')
     setSaveMessage('Reset to last saved version.')
     setIsResetDialogOpen(false)
+  }
+
+  const handleRevertCycleClick = () => {
+    if (!canRevertClosedCycle || saveState === 'loading' || saveState === 'saving') {
+      return
+    }
+
+    setIsRevertCycleDialogOpen(true)
+  }
+
+  const handleRevertCycleCancel = () => {
+    if (saveState === 'loading' || saveState === 'saving') {
+      return
+    }
+
+    setIsRevertCycleDialogOpen(false)
+  }
+
+  const handleRevertCycleConfirm = async () => {
+    const expectedCurrentCycle = pendingCloseCycleReset?.currentCycle ?? currentCyclePeriod
+    const expectedPreviousCycle = pendingCloseCycleReset?.previousCycle ?? previousCyclePeriod
+
+    if (!expectedPreviousCycle) {
+      setIsRevertCycleDialogOpen(false)
+      return
+    }
+
+    setSaveState('saving')
+    setSaveMessage('Reverting cycle...')
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/revert-close-cycle`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          expectedCurrentCycle,
+          expectedPreviousCycle,
+        }),
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setSaveState('idle')
+        setSaveMessage('')
+        setIsRevertCycleDialogOpen(false)
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to revert close cycle: ${response.status}`)
+      }
+
+      const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      applyPersonalCycleResponse(cycleResponse, 'Reverted to previous cycle.')
+      setPendingCloseCycleReset(null)
+      setSuppressCycleSwitchWarning(false)
+      setIsRevertCycleDialogOpen(false)
+    } catch {
+      setSaveState('error')
+      setSaveMessage('Revert cycle failed. Reload and try again.')
+      setIsRevertCycleDialogOpen(false)
+    }
   }
 
   const handleLogin = () => {
@@ -1818,6 +2379,13 @@ export default function App() {
     setPersonalPlanSnapshot(null)
     setHasSavedPersonalPlan(false)
     setShowSamplePrompt(false)
+    setSelectedCycle('current')
+    setPendingCycleSelection(null)
+    setCurrentCyclePeriod(buildNaturalCurrentCycle(new Date()))
+    setPreviousCyclePeriod(null)
+    setPendingCloseCycleReset(null)
+    setHasCurrentCycleUserEdits(false)
+    setSuppressCycleSwitchWarning(false)
     setSaveState('idle')
     setSaveMessage('')
   }
@@ -1843,6 +2411,8 @@ export default function App() {
         setAuthMessage('Session expired. Sign in with Google to continue.')
         setPlanViewMode('personal')
         setPersonalPlanSnapshot(null)
+        setPendingCloseCycleReset(null)
+        setSuppressCycleSwitchWarning(false)
         setSaveState('idle')
         setSaveMessage('')
         return
@@ -1856,6 +2426,9 @@ export default function App() {
       applyFinancialPlan(sampleData)
       setPlanViewMode('sample')
       setLoadedPlanSignature(getFinancialPlanSignature(sampleData))
+      setHasCurrentCycleUserEdits(false)
+      setPendingCloseCycleReset(null)
+      setSuppressCycleSwitchWarning(false)
       setSaveState('idle')
       setSaveMessage('')
     } catch {
@@ -1899,55 +2472,14 @@ export default function App() {
 
   const handleReturnToMyPlan = async () => {
     setIsUserMenuOpen(false)
-    setSaveState('loading')
-    setSaveMessage('Loading your plan...')
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/financial-plan`, {
-        credentials: 'include',
-      })
-
-      if (response.status === 401) {
-        setAuthenticatedUser(null)
-        setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
-        setPlanViewMode('personal')
-        setPersonalPlanSnapshot(null)
-        setSaveState('idle')
-        setSaveMessage('')
-        return
-      }
-
-      if (!response.ok) {
-        throw new Error(`Failed to load financial plan: ${response.status}`)
-      }
-
-      const data: FinancialPlanData = await response.json()
-      const hasSavedPlanHeader = response.headers.get('X-Has-Saved-Plan')
-
-      applyFinancialPlan(data)
-      setLoadedPlanSignature(getFinancialPlanSignature(data))
-      setPersonalPlanSnapshot({
-        data,
-        loadedSignature: getFinancialPlanSignature(data),
-        saveState: 'idle',
-        saveMessage: '',
-      })
-      setHasSavedPersonalPlan(hasSavedPlanHeader === 'true')
+    const loaded = await loadPersonalPlan('current', 'Loading your plan...')
+    if (!loaded && personalPlanSnapshot) {
+      applyFinancialPlan(personalPlanSnapshot.data)
+      setLoadedPlanSignature(personalPlanSnapshot.loadedSignature)
+      setHasCurrentCycleUserEdits(false)
+      setSaveState(personalPlanSnapshot.saveState === 'loading' || personalPlanSnapshot.saveState === 'saving' ? 'idle' : personalPlanSnapshot.saveState)
+      setSaveMessage(personalPlanSnapshot.saveMessage)
       setPlanViewMode('personal')
-      setSaveState('idle')
-      setSaveMessage('')
-    } catch {
-      if (personalPlanSnapshot) {
-        applyFinancialPlan(personalPlanSnapshot.data)
-        setLoadedPlanSignature(personalPlanSnapshot.loadedSignature)
-        setSaveState(personalPlanSnapshot.saveState === 'loading' || personalPlanSnapshot.saveState === 'saving' ? 'idle' : personalPlanSnapshot.saveState)
-        setSaveMessage(personalPlanSnapshot.saveMessage)
-        setPlanViewMode('personal')
-      } else {
-        setSaveState('error')
-        setSaveMessage('Failed to reload your plan. Check the API server.')
-      }
     }
   }
 
@@ -2014,7 +2546,7 @@ export default function App() {
         throw new Error(`Failed to delete financial plan: ${deleteResponse.status}`)
       }
 
-      const reloadResponse = await fetch(`${API_BASE_URL}/api/financial-plan`, {
+      const reloadResponse = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=current`, {
         credentials: 'include',
       })
 
@@ -2034,22 +2566,11 @@ export default function App() {
         throw new Error(`Failed to reload financial plan: ${reloadResponse.status}`)
       }
 
-      const freshData: FinancialPlanData = await reloadResponse.json()
-      applyFinancialPlan(freshData)
-      setLoadedPlanSignature(getFinancialPlanSignature(freshData))
-      setPersonalPlanSnapshot({
-        data: freshData,
-        loadedSignature: getFinancialPlanSignature(freshData),
-        saveState: 'saved',
-        saveMessage: 'Tracker deleted. Started fresh with a new plan.',
-      })
-      setHasSavedPersonalPlan(false)
-      setShowSamplePrompt(false)
+      const freshResponse: FinancialPlanCycleResponse = await reloadResponse.json()
+      applyPersonalCycleResponse(freshResponse, 'Tracker deleted. Started fresh with a new plan.')
       setIsDeleteDialogOpen(false)
       setDeleteState('idle')
       setDeleteMessage('')
-      setSaveState('saved')
-      setSaveMessage('Tracker deleted. Started fresh with a new plan.')
     } catch {
       setDeleteState('error')
       setDeleteMessage('Delete failed. Check the API server.')
@@ -2087,6 +2608,18 @@ export default function App() {
           </p>
         </div>
         <div className="hero-actions">
+          <button type="button" className="toolbar-button" onClick={handleSave} disabled={isSampleMode || isViewingPreviousCycle || saveState === 'loading' || saveState === 'saving'}>
+            {isSampleMode ? 'Sample Not Saved' : isViewingPreviousCycle ? 'Previous Read Only' : saveState === 'saving' ? 'Saving...' : 'Save Changes'}
+          </button>
+          <button
+            type="button"
+            className="toolbar-button"
+            onClick={handleResetClick}
+            disabled={isSampleMode || isViewingPreviousCycle || !canUseReset || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving'}
+          >
+            Reset
+          </button>
+          <span className={statusClassName}>{statusText}</span>
           {authenticatedUser ? (
             <div className="user-menu" ref={userMenuRef}>
               <button
@@ -2128,33 +2661,13 @@ export default function App() {
                   <button type="button" className="user-menu-item" onClick={handleHelpClick} role="menuitem">
                     Help
                   </button>
+                  <button type="button" className="user-menu-item" onClick={handleLogout} role="menuitem">
+                    Sign Out
+                  </button>
                 </div>
               ) : null}
             </div>
           ) : null}
-          <span className="toolbar-button-wrap" title={budgetCycleButtonTooltip}>
-            <button
-              type="button"
-              className="toolbar-button budget-cycle-button"
-              onClick={handleStartNewBudgetCycle}
-              disabled={!canStartNewBudgetCycle || saveState === 'loading' || saveState === 'saving'}
-            >
-              Start New Budget Cycle
-            </button>
-          </span>
-          <button type="button" className="toolbar-button" onClick={handleSave} disabled={isSampleMode || saveState === 'loading' || saveState === 'saving'}>
-            {isSampleMode ? 'Sample Not Saved' : saveState === 'saving' ? 'Saving...' : 'Save Changes'}
-          </button>
-          <button
-            type="button"
-            className="toolbar-button"
-            onClick={handleResetClick}
-            disabled={isSampleMode || !hasUnsavedChanges || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving'}
-          >
-            Reset
-          </button>
-          <button type="button" className="toolbar-button" onClick={handleLogout}>Sign Out</button>
-          <span className={statusClassName}>{statusText}</span>
         </div>
       </header>
 
@@ -2170,6 +2683,50 @@ export default function App() {
         </section>
       ) : null}
 
+      {!isSampleMode && isViewingPreviousCycle ? (
+        <section className="sample-banner previous-cycle-banner" aria-label="Previous cycle mode" style={creditWidthCapStyle}>
+          <div>
+            <strong>Viewing previous cycle</strong>
+            <span>This archived cycle is read only. Switch back to the current cycle to edit or save changes.</span>
+          </div>
+        </section>
+      ) : null}
+
+      {!isSampleMode ? (
+        <div className="budget-cycle-toolbar-row" style={creditWidthCapStyle}>
+          <span className="toolbar-button-wrap" title={budgetCycleButtonTooltip}>
+            <button
+              type="button"
+              className="toolbar-button budget-cycle-button"
+              onClick={handleCloseCycleClick}
+              disabled={isSampleMode || isViewingPreviousCycle || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle}
+            >
+              Close Cycle
+            </button>
+          </span>
+          <button
+            type="button"
+            className="toolbar-button"
+            onClick={handleRevertCycleClick}
+            disabled={!canRevertClosedCycle || saveState === 'loading' || saveState === 'saving'}
+          >
+            Revert Cycle
+          </button>
+          <label className="budget-cycle-select-wrap">
+            <span>Cycle</span>
+            <select
+              className="budget-cycle-select"
+              value={selectedCycle}
+              onChange={(event) => void handleCycleSelectionChange(event.target.value as CycleSelection)}
+              disabled={saveState === 'loading' || saveState === 'saving'}
+            >
+              <option value="current">{formatCycleRangeLabel(currentCyclePeriod)}</option>
+              {previousCyclePeriod ? <option value="previous">{formatCycleRangeLabel(previousCyclePeriod)}</option> : null}
+            </select>
+          </label>
+        </div>
+      ) : null}
+
       <section className="budget-cycle-panel" aria-label="Current budget cycle timeline" style={creditWidthCapStyle}>
         <div className="budget-cycle-header">
           <span className="budget-cycle-inline-title">Budget Cycle Timeline</span>
@@ -2182,27 +2739,22 @@ export default function App() {
         </div>
 
         <div className="budget-cycle-track-stage">
-          <div className="budget-cycle-current-label" style={{ left: `${budgetCycleTimeline.markerPercent}%` }}>
-            <strong>Today {formatCompactCycleDate(budgetCycleTimeline.currentDate)}</strong>
+          <div className="budget-cycle-simple-track" aria-hidden="true">
+            <div className="budget-cycle-simple-line" />
+            {!leftTimelineSlot.hidden ? <div className={joinClassNames('budget-cycle-simple-marker', 'budget-cycle-simple-marker-1', leftTimelineSlot.toneClass)} /> : null}
+            {!middleTimelineSlot.hidden ? <div className={joinClassNames('budget-cycle-simple-marker', 'budget-cycle-simple-marker-2', middleTimelineSlot.toneClass)} style={middleTimelineInlineStyle} /> : null}
+            {!rightTimelineSlot.hidden ? <div className={joinClassNames('budget-cycle-simple-marker', 'budget-cycle-simple-marker-3', rightTimelineSlot.toneClass)} /> : null}
           </div>
 
-          <div className="budget-cycle-track" aria-hidden="true">
-            <div className="budget-cycle-track-fill" style={{ width: `${budgetCycleTimeline.progressPercent}%` }} />
-            <div className="budget-cycle-marker budget-cycle-marker-start" />
-            <div className="budget-cycle-marker budget-cycle-marker-month-end" style={{ left: `${budgetCycleTimeline.endOfMonthPercent}%` }} />
-            <div className="budget-cycle-marker budget-cycle-marker-current" style={{ left: `${budgetCycleTimeline.markerPercent}%` }} />
-            <div className="budget-cycle-marker budget-cycle-marker-end" />
-          </div>
-
-          <div className="budget-cycle-boundaries">
-            <div className="budget-cycle-boundary-card budget-cycle-boundary-card-start">
-              <span>Prev {formatCompactCycleDate(budgetCycleTimeline.previousMidMonth)}</span>
+          <div className="budget-cycle-simple-labels">
+            <div className={joinClassNames('budget-cycle-simple-label', 'budget-cycle-simple-label-1', leftTimelineSlot.toneClass, leftTimelineSlot.hidden ? 'budget-cycle-slot-hidden' : undefined)}>
+              {leftTimelineSlot.label}
             </div>
-            <div className="budget-cycle-boundary-card budget-cycle-boundary-card-middle">
-              <span>End {formatCompactCycleDate(budgetCycleTimeline.endOfMonth)}</span>
+            <div className={joinClassNames('budget-cycle-simple-label', 'budget-cycle-simple-label-2', middleTimelineSlot.toneClass, middleTimelineSlot.hidden ? 'budget-cycle-slot-hidden' : undefined)} style={middleTimelineInlineStyle}>
+              {middleTimelineSlot.label}
             </div>
-            <div className="budget-cycle-boundary-card budget-cycle-boundary-card-end">
-              <span>Next {formatCompactCycleDate(budgetCycleTimeline.nextMidMonth)}</span>
+            <div className={joinClassNames('budget-cycle-simple-label', 'budget-cycle-simple-label-3', rightTimelineSlot.toneClass, rightTimelineSlot.hidden ? 'budget-cycle-slot-hidden' : undefined)}>
+              {rightTimelineSlot.label}
             </div>
           </div>
         </div>
@@ -2247,7 +2799,7 @@ export default function App() {
                     <div className="help-mock-banner">Viewing sample plan</div>
                   </div>
                   <h4>Top Toolbar</h4>
-                  <p>Use this area to save, reset local edits, enter sample mode, or start a new budget cycle.</p>
+                  <p>Use this area to save, reset local edits, enter sample mode, close the current cycle, or switch between current and previous cycles.</p>
                 </article>
 
                 <article className="help-visual-card">
@@ -2378,11 +2930,12 @@ export default function App() {
               <h3>Important Workflow Actions</h3>
               <ul className="help-list">
                 <li>Save Changes writes your current tracker data for your signed-in account and makes that version your new saved baseline.</li>
-                <li>Reset discards unsaved local edits and restores the tracker to the last loaded or saved version after you confirm the warning.</li>
+                <li>Reset discards unsaved local edits in the current cycle and restores the tracker to the last loaded or saved version after you confirm the warning.</li>
                 <li>Sample Tracker opens a temporary sample plan view. Changes there stay only in the current browser session and are not written to your saved plan.</li>
                 <li>Go Back To My Plan leaves sample mode and reloads your personal tracker.</li>
-                <li>Start New Budget Cycle clears paid and statement-cycled flags, copies next month debit expenses into current month, advances pay dates by one month, and keeps debit next month values unchanged.</li>
-                <li>Start New Budget Cycle is only enabled when all credit cards are marked paid, all statements are marked statement cycled, and all debit card current month expenses are 0.</li>
+                <li>Close Cycle archives the current cycle as previous, replaces any existing previous cycle, and applies the rollover rules that reset paid and statement-cycled flags while moving next-month debit expenses into current month.</li>
+                <li>Revert Cycle undoes the most recent close-cycle action while it is still available in the current session.</li>
+                <li>Close Cycle is only enabled when all credit cards are marked paid, all statements are marked statement cycled, and all debit card current month expenses are 0.</li>
                 <li>Delete My Tracker removes only your saved tracker data and then starts you fresh with a new seeded tracker.</li>
               </ul>
             </div>
@@ -2394,7 +2947,7 @@ export default function App() {
                 <li>Unsaved edits are only local until you use Save Changes.</li>
                 <li>Projections are only as accurate as the payment dates, balances, and current versus next month assignments you maintain.</li>
                 <li>Debit expense labels affect chart grouping, so consistent label prefixes make the category chart more useful.</li>
-                <li>Reset only affects your current unsaved edits. Delete My Tracker affects your saved personal data.</li>
+                <li>Reset only affects your current unsaved edits. Revert Cycle undoes the last close-cycle transition. Delete My Tracker affects your saved personal data.</li>
                 <li>Deleting your tracker does not delete other users&apos; data. It only resets your own saved plan.</li>
               </ul>
             </div>
@@ -2425,6 +2978,77 @@ export default function App() {
               </button>
               <button type="button" className="toolbar-button" onClick={handleSampleConfirmSaveAndProceed} disabled={saveState === 'saving'}>
                 {saveState === 'saving' ? 'Saving...' : 'Save And Proceed'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isCycleSwitchDialogOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="cycle-switch-title">
+            <p className="eyebrow help-eyebrow">Unsaved Changes</p>
+            <h2 id="cycle-switch-title">Switch Cycles?</h2>
+            <p className="help-intro">
+              You have unsaved changes in the current cycle. You can save first, or switch cycles and discard those unsaved edits.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="toolbar-button" onClick={handleCycleSwitchCancel} disabled={saveState === 'saving'}>
+                Cancel
+              </button>
+              <button type="button" className="toolbar-button" onClick={handleCycleSwitchProceed} disabled={saveState === 'saving'}>
+                Discard And Switch
+              </button>
+              <button type="button" className="toolbar-button" onClick={handleCycleSwitchSaveAndProceed} disabled={saveState === 'saving'}>
+                {saveState === 'saving' ? 'Saving...' : 'Save And Switch'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isCloseCycleDialogOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="close-cycle-title">
+            <p className="eyebrow help-eyebrow">Close Cycle</p>
+            <h2 id="close-cycle-title">Close Current Cycle?</h2>
+            <p className="help-intro">
+              This will archive the current cycle as previous, replace any existing previous cycle, and roll the tracker forward into a new current cycle.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="toolbar-button" onClick={handleCloseCycleCancel} disabled={saveState === 'saving'}>
+                Cancel
+              </button>
+              <button type="button" className="toolbar-button" onClick={handleCloseCycleConfirm} disabled={saveState === 'saving'}>
+                {saveState === 'saving' ? 'Closing...' : 'Close Cycle'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isRevertCycleDialogOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card danger-modal" role="alertdialog" aria-modal="true" aria-labelledby="revert-cycle-title">
+            <p className="eyebrow danger-eyebrow">Revert Cycle</p>
+            <h2 id="revert-cycle-title">Revert To Previous Cycle?</h2>
+            <p className="danger-copy">
+              This will undo the most recent close-cycle action, restore the archived previous cycle as current, and delete the newly created current cycle.
+            </p>
+            <p className="danger-copy-subtle">
+              Use this only if you want to reverse the cycle rollover itself. Reset is for discarding unsaved edits in the current cycle.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="toolbar-button" onClick={handleRevertCycleCancel} disabled={saveState === 'loading' || saveState === 'saving'}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="toolbar-button destructive-button"
+                onClick={handleRevertCycleConfirm}
+                disabled={saveState === 'loading' || saveState === 'saving'}
+              >
+                {saveState === 'saving' ? 'Reverting...' : 'Revert Cycle'}
               </button>
             </div>
           </section>
@@ -2489,6 +3113,7 @@ export default function App() {
       ) : null}
 
       <section className="credit-accounts-section">
+        <fieldset className="section-readonly-fieldset" disabled={isViewingPreviousCycle}>
         <div className="section-content-fit">
           <div className="section-header">
             <h2>
@@ -2730,10 +3355,12 @@ export default function App() {
             </article>
           </div>
         </div>
+        </fieldset>
       </section>
 
       <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
         <section className="expense-section compact-section">
+          <fieldset className="section-readonly-fieldset" disabled={isViewingPreviousCycle}>
           <div className="section-header">
             <h2>
               <input
@@ -2834,6 +3461,7 @@ export default function App() {
               </tbody>
             </table>
           </div>
+          </fieldset>
         </section>
 
         <article className="chart-card compact-section expense-category-side-panel">
@@ -2868,6 +3496,7 @@ export default function App() {
       <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
 
         <section className="compact-section compact-side-panel bank-accounts-section">
+          <fieldset className="section-readonly-fieldset" disabled={isViewingPreviousCycle}>
           <div className="section-content-fit">
             <div className="section-header bank-section-header">
               <h2>
@@ -2911,6 +3540,7 @@ export default function App() {
               </div>
             ) : null}
           </div>
+          </fieldset>
         </section>
 
         <article className="chart-card compact-section cashflow-side-panel">

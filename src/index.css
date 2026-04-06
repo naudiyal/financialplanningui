@@ -31,6 +31,29 @@ html, body, #root {
   padding: 0.625rem 0.625rem 1rem;
 }
 
+.section-readonly-fieldset {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.section-readonly-fieldset:disabled {
+  opacity: 1;
+}
+
+.section-readonly-fieldset:disabled input,
+.section-readonly-fieldset:disabled button {
+  opacity: 1;
+}
+
+.section-readonly-fieldset:disabled input[type='text'],
+.section-readonly-fieldset:disabled input[type='date'],
+.section-readonly-fieldset:disabled .currency-amount-input {
+  color: #0f172a;
+  -webkit-text-fill-color: #0f172a;
+}
+
 .auth-shell {
   min-height: 100vh;
   display: grid;
@@ -116,6 +139,15 @@ html, body, #root {
 .sample-banner span {
   font-size: 0.74rem;
   color: #334155;
+}
+
+.previous-cycle-banner {
+  border-color: #fde68a;
+  background: linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%);
+}
+
+.previous-cycle-banner strong {
+  color: #c2410c;
 }
 
 .user-chip {
@@ -622,6 +654,17 @@ h1 {
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.05);
 }
 
+.budget-cycle-toolbar-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+  margin-bottom: 0.28rem;
+  padding: 0 0.56rem;
+}
+
 .budget-cycle-header {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -662,6 +705,40 @@ h1 {
   color: #0f172a;
 }
 
+.budget-cycle-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.budget-cycle-select-wrap span {
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.budget-cycle-select {
+  width: min(15rem, 100%);
+  min-width: 15rem;
+  padding: 0.24rem 0.45rem;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.budget-cycle-select:disabled {
+  color: #64748b;
+  background: rgba(241, 245, 249, 0.9);
+}
+
 .budget-cycle-progress-pill {
   flex: 0 0 auto;
   padding: 0.14rem 0.36rem;
@@ -695,120 +772,115 @@ h1 {
   background: linear-gradient(90deg, rgba(15, 118, 110, 0.15) 0%, rgba(15, 118, 110, 0.45) 50%, rgba(217, 119, 6, 0.15) 100%);
 }
 
-.budget-cycle-current-label {
+.budget-cycle-simple-track {
+  position: relative;
+  height: 1rem;
+}
+
+.budget-cycle-simple-line {
+  position: absolute;
+  top: 0.52rem;
+  left: 0;
+  right: 0;
+  height: 0.12rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(226, 232, 240, 0.95) 0%, rgba(226, 232, 240, 0.9) 100%);
+}
+
+.budget-cycle-simple-marker {
+  position: absolute;
+  top: 0.52rem;
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 999px;
+  border: 2px solid #ffffff;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.14);
+}
+
+.budget-cycle-simple-marker-1 {
+  left: 0;
+}
+
+.budget-cycle-simple-marker-2 {
+  left: 50%;
+}
+
+.budget-cycle-simple-marker-3 {
+  left: 100%;
+}
+
+.budget-cycle-simple-labels {
+  position: relative;
+  z-index: 2;
+  margin-top: 0.18rem;
+  min-height: 1.45rem;
+}
+
+.budget-cycle-simple-label {
+  min-width: 0;
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
+  position: relative;
+  z-index: 1;
+  padding: 0.04rem 0.18rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+}
+
+.budget-cycle-simple-label-1 {
   position: absolute;
   top: 0;
-  transform: translateX(-50%);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.16rem;
-  padding: 0.04rem 0.22rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1px solid rgba(249, 115, 22, 0.22);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
-  white-space: nowrap;
-  z-index: 1;
-}
-
-.budget-cycle-current-label span {
-  font-size: 0.44rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: #ea580c;
-}
-
-.budget-cycle-current-label strong {
-  font-size: 0.54rem;
-  line-height: 1;
-  color: #0f172a;
-}
-
-.budget-cycle-track {
-  position: relative;
-  height: 0.42rem;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(226, 232, 240, 0.9) 0%, rgba(241, 245, 249, 1) 100%);
-  overflow: visible;
-}
-
-.budget-cycle-track-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #0f766e 0%, #14b8a6 54%, #f59e0b 100%);
-  box-shadow: 0 0 18px rgba(20, 184, 166, 0.2);
-}
-
-.budget-cycle-marker {
-  position: absolute;
-  top: 50%;
-  width: 0.58rem;
-  height: 0.58rem;
-  border-radius: 999px;
-  border: 1px solid #ffffff;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.12);
-}
-
-.budget-cycle-marker-start {
   left: 0;
-  background: #0f766e;
-}
-
-.budget-cycle-marker-current {
-  background: #f97316;
-}
-
-.budget-cycle-marker-month-end {
-  background: #2563eb;
-}
-
-.budget-cycle-marker-end {
-  left: 100%;
-  background: #0f172a;
-}
-
-.budget-cycle-boundaries {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: start;
-  gap: 0.25rem;
-  margin-top: 0.14rem;
-}
-
-.budget-cycle-boundary-card {
-  min-width: 0;
-}
-
-.budget-cycle-boundary-card span {
-  display: block;
-  margin-bottom: 0.02rem;
-  font-size: 0.45rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: #64748b;
-}
-
-.budget-cycle-boundary-card strong {
-  font-size: 0.56rem;
-  line-height: 1;
-  color: #0f172a;
-}
-
-.budget-cycle-boundary-card-start {
   text-align: left;
 }
 
-.budget-cycle-boundary-card-middle {
+.budget-cycle-simple-label-2 {
+  position: absolute;
+  top: 0;
+  left: 50%;
   text-align: center;
+  transform: translateX(-50%);
 }
 
-.budget-cycle-boundary-card-end {
+.budget-cycle-simple-label-3 {
+  position: absolute;
+  top: 0;
+  right: 0;
   text-align: right;
+}
+
+.budget-cycle-slot-start {
+  color: #0f766e;
+}
+
+.budget-cycle-slot-today {
+  color: #c2410c;
+}
+
+.budget-cycle-slot-close {
+  color: #0f172a;
+}
+
+.budget-cycle-simple-marker.budget-cycle-slot-start {
+  background: #0f766e;
+}
+
+.budget-cycle-simple-marker.budget-cycle-slot-today {
+  background: #f97316;
+}
+
+.budget-cycle-simple-marker.budget-cycle-slot-close {
+  background: #0f172a;
+}
+
+.budget-cycle-slot-hidden {
+  visibility: hidden;
 }
 
 .analytics-strip {
@@ -1846,9 +1918,9 @@ input.section-title-input {
     justify-self: center;
   }
 
-  .budget-cycle-progress-pill,
-  .budget-cycle-current-label {
-    align-self: flex-start;
+  .budget-cycle-select {
+    min-width: 0;
+    width: min(100%, 15rem);
   }
 
   .budget-cycle-title-group {
@@ -1860,26 +1932,48 @@ input.section-title-input {
     justify-self: center;
   }
 
-  .budget-cycle-boundaries {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 0.2rem;
+
+@media (max-width: 560px) {
+  .budget-cycle-toolbar-row {
+    padding: 0;
+    gap: 0.3rem;
+    flex-wrap: nowrap;
+    align-items: center;
   }
 
+  .budget-cycle-toolbar-row .toolbar-button {
+    padding: 0.28rem 0.5rem;
+    font-size: 0.7rem;
+    white-space: nowrap;
+  }
+
+  .budget-cycle-select-wrap {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    row-gap: 0;
+  }
+
+  .budget-cycle-select-wrap span {
+    flex: 0 0 auto;
+    text-align: right;
+  }
+
+  .budget-cycle-select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    font-size: 0.64rem;
+  }
+}
   .budget-cycle-track-stage {
-    padding-top: 1.15rem;
+    padding-top: 0.85rem;
   }
 
-  .budget-cycle-current-label {
-    transform: translateX(-50%);
-    max-width: 8rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .budget-cycle-boundary-card-middle,
-  .budget-cycle-boundary-card-end {
-    text-align: left;
+  .budget-cycle-simple-label {
+    font-size: 0.62rem;
   }
 
   .budget-cycle-boundary-card-end {
