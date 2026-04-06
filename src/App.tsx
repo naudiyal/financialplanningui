@@ -488,10 +488,25 @@ const CHART_COLORS = {
 }
 
 const getSavingsNextMonthCardStyles = (amount: number, monthlyIncome: number) => {
-  const neutralBand = Math.max(monthlyIncome * 0.05, 250)
+  if (monthlyIncome <= 0) {
+    return {
+      cardStyle: {
+        borderColor: 'hsl(214 32% 78%)',
+        background: 'linear-gradient(180deg, hsl(210 20% 98%) 0%, hsl(215 24% 94%) 100%)',
+      },
+      labelStyle: { color: 'hsl(215 20% 34%)' },
+      valueStyle: { color: 'hsl(215 32% 26%)' },
+      detailStyle: { color: 'hsl(215 16% 42%)' },
+      barStyle: {
+        background: 'linear-gradient(90deg, hsl(210 18% 66%), hsl(215 24% 56%))',
+      },
+    }
+  }
 
-  if (amount < -neutralBand) {
-    const severity = Math.min(1, (Math.abs(amount) - neutralBand) / Math.max(monthlyIncome * 0.25, 1))
+  const savingsRatio = amount / monthlyIncome
+
+  if (savingsRatio <= 0.02) {
+    const severity = Math.min(1, (0.02 - savingsRatio) / 0.08)
     return {
       cardStyle: {
         borderColor: `hsl(0 72% ${58 - severity * 10}%)`,
@@ -506,8 +521,8 @@ const getSavingsNextMonthCardStyles = (amount: number, monthlyIncome: number) =>
     }
   }
 
-  if (amount <= neutralBand) {
-    const calm = 1 - Math.min(1, Math.abs(amount) / Math.max(neutralBand, 1))
+  if (savingsRatio < 0.1) {
+    const calm = 1 - Math.min(1, (savingsRatio - 0.02) / 0.08)
     return {
       cardStyle: {
         borderColor: `hsl(42 72% ${66 - calm * 6}%)`,
@@ -522,7 +537,7 @@ const getSavingsNextMonthCardStyles = (amount: number, monthlyIncome: number) =>
     }
   }
 
-  const strength = Math.min(1, (amount - neutralBand) / Math.max(monthlyIncome * 0.3, 1))
+  const strength = Math.min(1, (savingsRatio - 0.1) / 0.15)
   return {
     cardStyle: {
       borderColor: `hsl(${124 + strength * 12} 52% ${48 - strength * 4}%)`,
@@ -586,8 +601,8 @@ const getExposureCardStyles = (exposureAmount: number, monthlySalary: number) =>
 
   const exposureRatio = exposureAmount / monthlySalary
 
-  if (exposureRatio > 1) {
-    const severity = Math.min(1, exposureRatio - 1)
+  if (exposureRatio > 0.98) {
+    const severity = Math.min(1, (exposureRatio - 0.98) / 0.22)
     return {
       cardStyle: {
         borderColor: `hsl(0 72% ${58 - severity * 10}%)`,
@@ -602,8 +617,8 @@ const getExposureCardStyles = (exposureAmount: number, monthlySalary: number) =>
     }
   }
 
-  if (exposureRatio >= 0.75) {
-    const concern = Math.min(1, (exposureRatio - 0.75) / 0.25)
+  if (exposureRatio > 0.9) {
+    const concern = Math.min(1, (exposureRatio - 0.9) / 0.08)
     return {
       cardStyle: {
         borderColor: `hsl(34 76% ${62 - concern * 8}%)`,
@@ -618,7 +633,7 @@ const getExposureCardStyles = (exposureAmount: number, monthlySalary: number) =>
     }
   }
 
-  const comfort = Math.min(1, (0.75 - exposureRatio) / 0.75)
+  const comfort = Math.min(1, (0.9 - exposureRatio) / 0.9)
   return {
     cardStyle: {
       borderColor: `hsl(${126 + comfort * 10} 48% ${50 - comfort * 4}%)`,

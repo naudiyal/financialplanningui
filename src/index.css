@@ -1064,15 +1064,21 @@ section {
 }
 
 .bank-accounts-section {
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
-  justify-self: start;
+  justify-self: stretch;
 }
 
 .section-content-fit {
   display: inline-grid;
   width: fit-content;
   max-width: 100%;
+}
+
+.bank-accounts-section.section-content-fit {
+  display: grid;
+  width: 100%;
+  justify-self: stretch;
 }
 
 .section-content-fit .section-header {
@@ -1537,7 +1543,9 @@ tbody tr:hover {
 
 .income-subsection-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: 100%;
+  max-width: calc((18rem * 3) + (var(--bank-subsection-column-gap) * 2));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
   gap: 0.3rem var(--bank-subsection-column-gap);
   align-items: start;
 }
@@ -1850,7 +1858,7 @@ input.section-title-input {
 
 .compact-side-panel .info-card {
   display: grid;
-  grid-template-columns: 8.26rem minmax(0, 1fr);
+  grid-template-columns: minmax(9.5rem, 1fr) minmax(6.75rem, 0.9fr);
   align-items: center;
   column-gap: 0.06rem;
   row-gap: 0;
@@ -1884,7 +1892,7 @@ input.section-title-input {
 
 .compact-side-panel input.label-input.card-title {
   padding-right: 0;
-  text-overflow: ellipsis;
+  text-overflow: clip;
 }
 
 .compact-side-panel .card-value {
@@ -2004,6 +2012,28 @@ input.section-title-input {
     font-size: 0.64rem;
   }
 
+  .bank-accounts-section .info-card {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 0.12rem;
+    padding: 0.18rem 0.2rem;
+  }
+
+  .bank-accounts-section .info-card > :first-child {
+    border-right: 0;
+    padding-right: 0;
+  }
+
+  .bank-accounts-section .info-card > :nth-child(2) {
+    padding-left: 0;
+  }
+
+  .bank-accounts-section .currency-input-wrap {
+    justify-content: stretch;
+  }
+
+  .bank-accounts-section .currency-amount-input {
+    min-width: 7rem;
+  }
 
 @media (max-width: 560px) {
   .budget-cycle-header {
@@ -2068,6 +2098,7 @@ input.section-title-input {
     min-width: 0;
     font-size: 0.64rem;
   }
+
 }
   .budget-cycle-track-stage {
     padding-top: 0.85rem;
