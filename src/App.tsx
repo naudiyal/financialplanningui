@@ -57,7 +57,18 @@ type AuthStatusResponse = {
   pictureUrl: string | null
 }
 
+type SharedViewerUserSummary = {
+  userSub: string
+  email: string | null
+  displayName: string | null
+}
+
 type PlanViewMode = 'personal' | 'sample'
+
+const PERSONAL_ROUTE = '/'
+const TRACKERS_ROUTE = '/trackers'
+
+type AppRoute = typeof PERSONAL_ROUTE | typeof TRACKERS_ROUTE
 
 type CycleSelection = 'current' | 'previous'
 
@@ -104,6 +115,9 @@ type AnalyticsKpiCard = {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
 const LOGIN_URL = `${API_BASE_URL}/oauth2/authorization/google`
+const TRACKERS_ALLOWED_EMAIL = 'naudiyal@gmail.com'
+
+const normalizeAppRoute = (pathname: string): AppRoute => (pathname === TRACKERS_ROUTE ? TRACKERS_ROUTE : PERSONAL_ROUTE)
 
 const convertToISODate = (dateStr: string) => {
   const months: Record<string, string> = {
@@ -143,6 +157,40 @@ const advanceIsoDateByOneMonth = (value: string) => {
 }
 
 const joinClassNames = (...classNames: Array<string | undefined>) => classNames.filter(Boolean).join(' ')
+
+const normalizeLegacyCreditAccountColumnLabel = (id: string, label: string) => {
+  if (id === 'pay-date' && label === 'Pay Date') {
+    return 'Payment Date'
+  }
+
+  if (id === 'credit-limit' && label === 'Limit') {
+    return 'Credit Limit'
+  }
+
+  return label
+}
+
+const normalizeColumnLabelsForUi = (columnLabels?: FinancialPlanColumnLabels): FinancialPlanColumnLabels => {
+  const source = columnLabels ?? defaultColumnLabels
+
+  return {
+    creditAccounts: source.creditAccounts.map((column) => ({
+      ...column,
+      label: normalizeLegacyCreditAccountColumnLabel(column.id, column.label),
+    })),
+    debitExpenses: source.debitExpenses,
+  }
+}
+
+const formatViewerUserLabel = (user: SharedViewerUserSummary) => {
+  const primaryLabel = user.displayName?.trim() || user.email?.trim() || user.userSub
+
+  if (user.displayName?.trim() && user.email?.trim()) {
+    return `${user.displayName} (${user.email})`
+  }
+
+  return primaryLabel
+}
 
 type CurrencyInputProps = {
   value: number
@@ -295,7 +343,7 @@ const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData 
   planoExpenses: data.planoExpenses,
   sanfordExpenses: data.sanfordExpenses,
   otherExpenses: data.otherExpenses,
-  columnLabels: data.columnLabels ?? defaultColumnLabels,
+  columnLabels: normalizeColumnLabelsForUi(data.columnLabels),
   sectionTitles: serializeSectionTitles(normalizeSectionTitles(data.sectionTitles)),
   incomeSubsections: data.incomeSubsections ?? defaultIncomeSubsections,
 })
@@ -597,7 +645,20 @@ const defaultFinancialPlanData = normalizeFinancialPlanData({
   incomeSubsections: defaultIncomeSubsections,
 })
 
+const emptyFinancialPlanData = normalizeFinancialPlanData({
+  creditAccounts: [],
+  incomeItems: [],
+  balanceItems: [],
+  planoExpenses: [],
+  sanfordExpenses: [],
+  otherExpenses: [],
+  columnLabels: defaultColumnLabels,
+  sectionTitles: defaultSectionTitles,
+  incomeSubsections: defaultIncomeSubsections,
+})
+
 export default function App() {
+  const [appRoute, setAppRoute] = useState<AppRoute>(() => normalizeAppRoute(window.location.pathname))
   const [creditAccounts, setCreditAccounts] = useState(initialCreditAccounts)
   const [incomeItemsState, setIncomeItemsState] = useState(initialIncomeItems)
   const [balanceItemsState, setBalanceItemsState] = useState(initialBalanceItems)
@@ -620,6 +681,8 @@ export default function App() {
   const [saveMessage, setSaveMessage] = useState('Loading saved plan...')
   const [loadedPlanSignature, setLoadedPlanSignature] = useState<string | null>(null)
   const [planViewMode, setPlanViewMode] = useState<PlanViewMode>('personal')
+  const [sharedViewerUsers, setSharedViewerUsers] = useState<SharedViewerUserSummary[]>([])
+  const [selectedSharedViewerUserSub, setSelectedSharedViewerUserSub] = useState('')
   const [personalPlanSnapshot, setPersonalPlanSnapshot] = useState<PersonalPlanSnapshot | null>(null)
   const [hasSavedPersonalPlan, setHasSavedPersonalPlan] = useState(false)
   const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking')
@@ -651,6 +714,20 @@ export default function App() {
   const dismissSamplePromptOnMenuCloseRef = useRef(false)
   const skipNextCarryoverResetRef = useRef(false)
 
+  const navigateToRoute = (nextRoute: AppRoute, options?: { replace?: boolean }) => {
+    const normalizedRoute = normalizeAppRoute(nextRoute)
+    const nextUrl = new URL(window.location.href)
+    nextUrl.pathname = normalizedRoute
+
+    if (options?.replace) {
+      window.history.replaceState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`)
+    } else if (normalizedRoute !== appRoute) {
+      window.history.pushState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`)
+    }
+
+    setAppRoute(normalizedRoute)
+  }
+
   useEffect(() => {
     let isMounted = true
     const loginStatus = new URLSearchParams(window.location.search).get('login')
@@ -680,6 +757,8 @@ export default function App() {
           setAuthenticatedUser(null)
           setHasSavedPersonalPlan(false)
           setShowSamplePrompt(false)
+          setSharedViewerUsers([])
+          setSelectedSharedViewerUserSub('')
           setAuthState('unauthenticated')
           setAuthMessage(loginStatus === 'error' ? 'Google sign-in failed. Try again.' : 'Sign in with Google to continue.')
           setSaveState('idle')
@@ -690,7 +769,6 @@ export default function App() {
         setAuthenticatedUser(authData)
         setAuthState('authenticated')
         setAuthMessage('')
-        await loadPersonalPlan('current', 'Loading saved plan...')
       } catch {
         if (!isMounted) {
           return
@@ -699,6 +777,8 @@ export default function App() {
         setAuthenticatedUser(null)
         setHasSavedPersonalPlan(false)
         setShowSamplePrompt(false)
+        setSharedViewerUsers([])
+        setSelectedSharedViewerUserSub('')
         setSelectedCycle('current')
         setCurrentCyclePeriod(buildNaturalCurrentCycle(new Date()))
         setPreviousCyclePeriod(null)
@@ -714,6 +794,18 @@ export default function App() {
 
     return () => {
       isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setAppRoute(normalizeAppRoute(window.location.pathname))
+    }
+
+    window.addEventListener('popstate', handlePopState)
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
     }
   }, [])
 
@@ -1900,20 +1992,32 @@ export default function App() {
   }, [currentPlanSignature, hasCurrentCycleUserEdits, loadedPlanSignature, planViewMode, selectedCycle])
 
   const isSampleMode = planViewMode === 'sample'
+  const isTrackersRoute = appRoute === TRACKERS_ROUTE
+  const canAccessTrackersRoute = authenticatedUser?.email?.toLowerCase() === TRACKERS_ALLOWED_EMAIL
   const isViewingPreviousCycle = !isSampleMode && selectedCycle === 'previous'
+  const isTrackerReadOnly = isViewingPreviousCycle || isTrackersRoute
+  const hasSharedViewerUsers = sharedViewerUsers.length > 0
+  const selectedSharedViewerUser = sharedViewerUsers.find((user) => user.userSub === selectedSharedViewerUserSub) ?? null
   const sampleHasLocalChanges = isSampleMode && loadedPlanSignature !== null && currentPlanSignature !== loadedPlanSignature
 
   const hasUnsavedChanges =
     !isSampleMode &&
+    !isTrackersRoute &&
     selectedCycle === 'current' &&
     hasCurrentCycleUserEdits &&
     loadedPlanSignature !== null &&
     currentPlanSignature !== loadedPlanSignature
   const canUseReset = hasUnsavedChanges
-  const canRevertClosedCycle = !isSampleMode && previousCyclePeriod !== null
+  const canRevertClosedCycle = !isSampleMode && !isTrackersRoute && previousCyclePeriod !== null
 
   const statusText =
-    isSampleMode
+    isTrackersRoute
+      ? selectedSharedViewerUser
+        ? `Viewing ${formatViewerUserLabel(selectedSharedViewerUser)}`
+        : hasSharedViewerUsers
+          ? 'Viewing selected tracker'
+          : 'No other trackers available'
+      : isSampleMode
       ? sampleHasLocalChanges
         ? 'Sample changes are local only'
         : 'Viewing sample plan'
@@ -1928,7 +2032,7 @@ export default function App() {
           : ''
 
   const shouldWarnBeforeSwitchingCycle =
-    !isSampleMode && selectedCycle === 'current' && hasUnsavedChanges && !suppressCycleSwitchWarning && !needsPostCloseBaselineSync
+    !isSampleMode && !isTrackersRoute && selectedCycle === 'current' && hasUnsavedChanges && !suppressCycleSwitchWarning && !needsPostCloseBaselineSync
 
   const statusClassName = `status-text status-${isSampleMode ? 'saved' : hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
     const creditWidthCapStyle = creditTableWidth ? { width: `min(100%, ${creditTableWidth}px)` } : undefined
@@ -1954,7 +2058,7 @@ export default function App() {
     setPlanoExpenses(data.planoExpenses)
     setSanfordExpenses(data.sanfordExpenses)
     setOtherExpenses(data.otherExpenses)
-    setColumnLabels(data.columnLabels ?? defaultColumnLabels)
+    setColumnLabels(normalizeColumnLabelsForUi(data.columnLabels))
     setSectionTitles(normalizeSectionTitles(data.sectionTitles))
     setIncomeSubsections(data.incomeSubsections ?? defaultIncomeSubsections)
     setNewBankSubsectionIds(new Set())
@@ -1991,6 +2095,8 @@ export default function App() {
     })
     setHasSavedPersonalPlan(response.hasSavedPlan)
     setShowSamplePrompt(!response.hasSavedPlan)
+    setSharedViewerUsers([])
+    setSelectedSharedViewerUserSub('')
     setPlanViewMode('personal')
     setHasCurrentCycleUserEdits(false)
     setSaveState(successMessage ? 'saved' : 'idle')
@@ -2052,6 +2158,132 @@ export default function App() {
     }
   }
 
+  const loadTrackersRoute = async (preferredUserSub?: string) => {
+    setSaveState('loading')
+    setSaveMessage('Loading available trackers...')
+    setPlanViewMode('personal')
+    setPersonalPlanSnapshot(null)
+    setHasSavedPersonalPlan(false)
+    setShowSamplePrompt(false)
+    setHasCurrentCycleUserEdits(false)
+    setPendingCloseCycleReset(null)
+    setSuppressCycleSwitchWarning(false)
+    setNeedsPostCloseBaselineSync(false)
+    setCloseCycleCarryoverBankData(null)
+    setSelectedCycle('current')
+    setPreviousCyclePeriod(null)
+    applyFinancialPlan(emptyFinancialPlanData)
+    setLoadedPlanSignature(getFinancialPlanSignature(emptyFinancialPlanData))
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/users`, {
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setSaveState('idle')
+        setSaveMessage('')
+        return false
+      }
+
+      if (response.status === 403) {
+        navigateToRoute(PERSONAL_ROUTE, { replace: true })
+        setSaveState('error')
+        setSaveMessage('Only naudiyal@gmail.com can access the trackers page.')
+        return false
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to load viewer users: ${response.status}`)
+      }
+
+      const users: SharedViewerUserSummary[] = await response.json()
+      if (users.length === 0) {
+        setSharedViewerUsers([])
+        setSelectedSharedViewerUserSub('')
+        setSaveState('idle')
+        setSaveMessage('No other trackers are available.')
+        return true
+      }
+
+      const nextUserSub = preferredUserSub && users.some((user) => user.userSub === preferredUserSub)
+        ? preferredUserSub
+        : users[0].userSub
+
+      setSharedViewerUsers(users)
+      return await loadSharedViewerPlan(nextUserSub, 'current')
+    } catch {
+      setSharedViewerUsers([])
+      setSelectedSharedViewerUserSub('')
+      setSaveState('error')
+      setSaveMessage('Other trackers failed to load. Check the API server.')
+      return false
+    }
+  }
+
+  const loadSharedViewerPlan = async (
+    userSub: string,
+    cycle: CycleSelection = 'current',
+    loadingMessage = 'Loading selected tracker...',
+  ) => {
+    setSaveState('loading')
+    setSaveMessage(loadingMessage)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/viewer?userSub=${encodeURIComponent(userSub)}&cycle=${cycle}`, {
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setSharedViewerUsers([])
+        setSelectedSharedViewerUserSub('')
+        setSaveState('idle')
+        setSaveMessage('')
+        return false
+      }
+
+      if (response.status === 403) {
+        navigateToRoute(PERSONAL_ROUTE, { replace: true })
+        setSaveState('error')
+        setSaveMessage('Only naudiyal@gmail.com can access the trackers page.')
+        return false
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to load selected financial plan: ${response.status}`)
+      }
+
+      const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      applyFinancialPlan(cycleResponse.data)
+      setSelectedSharedViewerUserSub(userSub)
+      setSelectedCycle(cycleResponse.selectedCycle)
+      setCurrentCyclePeriod(cycleResponse.currentCycle)
+      setPreviousCyclePeriod(cycleResponse.previousCycle)
+      setLoadedPlanSignature(getFinancialPlanSignature(cycleResponse.data))
+      setPersonalPlanSnapshot(null)
+      setHasSavedPersonalPlan(false)
+      setShowSamplePrompt(false)
+      setHasCurrentCycleUserEdits(false)
+      setPendingCloseCycleReset(null)
+      setSuppressCycleSwitchWarning(false)
+      setNeedsPostCloseBaselineSync(false)
+      setCloseCycleCarryoverBankData(null)
+      setSaveState('idle')
+      setSaveMessage('')
+      return true
+    } catch {
+      setSaveState('error')
+      setSaveMessage('Selected tracker failed to load. Check the API server.')
+      return false
+    }
+  }
+
   const persistFinancialPlan = async (
     payload: FinancialPlanData,
     successMessage = 'Saved to server',
@@ -2109,7 +2341,7 @@ export default function App() {
   }
 
   const handleSave = async () => {
-    if (isSampleMode || isViewingPreviousCycle) {
+    if (isSampleMode || isTrackerReadOnly) {
       setSaveState('idle')
       setSaveMessage('')
       return
@@ -2154,6 +2386,19 @@ export default function App() {
       return
     }
 
+    if (isTrackersRoute) {
+      if (!selectedSharedViewerUserSub) {
+        return
+      }
+
+      await loadSharedViewerPlan(
+        selectedSharedViewerUserSub,
+        nextCycle,
+        nextCycle === 'previous' ? 'Loading selected previous cycle...' : 'Loading selected current cycle...',
+      )
+      return
+    }
+
     if (shouldWarnBeforeSwitchingCycle) {
       setPendingCycleSelection(nextCycle)
       setIsCycleSwitchDialogOpen(true)
@@ -2194,7 +2439,7 @@ export default function App() {
   }
 
   const handleCloseCycleClick = () => {
-    if (isSampleMode || isViewingPreviousCycle || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle) {
+    if (isSampleMode || isTrackerReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle) {
       return
     }
 
@@ -2260,7 +2505,7 @@ export default function App() {
   }
 
   const handleResetClick = () => {
-    if (isSampleMode || isViewingPreviousCycle || !canUseReset || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving') {
+    if (isSampleMode || isTrackerReadOnly || !canUseReset || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving') {
       return
     }
 
@@ -2292,7 +2537,7 @@ export default function App() {
   }
 
   const handleRevertCycleClick = () => {
-    if (!canRevertClosedCycle || saveState === 'loading' || saveState === 'saving') {
+    if (isTrackersRoute || !canRevertClosedCycle || saveState === 'loading' || saveState === 'saving') {
       return
     }
 
@@ -2376,6 +2621,8 @@ export default function App() {
     setAuthState('unauthenticated')
     setAuthMessage('Signed out.')
     setPlanViewMode('personal')
+    setSharedViewerUsers([])
+    setSelectedSharedViewerUserSub('')
     setPersonalPlanSnapshot(null)
     setHasSavedPersonalPlan(false)
     setShowSamplePrompt(false)
@@ -2424,6 +2671,8 @@ export default function App() {
 
       const sampleData: FinancialPlanData = await response.json()
       applyFinancialPlan(sampleData)
+      setSharedViewerUsers([])
+      setSelectedSharedViewerUserSub('')
       setPlanViewMode('sample')
       setLoadedPlanSignature(getFinancialPlanSignature(sampleData))
       setHasCurrentCycleUserEdits(false)
@@ -2437,7 +2686,15 @@ export default function App() {
     }
   }
 
-  const shouldWarnBeforeSwitchingToSample = !isSampleMode && hasUnsavedChanges
+  const shouldWarnBeforeSwitchingToSample = !isSampleMode && !isTrackersRoute && hasUnsavedChanges
+
+  const handleSharedViewerSelectionChange = async (nextUserSub: string) => {
+    if (!nextUserSub || nextUserSub === selectedSharedViewerUserSub) {
+      return
+    }
+
+    await loadSharedViewerPlan(nextUserSub, 'current')
+  }
 
   const handleSampleClick = async () => {
     if (shouldWarnBeforeSwitchingToSample) {
@@ -2472,6 +2729,16 @@ export default function App() {
 
   const handleReturnToMyPlan = async () => {
     setIsUserMenuOpen(false)
+
+    if (isTrackersRoute) {
+      setSharedViewerUsers([])
+      setSelectedSharedViewerUserSub('')
+      navigateToRoute(PERSONAL_ROUTE)
+      return
+    }
+
+    setSharedViewerUsers([])
+    setSelectedSharedViewerUserSub('')
     const loaded = await loadPersonalPlan('current', 'Loading your plan...')
     if (!loaded && personalPlanSnapshot) {
       applyFinancialPlan(personalPlanSnapshot.data)
@@ -2484,7 +2751,7 @@ export default function App() {
   }
 
   const handleDeleteTrackerClick = () => {
-    if (isSampleMode) {
+    if (isSampleMode || isTrackersRoute) {
       return
     }
 
@@ -2579,6 +2846,26 @@ export default function App() {
     }
   }
 
+  useEffect(() => {
+    if (authState !== 'authenticated') {
+      return
+    }
+
+    if (appRoute === TRACKERS_ROUTE && !canAccessTrackersRoute) {
+      navigateToRoute(PERSONAL_ROUTE, { replace: true })
+      setSaveState('error')
+      setSaveMessage('Only naudiyal@gmail.com can access the trackers page.')
+      return
+    }
+
+    if (appRoute === TRACKERS_ROUTE) {
+      void loadTrackersRoute(selectedSharedViewerUserSub || undefined)
+      return
+    }
+
+    void loadPersonalPlan('current', 'Loading saved plan...')
+  }, [appRoute, authState, canAccessTrackersRoute])
+
   if (authState !== 'authenticated') {
     return (
       <div className="auth-shell">
@@ -2602,20 +2889,22 @@ export default function App() {
       <header className="hero" style={creditWidthCapStyle}>
         <div>
           <p className="eyebrow">Financial Planning</p>
-          <h1>Personal Finance Tracker</h1>
+          <h1>{isTrackersRoute ? 'Shared Trackers' : 'Personal Finance Tracker'}</h1>
           <p className="intro">
-            Track cards, statements, payments, income, balances, and spreadsheet-style expense totals in one dashboard.
+            {isTrackersRoute
+              ? 'Review other users\' trackers on a dedicated read-only route.'
+              : 'Track cards, statements, payments, income, balances, and spreadsheet-style expense totals in one dashboard.'}
           </p>
         </div>
         <div className="hero-actions">
-          <button type="button" className="toolbar-button" onClick={handleSave} disabled={isSampleMode || isViewingPreviousCycle || saveState === 'loading' || saveState === 'saving'}>
-            {isSampleMode ? 'Sample Not Saved' : isViewingPreviousCycle ? 'Previous Read Only' : saveState === 'saving' ? 'Saving...' : 'Save Changes'}
+          <button type="button" className="toolbar-button" onClick={handleSave} disabled={isSampleMode || isTrackerReadOnly || saveState === 'loading' || saveState === 'saving'}>
+            {isSampleMode ? 'Sample Not Saved' : isTrackerReadOnly ? 'Read Only' : saveState === 'saving' ? 'Saving...' : 'Save Changes'}
           </button>
           <button
             type="button"
             className="toolbar-button"
             onClick={handleResetClick}
-            disabled={isSampleMode || isViewingPreviousCycle || !canUseReset || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving'}
+            disabled={isSampleMode || isTrackerReadOnly || !canUseReset || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving'}
           >
             Reset
           </button>
@@ -2639,7 +2928,16 @@ export default function App() {
               </button>
               {isUserMenuOpen ? (
                 <div className="user-menu-dropdown" role="menu">
-                  {isSampleMode ? (
+                  {isTrackersRoute ? (
+                    <>
+                      <button type="button" className="user-menu-item" disabled role="menuitem" aria-disabled="true">
+                        View Other Trackers
+                      </button>
+                      <button type="button" className="user-menu-item" onClick={handleReturnToMyPlan} role="menuitem">
+                        Back to My Plan
+                      </button>
+                    </>
+                  ) : isSampleMode ? (
                     <button type="button" className="user-menu-item" onClick={handleReturnToMyPlan} role="menuitem">
                       Back to My Plan
                     </button>
@@ -2653,7 +2951,7 @@ export default function App() {
                       Sample Tracker
                     </button>
                   )}
-                  {!isSampleMode ? (
+                  {!isSampleMode && !isTrackersRoute ? (
                     <button type="button" className="user-menu-item user-menu-item-danger" onClick={handleDeleteTrackerClick} role="menuitem">
                       Delete My Tracker
                     </button>
@@ -2683,11 +2981,54 @@ export default function App() {
         </section>
       ) : null}
 
-      {!isSampleMode && isViewingPreviousCycle ? (
+      {!isSampleMode && !isTrackersRoute && isViewingPreviousCycle ? (
         <section className="sample-banner previous-cycle-banner" aria-label="Previous cycle mode" style={creditWidthCapStyle}>
           <div>
             <strong>Viewing previous cycle</strong>
             <span>This archived cycle is read only. Switch back to the current cycle to edit or save changes.</span>
+          </div>
+        </section>
+      ) : null}
+
+      {isTrackersRoute ? (
+        <section className="sample-banner shared-view-banner" aria-label="Shared tracker mode" style={creditWidthCapStyle}>
+          <div>
+            <strong>
+              {selectedSharedViewerUser
+                ? `Viewing ${formatViewerUserLabel(selectedSharedViewerUser)}`
+                : hasSharedViewerUsers
+                  ? 'Viewing another user tracker'
+                  : 'No other trackers available'}
+            </strong>
+            <span>
+              {hasSharedViewerUsers
+                ? 'Selected tracker is read only. Only the currently selected tracker data is loaded in the browser.'
+                : 'No additional tracker records are available for this account yet.'}
+            </span>
+          </div>
+          <div className="shared-view-banner-actions">
+            <label className="shared-view-select-wrap">
+              <span>User</span>
+              <select
+                className="shared-view-select"
+                value={selectedSharedViewerUserSub}
+                onChange={(event) => void handleSharedViewerSelectionChange(event.target.value)}
+                disabled={!hasSharedViewerUsers || saveState === 'loading' || saveState === 'saving'}
+              >
+                {hasSharedViewerUsers ? (
+                  sharedViewerUsers.map((user) => (
+                    <option key={user.userSub} value={user.userSub}>
+                      {formatViewerUserLabel(user)}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No other trackers available</option>
+                )}
+              </select>
+            </label>
+            <button type="button" className="toolbar-button" onClick={handleReturnToMyPlan}>
+              Back to My Plan
+            </button>
           </div>
         </section>
       ) : null}
@@ -2699,7 +3040,7 @@ export default function App() {
               type="button"
               className="toolbar-button budget-cycle-button"
               onClick={handleCloseCycleClick}
-              disabled={isSampleMode || isViewingPreviousCycle || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle}
+              disabled={isSampleMode || isTrackerReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle}
             >
               Close Cycle
             </button>
@@ -2708,7 +3049,7 @@ export default function App() {
             type="button"
             className="toolbar-button"
             onClick={handleRevertCycleClick}
-            disabled={!canRevertClosedCycle || saveState === 'loading' || saveState === 'saving'}
+            disabled={isTrackersRoute || !canRevertClosedCycle || saveState === 'loading' || saveState === 'saving'}
           >
             Revert Cycle
           </button>
@@ -3113,7 +3454,7 @@ export default function App() {
       ) : null}
 
       <section className="credit-accounts-section">
-        <fieldset className="section-readonly-fieldset" disabled={isViewingPreviousCycle}>
+        <fieldset className="section-readonly-fieldset" disabled={isTrackerReadOnly}>
         <div className="section-content-fit">
           <div className="section-header">
             <h2>
@@ -3360,7 +3701,7 @@ export default function App() {
 
       <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
         <section className="expense-section compact-section">
-          <fieldset className="section-readonly-fieldset" disabled={isViewingPreviousCycle}>
+          <fieldset className="section-readonly-fieldset" disabled={isTrackerReadOnly}>
           <div className="section-header">
             <h2>
               <input
@@ -3496,7 +3837,7 @@ export default function App() {
       <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
 
         <section className="compact-section compact-side-panel bank-accounts-section">
-          <fieldset className="section-readonly-fieldset" disabled={isViewingPreviousCycle}>
+          <fieldset className="section-readonly-fieldset" disabled={isTrackerReadOnly}>
           <div className="section-content-fit">
             <div className="section-header bank-section-header">
               <h2>
