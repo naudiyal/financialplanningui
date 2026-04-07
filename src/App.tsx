@@ -63,6 +63,8 @@ type SharedViewerUserSummary = {
   displayName: string | null
 }
 
+type TimelineType = 'MID_TO_MID' | 'START_TO_END'
+
 type PlanViewMode = 'personal' | 'sample'
 
 const PERSONAL_ROUTE = '/'
@@ -80,6 +82,7 @@ type CyclePeriod = {
 type FinancialPlanCycleResponse = {
   data: FinancialPlanData
   selectedCycle: CycleSelection
+  timelineType: TimelineType
   currentCycle: CyclePeriod
   previousCycle: CyclePeriod | null
   hasPreviousCycle: boolean
@@ -116,6 +119,7 @@ type AnalyticsKpiCard = {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
 const LOGIN_URL = `${API_BASE_URL}/oauth2/authorization/google`
 const TRACKERS_ALLOWED_EMAIL = 'naudiyal@gmail.com'
+const BUILD_LABEL = `Build v${__APP_VERSION__} | ${__APP_BUILD_AT__.replace('T', ' ').replace(/\.\d+Z$/, ' UTC')}`
 
 const normalizeAppRoute = (pathname: string): AppRoute => (pathname === TRACKERS_ROUTE ? TRACKERS_ROUTE : PERSONAL_ROUTE)
 
@@ -383,8 +387,25 @@ const formatCompactCycleBoundaryDate = (value: string) =>
 const formatCycleRangeLabel = (cyclePeriod: CyclePeriod) =>
   `${formatCycleBoundaryDate(cyclePeriod.startDate)} - ${formatCycleBoundaryDate(cyclePeriod.endDate)}`
 
-const buildNaturalCurrentCycle = (today: Date): CyclePeriod => {
+const formatTimelineTypeLabel = (timelineType: TimelineType) =>
+  timelineType === 'START_TO_END' ? 'Start to End' : 'Mid to Mid'
+
+const getAlternateTimelineType = (timelineType: TimelineType): TimelineType =>
+  timelineType === 'START_TO_END' ? 'MID_TO_MID' : 'START_TO_END'
+
+const buildCurrentCycleForTimeline = (today: Date, timelineType: TimelineType): CyclePeriod => {
   const currentDate = createLocalDate(today.getFullYear(), today.getMonth(), today.getDate())
+
+  if (timelineType === 'START_TO_END') {
+    const cycleStart = createLocalDate(currentDate.getFullYear(), currentDate.getMonth(), 1)
+    const cycleEnd = createLocalDate(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
+
+    return {
+      startDate: cycleStart.toISOString().slice(0, 10),
+      endDate: cycleEnd.toISOString().slice(0, 10),
+    }
+  }
+
   const cycleStart =
     currentDate.getDate() >= 16
       ? createLocalDate(currentDate.getFullYear(), currentDate.getMonth(), 16)
@@ -397,11 +418,11 @@ const buildNaturalCurrentCycle = (today: Date): CyclePeriod => {
   }
 }
 
-const buildNaturalPreviousCycle = (today: Date): CyclePeriod => {
-  const currentCycle = buildNaturalCurrentCycle(today)
+const buildPreviousCycleForTimeline = (today: Date, timelineType: TimelineType): CyclePeriod => {
+  const currentCycle = buildCurrentCycleForTimeline(today, timelineType)
   const currentStart = new Date(`${currentCycle.startDate}T12:00:00`)
-  const previousStart = createLocalDate(currentStart.getFullYear(), currentStart.getMonth() - 1, 16)
-  const previousEnd = createLocalDate(currentStart.getFullYear(), currentStart.getMonth(), 15)
+  const previousStart = createLocalDate(currentStart.getFullYear(), currentStart.getMonth() - 1, currentStart.getDate())
+  const previousEnd = createLocalDate(currentStart.getFullYear(), currentStart.getMonth(), currentStart.getDate() - 1)
 
   return {
     startDate: previousStart.toISOString().slice(0, 10),
@@ -715,9 +736,12 @@ export default function App() {
   const [deleteState, setDeleteState] = useState<'idle' | 'deleting' | 'error'>('idle')
   const [deleteMessage, setDeleteMessage] = useState('')
   const [selectedCycle, setSelectedCycle] = useState<CycleSelection>('current')
+  const [timelineType, setTimelineType] = useState<TimelineType>('MID_TO_MID')
   const [pendingCycleSelection, setPendingCycleSelection] = useState<CycleSelection | null>(null)
-  const [currentCyclePeriod, setCurrentCyclePeriod] = useState<CyclePeriod>(() => buildNaturalCurrentCycle(new Date()))
+  const [currentCyclePeriod, setCurrentCyclePeriod] = useState<CyclePeriod>(() => buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
   const [previousCyclePeriod, setPreviousCyclePeriod] = useState<CyclePeriod | null>(null)
+  const [pendingTimelineTypeSwitch, setPendingTimelineTypeSwitch] = useState<TimelineType | null>(null)
+  const [isTimelineSwitchDialogOpen, setIsTimelineSwitchDialogOpen] = useState(false)
   const [pendingCloseCycleReset, setPendingCloseCycleReset] = useState<PendingCloseCycleReset | null>(null)
   const [suppressCycleSwitchWarning, setSuppressCycleSwitchWarning] = useState(false)
   const [hasCurrentCycleUserEdits, setHasCurrentCycleUserEdits] = useState(false)
@@ -795,7 +819,8 @@ export default function App() {
         setSharedViewerUsers([])
         setSelectedSharedViewerUserSub('')
         setSelectedCycle('current')
-        setCurrentCyclePeriod(buildNaturalCurrentCycle(new Date()))
+        setTimelineType('MID_TO_MID')
+        setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
         setPreviousCyclePeriod(null)
         setPendingCloseCycleReset(null)
         setAuthState('error')
@@ -1349,7 +1374,7 @@ export default function App() {
 
   const overdueAlertData: AnalyticsKpiCard[] = [
     {
-      label: 'Savings Next Month',
+      label: 'Savings Next Cycle',
       value: currency(savingsNextMonth),
       detail: 'Projected leftover after next month expenses',
       ratio: Math.min(100, salaryTransferToChase === 0 ? 0 : Math.max(0, (savingsNextMonth / salaryTransferToChase) * 100)),
@@ -1370,21 +1395,21 @@ export default function App() {
       ...overdueExpensesStyles,
     },
     {
-      label: 'Current Month Exposure',
+      label: 'Current Cycle Exposure',
       value: currency(j36),
       detail: 'Cards plus current debit expenses',
       ratio: Math.min(100, totalLimits === 0 ? 0 : (j36 / totalLimits) * 100),
       ...currentMonthExposureStyles,
     },
     {
-      label: 'Next Month Exposure',
+      label: 'Next Cycle Exposure',
       value: currency(k36),
       detail: 'Projected next statement pressure',
       ratio: Math.min(100, totalLimits === 0 ? 0 : (k36 / totalLimits) * 100),
       ...nextMonthExposureStyles,
     },
     {
-      label: 'Month After Next Month Exposure',
+      label: 'Cycle After Next Cycle Exposure',
       value: currency(monthAfterNextMonthExpense),
       detail: 'Projected carry beyond next month',
       ratio: Math.min(100, totalLimits === 0 ? 0 : (monthAfterNextMonthExpense / totalLimits) * 100),
@@ -1518,7 +1543,7 @@ export default function App() {
           color: CHART_COLORS.next,
         },
         {
-          name: 'Savings Next Month',
+          name: 'Savings Next Cycle',
           value: Number(Math.max(0, savingsNextMonth).toFixed(2)),
           color: CHART_COLORS.positive,
         },
@@ -1571,13 +1596,24 @@ export default function App() {
     }))
     .sort((left, right) => right.current + right.next - (left.current + left.next) || left.name.localeCompare(right.name))
 
-  const expenseCategoryShareData = expenseCategoryData
+  const expenseCategoryCurrentShareData = expenseCategoryData
     .map((item, index) => ({
       name: item.name,
-      value: Number((item.current + item.next).toFixed(2)),
+      value: item.current,
       color: expenseCategoryPalette[index % expenseCategoryPalette.length],
     }))
     .filter((item) => item.value > 0)
+
+  const expenseCategoryNextShareData = expenseCategoryData
+    .map((item, index) => ({
+      name: item.name,
+      value: item.next,
+      color: expenseCategoryPalette[index % expenseCategoryPalette.length],
+    }))
+    .filter((item) => item.value > 0)
+
+  const hasExpenseCategoryCurrentShareData = expenseCategoryCurrentShareData.length > 0
+  const hasExpenseCategoryNextShareData = expenseCategoryNextShareData.length > 0
 
   const cashFlowDriverData = [
     { name: 'Checking', amount: Number(checkingAccountBalanceChase.toFixed(2)), fill: CHART_COLORS.positive },
@@ -2099,6 +2135,7 @@ export default function App() {
 
     applyFinancialPlan(response.data)
     setSelectedCycle(response.selectedCycle)
+    setTimelineType(response.timelineType)
     setCurrentCyclePeriod(response.currentCycle)
     setPreviousCyclePeriod(response.previousCycle)
     setLoadedPlanSignature(getFinancialPlanSignature(response.data))
@@ -2163,7 +2200,8 @@ export default function App() {
       setHasSavedPersonalPlan(false)
       setShowSamplePrompt(false)
       setSelectedCycle('current')
-      setCurrentCyclePeriod(buildNaturalCurrentCycle(new Date()))
+      setTimelineType('MID_TO_MID')
+      setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
       setPreviousCyclePeriod(null)
       setAuthState('error')
       setAuthMessage('Authentication or API service unavailable.')
@@ -2383,6 +2421,7 @@ export default function App() {
       applyPersonalCycleResponse({
         data: pendingCloseCycleReset.previousData,
         selectedCycle: 'previous',
+        timelineType,
         currentCycle: pendingCloseCycleReset.currentCycle,
         previousCycle: pendingCloseCycleReset.previousCycle,
         hasPreviousCycle: true,
@@ -2643,7 +2682,8 @@ export default function App() {
     setShowSamplePrompt(false)
     setSelectedCycle('current')
     setPendingCycleSelection(null)
-    setCurrentCyclePeriod(buildNaturalCurrentCycle(new Date()))
+    setTimelineType('MID_TO_MID')
+    setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
     setPreviousCyclePeriod(null)
     setPendingCloseCycleReset(null)
     setHasCurrentCycleUserEdits(false)
@@ -2785,6 +2825,76 @@ export default function App() {
     setIsHelpDialogOpen(false)
   }
 
+  const handleTimelineSwitchClick = () => {
+    if (isTrackersRoute || isSampleMode || isViewingPreviousCycle || saveState === 'loading' || saveState === 'saving') {
+      return
+    }
+
+    setIsUserMenuOpen(false)
+    setPendingTimelineTypeSwitch(getAlternateTimelineType(timelineType))
+    setIsTimelineSwitchDialogOpen(true)
+  }
+
+  const handleTimelineSwitchCancel = () => {
+    if (saveState === 'loading' || saveState === 'saving') {
+      return
+    }
+
+    setPendingTimelineTypeSwitch(null)
+    setIsTimelineSwitchDialogOpen(false)
+  }
+
+  const handleTimelineSwitchConfirm = async () => {
+    if (!pendingTimelineTypeSwitch || isSampleMode || isTrackersRoute || isViewingPreviousCycle) {
+      return
+    }
+
+    setSaveState('saving')
+    setSaveMessage('Switching timeline...')
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/switch-timeline`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          financialPlanData: buildPayload(),
+          expectedCurrentCycle: currentCyclePeriod,
+          targetTimelineType: pendingTimelineTypeSwitch,
+        }),
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setSaveState('idle')
+        setSaveMessage('')
+        setIsTimelineSwitchDialogOpen(false)
+        setPendingTimelineTypeSwitch(null)
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to switch timeline: ${response.status}`)
+      }
+
+      const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      applyPersonalCycleResponse(cycleResponse, `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`)
+      setPendingCloseCycleReset(null)
+      setSelectedCycle('current')
+      setPendingTimelineTypeSwitch(null)
+      setIsTimelineSwitchDialogOpen(false)
+    } catch {
+      setSaveState('error')
+      setSaveMessage('Timeline switch failed. Reload and try again.')
+      setIsTimelineSwitchDialogOpen(false)
+      setPendingTimelineTypeSwitch(null)
+    }
+  }
+
   const handleDeleteTrackerCancel = () => {
     if (deleteState === 'deleting') {
       return
@@ -2910,6 +3020,7 @@ export default function App() {
               ? 'Review other users\' trackers on a dedicated read-only route.'
               : 'Track cards, statements, payments, income, balances, and spreadsheet-style expense totals in one dashboard.'}
           </p>
+          <p className="build-stamp">{BUILD_LABEL}</p>
         </div>
         <div className="hero-actions">
           <button type="button" className="toolbar-button" onClick={handleSave} disabled={isSampleMode || isTrackerReadOnly || saveState === 'loading' || saveState === 'saving'}>
@@ -2966,6 +3077,22 @@ export default function App() {
                       Sample Tracker
                     </button>
                   )}
+                  {!isSampleMode && !isTrackersRoute ? (
+                    <>
+                      <button type="button" className="user-menu-item" disabled role="menuitem" aria-disabled="true">
+                        Timeline: {formatTimelineTypeLabel(timelineType)}
+                      </button>
+                      <button
+                        type="button"
+                        className="user-menu-item"
+                        onClick={handleTimelineSwitchClick}
+                        role="menuitem"
+                        disabled={isViewingPreviousCycle || saveState === 'loading' || saveState === 'saving'}
+                      >
+                        Switch to {formatTimelineTypeLabel(getAlternateTimelineType(timelineType))}
+                      </button>
+                    </>
+                  ) : null}
                   {!isSampleMode && !isTrackersRoute ? (
                     <button type="button" className="user-menu-item user-menu-item-danger" onClick={handleDeleteTrackerClick} role="menuitem">
                       Delete My Tracker
@@ -3155,7 +3282,7 @@ export default function App() {
                     <div className="help-mock-banner">Viewing sample plan</div>
                   </div>
                   <h4>Top Toolbar</h4>
-                  <p>Use this area to save, reset local edits, enter sample mode, close the current cycle, or switch between current and previous cycles.</p>
+                  <p>Use this area to save, reset local edits, enter sample mode, switch timeline type, close the current cycle, or switch between current and previous cycles.</p>
                 </article>
 
                 <article className="help-visual-card">
@@ -3262,10 +3389,10 @@ export default function App() {
             <div className="help-section">
               <h3>What The Key Metrics Mean</h3>
               <ul className="help-list">
-                <li>Savings Next Month shows the projected amount left after next month expenses are covered from the transfer-to-Chase amount.</li>
-                <li>Current Month Exposure shows current month credit card payments plus current month debit card expenses.</li>
-                <li>Next Month Exposure shows projected next statement balances plus next month debit card expenses.</li>
-                <li>Month After Next Month Exposure shows projected carry-forward pressure beyond next month.</li>
+                <li>Savings Next Cycle shows the projected amount left after next month expenses are covered from the transfer-to-Chase amount.</li>
+                <li>Current Cycle Exposure shows current month credit card payments plus current month debit card expenses.</li>
+                <li>Next Cycle Exposure shows projected next statement balances plus next month debit card expenses.</li>
+                <li>Cycle After Next Cycle Exposure shows projected carry-forward pressure beyond next month.</li>
                 <li>Overdue Cards and Overdue Expenses show how many items are already past due based on the dates in the tracker.</li>
               </ul>
             </div>
@@ -3273,7 +3400,7 @@ export default function App() {
             <div className="help-section">
               <h3>How The Charts Should Be Interpreted</h3>
               <ul className="help-list">
-                <li>Savings Next Month compares expected next month expense load against projected leftover savings or shortfall.</li>
+                <li>Savings Next Cycle compares expected next month expense load against projected leftover savings or shortfall.</li>
                 <li>Total Due by Card shows which cards are contributing the most to your total card burden.</li>
                 <li>Payment Due Timeline shows when payment pressure is arriving by due date.</li>
                 <li>Debit Card Expense Category groups debit expenses by the text before ` - ` in each expense label.</li>
@@ -3289,6 +3416,7 @@ export default function App() {
                 <li>Reset discards unsaved local edits in the current cycle and restores the tracker to the last loaded or saved version after you confirm the warning.</li>
                 <li>Sample Tracker opens a temporary sample plan view. Changes there stay only in the current browser session and are not written to your saved plan.</li>
                 <li>Go Back To My Plan leaves sample mode and reloads your personal tracker.</li>
+                <li>Switch to Start to End or Mid to Mid changes your tracker timeline type, deletes previous cycle history, and removes anything you could revert to from the old timeline.</li>
                 <li>Close Cycle archives the current cycle as previous, replaces any existing previous cycle, and applies the rollover rules that reset paid and statement-cycled flags while moving next-month debit expenses into current month.</li>
                 <li>Revert Cycle undoes the most recent close-cycle action while it is still available in the current session.</li>
                 <li>Close Cycle is only enabled when all credit cards are marked paid, all statements are marked statement cycled, and all debit card current month expenses are 0.</li>
@@ -3357,6 +3485,29 @@ export default function App() {
               </button>
               <button type="button" className="toolbar-button" onClick={handleCycleSwitchSaveAndProceed} disabled={saveState === 'saving'}>
                 {saveState === 'saving' ? 'Saving...' : 'Save And Switch'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isTimelineSwitchDialogOpen && pendingTimelineTypeSwitch ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card danger-modal" role="dialog" aria-modal="true" aria-labelledby="timeline-switch-title">
+            <p className="eyebrow danger-eyebrow">Switch Timeline</p>
+            <h2 id="timeline-switch-title">Switch to {formatTimelineTypeLabel(pendingTimelineTypeSwitch)}?</h2>
+            <p className="danger-copy">
+              This will reset cycle history for your tracker. Previous cycle will be deleted, and there will be nothing to revert to after the switch.
+            </p>
+            <p className="danger-copy-subtle">
+              Your current tracker data will be kept, but the active cycle will change to {formatCycleRangeLabel(buildCurrentCycleForTimeline(new Date(), pendingTimelineTypeSwitch))}. You may need to update entries that no longer belong in the new cycle.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="toolbar-button" onClick={handleTimelineSwitchCancel} disabled={saveState === 'saving'}>
+                Cancel
+              </button>
+              <button type="button" className="toolbar-button destructive-button" onClick={handleTimelineSwitchConfirm} disabled={saveState === 'saving'}>
+                {saveState === 'saving' ? 'Switching...' : `Switch to ${formatTimelineTypeLabel(pendingTimelineTypeSwitch)}`}
               </button>
             </div>
           </section>
@@ -3634,7 +3785,7 @@ export default function App() {
           <div className="section-cluster chart-grid credit-chart-grid" style={creditWidthCapStyle}>
             <article className="chart-card">
               <div className="chart-card-header">
-                <h3>Savings Next Month</h3>
+                <h3>Savings Next Cycle</h3>
                 <span>{savingsNextMonth >= 0 ? 'Next month expenses vs remaining savings' : 'Next month expenses exceed transfer'}</span>
               </div>
               <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
@@ -3823,27 +3974,68 @@ export default function App() {
         <article className="chart-card compact-section expense-category-side-panel">
           <div className="chart-card-header">
             <h3>Debit Card Expense Category</h3>
-            <span>Grouped by label prefix across current and next month</span>
+            <span>Grouped by label prefix with separate current and next month views</span>
           </div>
-          <div className="chart-shell" style={{ height: `${overviewChartHeight}px` }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={expenseCategoryShareData}
-                  dataKey="value"
-                  nameKey="name"
-                  innerRadius={54}
-                  outerRadius={84}
-                  paddingAngle={2}
-                >
-                  {expenseCategoryShareData.map((entry) => (
-                    <Cell key={entry.name} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value: number) => currency(value)} />
-                <Legend wrapperStyle={{ fontSize: '11px' }} />
-              </PieChart>
-            </ResponsiveContainer>
+          <div className="expense-category-comparison-grid">
+            <section className="expense-category-panel" aria-label="Current month debit expense categories">
+              <div className="expense-category-panel-header">
+                <h4>Current Month</h4>
+              </div>
+              <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
+                {hasExpenseCategoryCurrentShareData ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={expenseCategoryCurrentShareData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={46}
+                        outerRadius={76}
+                        paddingAngle={2}
+                      >
+                        {expenseCategoryCurrentShareData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: number) => currency(value)} />
+                      <Legend wrapperStyle={{ fontSize: '11px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="chart-empty-state">No current month debit expenses</div>
+                )}
+              </div>
+            </section>
+
+            <section className="expense-category-panel" aria-label="Next month debit expense categories">
+              <div className="expense-category-panel-header">
+                <h4>Next Month</h4>
+              </div>
+              <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
+                {hasExpenseCategoryNextShareData ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={expenseCategoryNextShareData}
+                        dataKey="value"
+                        nameKey="name"
+                        innerRadius={46}
+                        outerRadius={76}
+                        paddingAngle={2}
+                      >
+                        {expenseCategoryNextShareData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: number) => currency(value)} />
+                      <Legend wrapperStyle={{ fontSize: '11px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="chart-empty-state">No next month debit expenses</div>
+                )}
+              </div>
+            </section>
           </div>
         </article>
 
