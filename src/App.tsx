@@ -306,6 +306,16 @@ type ExpenseRow = {
   setter: React.Dispatch<React.SetStateAction<ExpenseItem[]>>
 }
 
+const DEFAULT_CREDIT_SORT: SortState<CreditSortKey> = {
+  key: 'lastStatementDate',
+  direction: 'asc',
+}
+
+const DEFAULT_EXPENSE_SORT: SortState<ExpenseSortKey> = {
+  key: 'payDate',
+  direction: 'asc',
+}
+
 const sumExpenses = (items: ExpenseItem[], field: 'current' | 'next') =>
   items.reduce((sum, item) => sum + item[field], 0)
 
@@ -324,6 +334,81 @@ const compareValues = (left: string | number | boolean, right: string | number |
 const sortItems = <T,>(items: T[], getValue: (item: T) => string | number | boolean, direction: SortDirection) => {
   const multiplier = direction === 'asc' ? 1 : -1
   return [...items].sort((left, right) => multiplier * compareValues(getValue(left), getValue(right)))
+}
+
+const getCreditSortValue = (account: CreditAccount, key: CreditSortKey) => {
+  const metrics = getCreditMetrics(account)
+
+  switch (key) {
+    case 'name':
+      return account.name.toLowerCase()
+    case 'availableCredit':
+      return account.availableCredit
+    case 'nextPaymentDate':
+      return account.nextPaymentDate
+    case 'paidThisMonth':
+      return account.paidThisMonth
+    case 'statementCycledAfterPayment':
+      return account.statementCycledAfterPayment
+    case 'lastStatementDate':
+      return account.lastStatementDate
+    case 'lastStatementBalance':
+      return account.lastStatementBalance
+    case 'creditLimit':
+      return account.creditLimit
+    case 'totalDueForCard':
+      return metrics.totalDueForCard
+    case 'currentMonthPayment':
+      return metrics.currentMonthPayment
+    case 'nextMonthStatementBalance':
+      return metrics.nextMonthStatementBalance
+    case 'utilizationPercent':
+      return metrics.utilizationPercent
+  }
+}
+
+const getExpenseSortValue = (item: ExpenseItem, key: ExpenseSortKey) => {
+  switch (key) {
+    case 'label':
+      return item.label.toLowerCase()
+    case 'payDate':
+      return item.payDate
+    case 'current':
+      return item.current
+    case 'next':
+      return item.next
+  }
+}
+
+const buildOrderedIds = <T,>(items: T[], getId: (item: T) => string) => items.map(getId)
+
+const reconcileOrderedIds = (currentOrder: string[], nextIds: string[]) => {
+  const nextIdSet = new Set(nextIds)
+  const preservedIds = currentOrder.filter((id) => nextIdSet.has(id))
+  const preservedIdSet = new Set(preservedIds)
+  const appendedIds = nextIds.filter((id) => !preservedIdSet.has(id))
+  const mergedIds = [...preservedIds, ...appendedIds]
+
+  if (mergedIds.length === currentOrder.length && mergedIds.every((id, index) => id === currentOrder[index])) {
+    return currentOrder
+  }
+
+  return mergedIds
+}
+
+const applyOrderedIds = <T,>(items: T[], orderedIds: string[], getId: (item: T) => string) => {
+  const itemsById = new Map(items.map((item) => [getId(item), item]))
+  const orderedItems = orderedIds
+    .map((id) => itemsById.get(id))
+    .filter((item): item is T => item !== undefined)
+
+  if (orderedItems.length === items.length) {
+    return orderedItems
+  }
+
+  const orderedIdSet = new Set(orderedIds)
+  const remainingItems = items.filter((item) => !orderedIdSet.has(getId(item)))
+  return [...orderedItems, ...remainingItems]
 }
 
 const getCreditMetrics = (account: CreditAccount) => {
@@ -527,8 +612,7 @@ const shouldHighlightStatementDate = (account: CreditAccount, cyclePeriod: Cycle
   const cycleStart = parseCycleBoundaryDate(cyclePeriod.startDate)
 
   if (
-    account.paidThisMonth
-    && !account.statementCycledAfterPayment
+    !account.statementCycledAfterPayment
     && statementDate !== null
     && cycleStart !== null
     && statementDate < cycleStart
@@ -790,11 +874,23 @@ export default function App() {
   const [selectedBankSubsectionIds, setSelectedBankSubsectionIds] = useState<Set<string>>(new Set())
   const [selectedCreditIds, setSelectedCreditIds] = useState<Set<string>>(new Set())
   const [selectedExpenseIds, setSelectedExpenseIds] = useState<Set<string>>(new Set())
-  const [creditSort, setCreditSort] = useState<SortState<CreditSortKey>>({
-    key: 'statementCycledAfterPayment',
-    direction: 'desc',
+  const [creditSort, setCreditSort] = useState<SortState<CreditSortKey>>(DEFAULT_CREDIT_SORT)
+  const [expenseSort, setExpenseSort] = useState<SortState<ExpenseSortKey>>(DEFAULT_EXPENSE_SORT)
+  const [creditAccountOrder, setCreditAccountOrder] = useState<string[]>(() =>
+    buildOrderedIds(sortItems(initialCreditAccounts, (account) => getCreditSortValue(account, DEFAULT_CREDIT_SORT.key), DEFAULT_CREDIT_SORT.direction), (account) => account.id),
+  )
+  const [expenseRowOrder, setExpenseRowOrder] = useState<string[]>(() => {
+    const initialExpenseRows: ExpenseRow[] = [
+      ...initialPlanoExpenses.map((item) => ({ item, setter: setPlanoExpenses })),
+      ...initialSanfordExpenses.map((item) => ({ item, setter: setSanfordExpenses })),
+      ...initialOtherExpenses.map((item) => ({ item, setter: setOtherExpenses })),
+    ]
+
+    return buildOrderedIds(
+      sortItems(initialExpenseRows, ({ item }) => getExpenseSortValue(item, DEFAULT_EXPENSE_SORT.key), DEFAULT_EXPENSE_SORT.direction),
+      ({ item }) => item.id,
+    )
   })
-  const [expenseSort, setExpenseSort] = useState<SortState<ExpenseSortKey>>({ key: 'label', direction: 'asc' })
   const [saveState, setSaveState] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('loading')
   const [saveMessage, setSaveMessage] = useState('Loading saved plan...')
   const [loadedPlanSignature, setLoadedPlanSignature] = useState<string | null>(null)
@@ -1114,17 +1210,46 @@ export default function App() {
   }
 
   const toggleCreditSort = (key: CreditSortKey) => {
-    setCreditSort((current) => ({
-      key,
-      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
-    }))
+    setCreditSort((current) => {
+      const nextSort = {
+        key,
+        direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
+      } satisfies SortState<CreditSortKey>
+
+      setCreditAccountOrder(
+        buildOrderedIds(
+          sortItems(creditAccounts, (account) => getCreditSortValue(account, nextSort.key), nextSort.direction),
+          (account) => account.id,
+        ),
+      )
+
+      return nextSort
+    })
   }
 
   const toggleExpenseSort = (key: ExpenseSortKey) => {
-    setExpenseSort((current) => ({
-      key,
-      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
-    }))
+    setExpenseSort((current) => {
+      const nextSort = {
+        key,
+        direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc',
+      } satisfies SortState<ExpenseSortKey>
+
+      const expenseRows: ExpenseRow[] = expenseGroups.flatMap((group) =>
+        group.items.map((item) => ({
+          item,
+          setter: group.setter,
+        })),
+      )
+
+      setExpenseRowOrder(
+        buildOrderedIds(
+          sortItems(expenseRows, ({ item }) => getExpenseSortValue(item, nextSort.key), nextSort.direction),
+          ({ item }) => item.id,
+        ),
+      )
+
+      return nextSort
+    })
   }
 
   const getSortIndicator = <T extends string,>(sortState: SortState<T>, key: T) => {
@@ -1990,36 +2115,7 @@ export default function App() {
     },
   ]
 
-  const sortedCreditAccounts = sortItems(creditAccounts, (account) => {
-    const metrics = getCreditMetrics(account)
-
-    switch (creditSort.key) {
-      case 'name':
-        return account.name.toLowerCase()
-      case 'availableCredit':
-        return account.availableCredit
-      case 'nextPaymentDate':
-        return account.nextPaymentDate
-      case 'paidThisMonth':
-        return account.paidThisMonth
-      case 'statementCycledAfterPayment':
-        return account.statementCycledAfterPayment
-      case 'lastStatementDate':
-        return account.lastStatementDate
-      case 'lastStatementBalance':
-        return account.lastStatementBalance
-      case 'creditLimit':
-        return account.creditLimit
-      case 'totalDueForCard':
-        return metrics.totalDueForCard
-      case 'currentMonthPayment':
-        return metrics.currentMonthPayment
-      case 'nextMonthStatementBalance':
-        return metrics.nextMonthStatementBalance
-      case 'utilizationPercent':
-        return metrics.utilizationPercent
-    }
-  }, creditSort.direction)
+  const displayedCreditAccounts = applyOrderedIds(creditAccounts, creditAccountOrder, (account) => account.id)
 
   const expenseRows: ExpenseRow[] = expenseGroups.flatMap((group) =>
     group.items.map((item) => ({
@@ -2028,18 +2124,17 @@ export default function App() {
     })),
   )
 
-  const sortedExpenseRows = sortItems(expenseRows, ({ item }) => {
-    switch (expenseSort.key) {
-      case 'label':
-        return item.label.toLowerCase()
-      case 'payDate':
-        return item.payDate
-      case 'current':
-        return item.current
-      case 'next':
-        return item.next
-    }
-  }, expenseSort.direction)
+  const displayedExpenseRows = applyOrderedIds(expenseRows, expenseRowOrder, ({ item }) => item.id)
+
+  useEffect(() => {
+    const nextCreditIds = buildOrderedIds(creditAccounts, (account) => account.id)
+    setCreditAccountOrder((current) => reconcileOrderedIds(current, nextCreditIds))
+  }, [creditAccounts])
+
+  useEffect(() => {
+    const nextExpenseIds = buildOrderedIds(expenseRows, ({ item }) => item.id)
+    setExpenseRowOrder((current) => reconcileOrderedIds(current, nextExpenseIds))
+  }, [expenseRows])
 
   const buildPayload = (overrides: Partial<FinancialPlanData> = {}): FinancialPlanData => ({
     creditAccounts: overrides.creditAccounts ?? creditAccounts,
@@ -2192,7 +2287,26 @@ export default function App() {
     )
 
   const applyFinancialPlan = (data: FinancialPlanData) => {
-    setCreditAccounts(data.creditAccounts)
+    const nextCreditAccounts = sortItems(
+      data.creditAccounts,
+      (account) => getCreditSortValue(account, DEFAULT_CREDIT_SORT.key),
+      DEFAULT_CREDIT_SORT.direction,
+    )
+    const nextExpenseRows: ExpenseRow[] = [
+      ...data.planoExpenses.map((item) => ({ item, setter: setPlanoExpenses })),
+      ...data.sanfordExpenses.map((item) => ({ item, setter: setSanfordExpenses })),
+      ...data.otherExpenses.map((item) => ({ item, setter: setOtherExpenses })),
+    ]
+    const nextExpenseRowOrder = buildOrderedIds(
+      sortItems(nextExpenseRows, ({ item }) => getExpenseSortValue(item, DEFAULT_EXPENSE_SORT.key), DEFAULT_EXPENSE_SORT.direction),
+      ({ item }) => item.id,
+    )
+
+    setCreditSort(DEFAULT_CREDIT_SORT)
+    setExpenseSort(DEFAULT_EXPENSE_SORT)
+    setCreditAccountOrder(buildOrderedIds(nextCreditAccounts, (account) => account.id))
+    setExpenseRowOrder(nextExpenseRowOrder)
+    setCreditAccounts(nextCreditAccounts)
     setIncomeItemsState(data.incomeItems)
     setBalanceItemsState(data.balanceItems)
     setPlanoExpenses(data.planoExpenses)
@@ -3789,7 +3903,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {sortedCreditAccounts.map((account) => {
+                {displayedCreditAccounts.map((account) => {
                 const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, utilizationPercent } = getCreditMetrics(account)
                 const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
                 const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
@@ -4017,7 +4131,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                    {sortedExpenseRows.map(({ item, setter }) => {
+                    {displayedExpenseRows.map(({ item, setter }) => {
                       const isPastDueCurrentExpense = isPastDate(item.payDate) && Math.abs(item.current) > 0.004
                       const isExpenseDateOutsideCycle = isDateOutsideCyclePeriod(item.payDate, activeCyclePeriod)
 
