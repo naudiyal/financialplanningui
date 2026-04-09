@@ -457,6 +457,22 @@ const getBudgetCycleTimeline = (cyclePeriod: CyclePeriod, today: Date) => {
   }
 }
 
+const isDateOutsideCyclePeriod = (dateValue: string, cyclePeriod: CyclePeriod) => {
+  if (!dateValue) {
+    return false
+  }
+
+  const targetDate = new Date(`${dateValue}T12:00:00`)
+  const cycleStart = new Date(`${cyclePeriod.startDate}T12:00:00`)
+  const cycleEnd = new Date(`${cyclePeriod.endDate}T12:00:00`)
+
+  if (Number.isNaN(targetDate.getTime()) || Number.isNaN(cycleStart.getTime()) || Number.isNaN(cycleEnd.getTime())) {
+    return false
+  }
+
+  return targetDate < cycleStart || targetDate > cycleEnd
+}
+
 const shortenLabel = (value: string, maxLength = 18, trailingLength = 0) => {
   if (value.length <= maxLength) {
     return value
@@ -1314,6 +1330,7 @@ export default function App() {
   const k15 = creditCardNextMonthBalance
   const j36 = j15 + debitCardExpensesTotalCurrent
   const k36 = k15 + debitCardExpensesTotalNext
+  const currentCycleExposure = j36 + additionalPaymentsChase
 
   const checkingAccountBalanceMonthEndChase = totalBalanceChase + additionalIncomeChase - j36
   const netBalanceMonthEnd = checkingAccountBalanceMonthEndChase + chaseCDBalance + checkingAccountBalancePNC + additionalOtherIncome
@@ -1368,7 +1385,7 @@ export default function App() {
   const savingsNextMonthCardStyles = getSavingsNextMonthCardStyles(savingsNextMonth, salaryTransferToChase)
   const overdueCardsStyles = getCountRiskCardStyles(overdueCreditAccounts.length, 4)
   const overdueExpensesStyles = getCountRiskCardStyles(overdueExpenses.length, 6)
-  const currentMonthExposureStyles = getExposureCardStyles(j36, checkingAccountBalanceChase)
+  const currentMonthExposureStyles = getExposureCardStyles(currentCycleExposure, checkingAccountBalanceChase)
   const nextMonthExposureStyles = getExposureCardStyles(k36, salaryTransferToChase)
   const monthAfterNextMonthStyles = getExposureCardStyles(monthAfterNextMonthExpense, salaryTransferToChase)
 
@@ -1396,9 +1413,9 @@ export default function App() {
     },
     {
       label: 'Current Cycle Exposure',
-      value: currency(j36),
-      detail: 'Cards plus current debit expenses',
-      ratio: Math.min(100, totalLimits === 0 ? 0 : (j36 / totalLimits) * 100),
+      value: currency(currentCycleExposure),
+      detail: 'Cards, current debit expenses, and default bank additional payments',
+      ratio: Math.min(100, totalLimits === 0 ? 0 : (currentCycleExposure / totalLimits) * 100),
       ...currentMonthExposureStyles,
     },
     {
@@ -3390,7 +3407,7 @@ export default function App() {
               <h3>What The Key Metrics Mean</h3>
               <ul className="help-list">
                 <li>Savings Next Cycle shows the projected amount left after next month expenses are covered from the transfer-to-Chase amount.</li>
-                <li>Current Cycle Exposure shows current month credit card payments plus current month debit card expenses.</li>
+                <li>Current Cycle Exposure shows current month credit card payments, current month debit card expenses, and additional payments from the default bank.</li>
                 <li>Next Cycle Exposure shows projected next statement balances plus next month debit card expenses.</li>
                 <li>Cycle After Next Cycle Exposure shows projected carry-forward pressure beyond next month.</li>
                 <li>Overdue Cards and Overdue Expenses show how many items are already past due based on the dates in the tracker.</li>
@@ -3696,6 +3713,8 @@ export default function App() {
                 {sortedCreditAccounts.map((account) => {
                 const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, utilizationPercent } = getCreditMetrics(account)
                 const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
+                const isNextPaymentOutsideCycle = isDateOutsideCyclePeriod(account.nextPaymentDate, activeCyclePeriod)
+                const isStatementDateOutsideCycle = isDateOutsideCyclePeriod(account.lastStatementDate, activeCyclePeriod)
 
                 return (
                   <tr key={account.id} className={selectedCreditIds.has(account.id) ? 'row-selected' : ''}>
@@ -3721,6 +3740,8 @@ export default function App() {
                         type="date"
                         value={account.nextPaymentDate}
                         onChange={(e) => updateAccountById(account.id, 'nextPaymentDate', e.target.value)}
+                        className={joinClassNames(isNextPaymentOutsideCycle ? 'cycle-outside-date' : undefined)}
+                        title={isNextPaymentOutsideCycle ? 'Date outside of cycle' : undefined}
                       />
                     </td>
                     <td className={isPastDueUnpaid ? 'overdue-checkbox-cell' : undefined}>
@@ -3743,6 +3764,8 @@ export default function App() {
                         type="date"
                         value={account.lastStatementDate}
                         onChange={(e) => updateAccountById(account.id, 'lastStatementDate', e.target.value)}
+                        className={joinClassNames(isStatementDateOutsideCycle ? 'cycle-outside-date' : undefined)}
+                        title={isStatementDateOutsideCycle ? 'Date outside of cycle' : undefined}
                       />
                     </td>
                     <td>
@@ -3917,6 +3940,7 @@ export default function App() {
               <tbody>
                     {sortedExpenseRows.map(({ item, setter }) => {
                       const isPastDueCurrentExpense = isPastDate(item.payDate) && Math.abs(item.current) > 0.004
+                      const isExpenseDateOutsideCycle = isDateOutsideCyclePeriod(item.payDate, activeCyclePeriod)
 
                       return (
                       <tr key={item.id} className={selectedExpenseIds.has(item.id) ? 'row-selected' : ''}>
@@ -3938,6 +3962,8 @@ export default function App() {
                             type="date"
                             value={item.payDate}
                             onChange={(e) => updateExpenseItemById(setter, item.id, 'payDate', e.target.value)}
+                            className={joinClassNames(isExpenseDateOutsideCycle ? 'cycle-outside-date' : undefined)}
+                            title={isExpenseDateOutsideCycle ? 'Date outside of cycle' : undefined}
                           />
                         </td>
                         <td>
