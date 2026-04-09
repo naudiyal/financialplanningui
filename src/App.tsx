@@ -89,6 +89,7 @@ type FinancialPlanCycleResponse = {
   readOnly: boolean
   hasSavedPlan: boolean
   canCloseCycle: boolean
+  lastCycleSavedAt: string | null
 }
 
 type PersonalPlanSnapshot = {
@@ -119,7 +120,7 @@ type AnalyticsKpiCard = {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
 const LOGIN_URL = `${API_BASE_URL}/oauth2/authorization/google`
 const TRACKERS_ALLOWED_EMAIL = 'naudiyal@gmail.com'
-const BUILD_LABEL = `Build v${__APP_VERSION__} | ${__APP_BUILD_AT__.replace('T', ' ').replace(/\.\d+Z$/, ' UTC')}`
+const BUILD_VERSION_LABEL = `Build v${__APP_VERSION__}`
 
 const normalizeAppRoute = (pathname: string): AppRoute => (pathname === TRACKERS_ROUTE ? TRACKERS_ROUTE : PERSONAL_ROUTE)
 
@@ -144,6 +145,24 @@ const convertToISODate = (dateStr: string) => {
 
 const currency = (value: number) =>
   value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+
+const formatLocalDateTime = (value: string | Date) => {
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  }).format(date)
+}
 
 const advanceIsoDateByOneMonth = (value: string) => {
   const [year, month, day] = value.split('-').map(Number)
@@ -473,6 +492,53 @@ const isDateOutsideCyclePeriod = (dateValue: string, cyclePeriod: CyclePeriod) =
   return targetDate < cycleStart || targetDate > cycleEnd
 }
 
+const parseCycleBoundaryDate = (dateValue: string) => {
+  const parsedDate = new Date(`${dateValue}T12:00:00`)
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate
+}
+
+const shouldHighlightPaymentDate = (account: CreditAccount, cyclePeriod: CyclePeriod) => {
+  if (!isDateOutsideCyclePeriod(account.nextPaymentDate, cyclePeriod)) {
+    return false
+  }
+
+  const paymentDate = parseCycleBoundaryDate(account.nextPaymentDate)
+  const cycleEnd = parseCycleBoundaryDate(cyclePeriod.endDate)
+
+  if (
+    account.paidThisMonth
+    && account.statementCycledAfterPayment
+    && paymentDate !== null
+    && cycleEnd !== null
+    && paymentDate > cycleEnd
+  ) {
+    return false
+  }
+
+  return true
+}
+
+const shouldHighlightStatementDate = (account: CreditAccount, cyclePeriod: CyclePeriod) => {
+  if (!isDateOutsideCyclePeriod(account.lastStatementDate, cyclePeriod)) {
+    return false
+  }
+
+  const statementDate = parseCycleBoundaryDate(account.lastStatementDate)
+  const cycleStart = parseCycleBoundaryDate(cyclePeriod.startDate)
+
+  if (
+    account.paidThisMonth
+    && !account.statementCycledAfterPayment
+    && statementDate !== null
+    && cycleStart !== null
+    && statementDate < cycleStart
+  ) {
+    return false
+  }
+
+  return true
+}
+
 const shortenLabel = (value: string, maxLength = 18, trailingLength = 0) => {
   if (value.length <= maxLength) {
     return value
@@ -753,6 +819,7 @@ export default function App() {
   const [deleteMessage, setDeleteMessage] = useState('')
   const [selectedCycle, setSelectedCycle] = useState<CycleSelection>('current')
   const [timelineType, setTimelineType] = useState<TimelineType>('MID_TO_MID')
+  const [lastCycleSavedAt, setLastCycleSavedAt] = useState<string | null>(null)
   const [pendingCycleSelection, setPendingCycleSelection] = useState<CycleSelection | null>(null)
   const [currentCyclePeriod, setCurrentCyclePeriod] = useState<CyclePeriod>(() => buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
   const [previousCyclePeriod, setPreviousCyclePeriod] = useState<CyclePeriod | null>(null)
@@ -782,6 +849,11 @@ export default function App() {
 
     setAppRoute(normalizedRoute)
   }
+
+  const cycleSavedLabel = formatLocalDateTime(lastCycleSavedAt ?? new Date())
+  const buildStampLabel = cycleSavedLabel.length > 0
+    ? `${BUILD_VERSION_LABEL} | Last cycle saved ${cycleSavedLabel}`
+    : BUILD_VERSION_LABEL
 
   useEffect(() => {
     let isMounted = true
@@ -2155,6 +2227,7 @@ export default function App() {
     setTimelineType(response.timelineType)
     setCurrentCyclePeriod(response.currentCycle)
     setPreviousCyclePeriod(response.previousCycle)
+    setLastCycleSavedAt(response.lastCycleSavedAt)
     setLoadedPlanSignature(getFinancialPlanSignature(response.data))
     setPersonalPlanSnapshot({
       data: response.data,
@@ -2220,6 +2293,7 @@ export default function App() {
       setTimelineType('MID_TO_MID')
       setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
       setPreviousCyclePeriod(null)
+      setLastCycleSavedAt(null)
       setAuthState('error')
       setAuthMessage('Authentication or API service unavailable.')
       setSaveState('error')
@@ -2242,6 +2316,7 @@ export default function App() {
     setCloseCycleCarryoverBankData(null)
     setSelectedCycle('current')
     setPreviousCyclePeriod(null)
+    setLastCycleSavedAt(null)
     applyFinancialPlan(emptyFinancialPlanData)
     setLoadedPlanSignature(getFinancialPlanSignature(emptyFinancialPlanData))
 
@@ -2335,6 +2410,7 @@ export default function App() {
       setSelectedCycle(cycleResponse.selectedCycle)
       setCurrentCyclePeriod(cycleResponse.currentCycle)
       setPreviousCyclePeriod(cycleResponse.previousCycle)
+      setLastCycleSavedAt(cycleResponse.lastCycleSavedAt)
       setLoadedPlanSignature(getFinancialPlanSignature(cycleResponse.data))
       setPersonalPlanSnapshot(null)
       setHasSavedPersonalPlan(false)
@@ -2445,6 +2521,7 @@ export default function App() {
         readOnly: true,
         hasSavedPlan: true,
         canCloseCycle: false,
+        lastCycleSavedAt,
       })
       return
     }
@@ -2702,6 +2779,7 @@ export default function App() {
     setTimelineType('MID_TO_MID')
     setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
     setPreviousCyclePeriod(null)
+    setLastCycleSavedAt(null)
     setPendingCloseCycleReset(null)
     setHasCurrentCycleUserEdits(false)
     setSuppressCycleSwitchWarning(false)
@@ -2746,6 +2824,7 @@ export default function App() {
       setSharedViewerUsers([])
       setSelectedSharedViewerUserSub('')
       setPlanViewMode('sample')
+      setLastCycleSavedAt(null)
       setLoadedPlanSignature(getFinancialPlanSignature(sampleData))
       setHasCurrentCycleUserEdits(false)
       setPendingCloseCycleReset(null)
@@ -3037,7 +3116,7 @@ export default function App() {
               ? 'Review other users\' trackers on a dedicated read-only route.'
               : 'Track cards, statements, payments, income, balances, and spreadsheet-style expense totals in one dashboard.'}
           </p>
-          <p className="build-stamp">{BUILD_LABEL}</p>
+          <p className="build-stamp">{buildStampLabel}</p>
         </div>
         <div className="hero-actions">
           <button type="button" className="toolbar-button" onClick={handleSave} disabled={isSampleMode || isTrackerReadOnly || saveState === 'loading' || saveState === 'saving'}>
@@ -3713,8 +3792,8 @@ export default function App() {
                 {sortedCreditAccounts.map((account) => {
                 const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, utilizationPercent } = getCreditMetrics(account)
                 const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
-                const isNextPaymentOutsideCycle = isDateOutsideCyclePeriod(account.nextPaymentDate, activeCyclePeriod)
-                const isStatementDateOutsideCycle = isDateOutsideCyclePeriod(account.lastStatementDate, activeCyclePeriod)
+                const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
+                const isStatementDateOutsideCycle = shouldHighlightStatementDate(account, activeCyclePeriod)
 
                 return (
                   <tr key={account.id} className={selectedCreditIds.has(account.id) ? 'row-selected' : ''}>
