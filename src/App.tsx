@@ -1993,12 +1993,7 @@ export default function App() {
 
     return (
       <article key={item.id} className="info-card">
-        <input
-          type="text"
-          value={item.label}
-          onChange={(e) => updateIncomeLabel(itemIndex, e.target.value)}
-          className="card-title label-input"
-        />
+        <p className="card-title card-title-static">{item.label}</p>
         {isCheckboxIncome ? (
           <input
             type="checkbox"
@@ -2026,12 +2021,7 @@ export default function App() {
 
     return (
       <article key={item.id} className="info-card">
-        <input
-          type="text"
-          value={item.label}
-          onChange={(e) => updateBalanceLabel(itemIndex, e.target.value)}
-          className="card-title label-input"
-        />
+        <p className="card-title card-title-static">{item.label}</p>
         {editableBalanceIds.has(item.id) ? (
           <CurrencyInput
             value={item.amount}
@@ -2073,12 +2063,7 @@ export default function App() {
         </div>
         <div className="card-list">
           <article className="info-card">
-            <input
-              type="text"
-              value={subsection.biMonthlySalaryLabel}
-              onChange={(e) => updateIncomeSubsection(index, 'biMonthlySalaryLabel', e.target.value)}
-              className="card-title label-input"
-            />
+            <p className="card-title card-title-static">{subsection.biMonthlySalaryLabel}</p>
             <CurrencyInput
               value={subsection.biMonthlySalary}
               onValueChange={(value) => updateIncomeSubsection(index, 'biMonthlySalary', value)}
@@ -2086,12 +2071,7 @@ export default function App() {
             />
           </article>
           <article className="info-card">
-            <input
-              type="text"
-              value={subsection.midMonthSalaryLabel}
-              onChange={(e) => updateIncomeSubsection(index, 'midMonthSalaryLabel', e.target.value)}
-              className="card-title label-input"
-            />
+            <p className="card-title card-title-static">{subsection.midMonthSalaryLabel}</p>
             <input
               type="checkbox"
               checked={subsection.midMonthSalaryArrived}
@@ -2100,12 +2080,7 @@ export default function App() {
             />
           </article>
           <article className="info-card">
-            <input
-              type="text"
-              value={subsection.monthEndSalaryLabel}
-              onChange={(e) => updateIncomeSubsection(index, 'monthEndSalaryLabel', e.target.value)}
-              className="card-title label-input"
-            />
+            <p className="card-title card-title-static">{subsection.monthEndSalaryLabel}</p>
             <input
               type="checkbox"
               checked={subsection.monthEndSalaryArrived}
@@ -2114,12 +2089,7 @@ export default function App() {
             />
           </article>
           <article className="info-card">
-            <input
-              type="text"
-              value={subsection.checkingBalanceLabel}
-              onChange={(e) => updateIncomeSubsection(index, 'checkingBalanceLabel', e.target.value)}
-              className="card-title label-input"
-            />
+            <p className="card-title card-title-static">{subsection.checkingBalanceLabel}</p>
             <CurrencyInput
               value={subsection.checkingBalance}
               onValueChange={(value) => updateIncomeSubsection(index, 'checkingBalance', value)}
@@ -2127,12 +2097,7 @@ export default function App() {
             />
           </article>
           <article className="info-card">
-            <input
-              type="text"
-              value={subsection.additionalPaymentsLabel}
-              onChange={(e) => updateIncomeSubsection(index, 'additionalPaymentsLabel', e.target.value)}
-              className="card-title label-input"
-            />
+            <p className="card-title card-title-static">{subsection.additionalPaymentsLabel}</p>
             <CurrencyInput
               value={subsection.additionalPayments}
               onValueChange={(value) => updateIncomeSubsection(index, 'additionalPayments', value)}
@@ -2140,21 +2105,11 @@ export default function App() {
             />
           </article>
           <article className="info-card">
-            <input
-              type="text"
-              value={subsection.totalBalanceLabel}
-              onChange={(e) => updateIncomeSubsection(index, 'totalBalanceLabel', e.target.value)}
-              className="card-title label-input"
-            />
+            <p className="card-title card-title-static">{subsection.totalBalanceLabel}</p>
             <p className="card-value">{currency(totalBalance)}</p>
           </article>
           <article className="info-card">
-            <input
-              type="text"
-              value={subsection.additionalIncomeLabel}
-              onChange={(e) => updateIncomeSubsection(index, 'additionalIncomeLabel', e.target.value)}
-              className="card-title label-input"
-            />
+            <p className="card-title card-title-static">{subsection.additionalIncomeLabel}</p>
             <CurrencyInput
               value={subsection.additionalIncome}
               onValueChange={(value) => updateIncomeSubsection(index, 'additionalIncome', value)}
@@ -2162,12 +2117,7 @@ export default function App() {
             />
           </article>
           <article className="info-card">
-            <input
-              type="text"
-              value={subsection.monthEndBalanceLabel}
-              onChange={(e) => updateIncomeSubsection(index, 'monthEndBalanceLabel', e.target.value)}
-              className="card-title label-input"
-            />
+            <p className="card-title card-title-static">{subsection.monthEndBalanceLabel}</p>
             <p className="card-value">{currency(monthEndBalance)}</p>
           </article>
         </div>
@@ -4053,7 +4003,8 @@ export default function App() {
                         <input
                           type="text"
                           value={column.label}
-                          onChange={(e) => updateColumnLabel('creditAccounts', index, e.target.value)}
+                          readOnly
+                          aria-readonly="true"
                           className="label-input table-header-input"
                           style={{ width: getHeaderInputWidth(column.label) }}
                         />
@@ -4283,7 +4234,8 @@ export default function App() {
               <input
                 type="text"
                 value={sectionTitles.debitExpenses}
-                onChange={(e) => updateSectionTitle('debitExpenses', e.target.value)}
+                readOnly
+                aria-readonly="true"
                 className="label-input section-title-input"
               />
             </h2>
@@ -4308,7 +4260,8 @@ export default function App() {
                         <input
                           type="text"
                           value={column.label}
-                          onChange={(e) => updateColumnLabel('debitExpenses', index, e.target.value)}
+                          readOnly
+                          aria-readonly="true"
                           className="label-input table-header-input"
                         />
                         <button
@@ -4464,7 +4417,8 @@ export default function App() {
                 <input
                   type="text"
                   value={sectionTitles.incomeSchedule}
-                  onChange={(e) => updateSectionTitle('incomeSchedule', e.target.value)}
+                  readOnly
+                  aria-readonly="true"
                   className="label-input section-title-input"
                   style={{ width: getHeaderInputWidth(sectionTitles.incomeSchedule, 14) }}
                 />
@@ -4488,6 +4442,7 @@ export default function App() {
                     value={sectionTitles.defaultBank}
                     onChange={(e) => updateSectionTitle('defaultBank', e.target.value)}
                     className="label-input subsection-title-input"
+                    title="Default Bank Account"
                   />
                 </h3>
                 <div className="card-list">

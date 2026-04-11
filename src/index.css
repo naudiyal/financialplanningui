@@ -2183,6 +2183,13 @@ input.section-title-input {
   overflow: hidden;
 }
 
+.compact-side-panel .card-title-static {
+  display: block;
+  padding: 0 0.1rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .compact-side-panel input.label-input.card-title {
   padding-right: 0;
   text-overflow: clip;
