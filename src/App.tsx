@@ -6,6 +6,8 @@ import {
   CartesianGrid,
   Cell,
   Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -145,6 +147,16 @@ const convertToISODate = (dateStr: string) => {
 
 const currency = (value: number) =>
   value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+
+const extractBankNameFromLabel = (label: string | undefined, fallback: string) => {
+  if (!label) {
+    return fallback
+  }
+
+  const parts = label.split('-')
+  const candidate = parts[parts.length - 1]?.trim()
+  return candidate || fallback
+}
 
 const formatLocalDateTime = (value: string | Date) => {
   const date = value instanceof Date ? value : new Date(value)
@@ -672,7 +684,10 @@ const CHART_COLORS = {
   forecast: '#1d4ed8',
   grid: '#dbe4f0',
   text: '#334155',
+  muted: '#64748b',
 }
+
+const BANK_COLORS = ['#2563eb', '#0f766e', '#7c3aed', '#b45309', '#0891b2', '#be185d']
 
 const getSavingsNextMonthCardStyles = (amount: number, monthlyIncome: number) => {
   if (monthlyIncome <= 0) {
@@ -1345,7 +1360,7 @@ export default function App() {
         totalBalanceLabel: 'Total Balance',
         additionalIncomeLabel: 'Additional Income',
         additionalIncome: 0,
-        monthEndBalanceLabel: 'Month End Balance',
+        monthEndBalanceLabel: 'Month End Balance minus Dues',
       },
     ]
 
@@ -1531,6 +1546,13 @@ export default function App() {
 
   const checkingAccountBalanceMonthEndChase = totalBalanceChase + additionalIncomeChase - j36
   const netBalanceMonthEnd = checkingAccountBalanceMonthEndChase + chaseCDBalance + checkingAccountBalancePNC + additionalOtherIncome
+
+  const totalMonthEndBalanceMinusDues = incomeSubsections.reduce((sum, subsection) => {
+    const midMonthSalary = subsection.midMonthSalaryArrived ? 0 : subsection.biMonthlySalary
+    const monthEndSalary = subsection.monthEndSalaryArrived ? 0 : subsection.biMonthlySalary
+    const totalBalance = midMonthSalary + monthEndSalary + subsection.checkingBalance - subsection.additionalPayments
+    return sum + totalBalance + subsection.additionalIncome
+  }, checkingAccountBalanceMonthEndChase)
   const savingsNextMonth = salaryTransferToChase - k36
 
   const adjustedIncomeItems = incomeItemsState.map((item) => {
@@ -1829,15 +1851,91 @@ export default function App() {
   const hasExpenseCategoryCurrentShareData = expenseCategoryCurrentShareData.length > 0
   const hasExpenseCategoryNextShareData = expenseCategoryNextShareData.length > 0
 
-  const cashFlowDriverData = [
-    { name: 'Checking', amount: Number(checkingAccountBalanceChase.toFixed(2)), fill: CHART_COLORS.positive },
-    { name: 'Salary 15th', amount: Number(salary15th.toFixed(2)), fill: CHART_COLORS.positive },
-    { name: 'Salary 1st', amount: Number(salary1st.toFixed(2)), fill: CHART_COLORS.positive },
-    { name: 'Add. Income', amount: Number(additionalIncomeChase.toFixed(2)), fill: CHART_COLORS.positive },
-    { name: 'Add. Payments', amount: Number((-additionalPaymentsChase).toFixed(2)), fill: CHART_COLORS.negative },
-    { name: 'Expenses', amount: Number((-j36).toFixed(2)), fill: CHART_COLORS.overdue },
-    { name: 'Month End', amount: Number(checkingAccountBalanceMonthEndChase.toFixed(2)), fill: CHART_COLORS.forecast },
+  const pncBankName = extractBankNameFromLabel(
+    balanceItemsState.find((item) => item.id === 'checking-balance-pnc')?.label,
+    'PNC',
+  )
+
+  const bankBalanceMovementGroups = [
+    {
+      bankName: sectionTitles.defaultBank,
+      startingBalance: Number(checkingAccountBalanceChase.toFixed(2)),
+      additionalIncome: Number(additionalIncomeChase.toFixed(2)),
+      additionalPayments: Number(additionalPaymentsChase.toFixed(2)),
+    },
+    {
+      bankName: pncBankName,
+      startingBalance: Number(checkingAccountBalancePNC.toFixed(2)),
+      additionalIncome: Number(additionalOtherIncome.toFixed(2)),
+      additionalPayments: 0,
+    },
+    ...incomeSubsections.map((subsection) => ({
+      bankName: subsection.title,
+      startingBalance: Number(subsection.checkingBalance.toFixed(2)),
+      additionalIncome: Number(subsection.additionalIncome.toFixed(2)),
+      additionalPayments: Number(subsection.additionalPayments.toFixed(2)),
+    })),
   ]
+
+  const showAdditionalPaymentStep = bankBalanceMovementGroups.some((group) => Math.abs(group.additionalPayments) > 0.004)
+  const showAdditionalIncomeStep = bankBalanceMovementGroups.some((group) => Math.abs(group.additionalIncome) > 0.004)
+  const bankMovementTimelineLabels = [
+    'Starting Balance',
+    ...(showAdditionalPaymentStep ? ['After Additional Payment'] : []),
+    ...(showAdditionalIncomeStep ? ['After Additional Income'] : []),
+  ]
+  const bankBalanceTimelineData = bankBalanceMovementGroups.map((group) => {
+    const afterAdditionalPayment = Number((group.startingBalance - group.additionalPayments).toFixed(2))
+    const afterAdditionalIncome = Number((afterAdditionalPayment + group.additionalIncome).toFixed(2))
+    const timelineSteps = [
+      {
+        label: 'Starting Balance',
+        value: group.startingBalance,
+        fill: CHART_COLORS.current,
+      },
+      ...(Math.abs(group.additionalPayments) > 0.004
+        ? [
+            {
+              label: 'After Additional Payment',
+              value: afterAdditionalPayment,
+              fill: CHART_COLORS.negative,
+            },
+          ]
+        : []),
+      ...(Math.abs(group.additionalIncome) > 0.004
+        ? [
+            {
+              label: 'After Additional Income',
+              value: afterAdditionalIncome,
+              fill: CHART_COLORS.positive,
+            },
+          ]
+        : []),
+    ]
+    const values = timelineSteps.map((step) => step.value)
+    const minValue = Math.min(...values)
+    const maxValue = Math.max(...values)
+
+    return {
+      bankName: group.bankName,
+      timelineSteps,
+      minValue,
+      maxValue,
+      additionalPayments: group.additionalPayments,
+      additionalIncome: group.additionalIncome,
+    }
+  })
+
+  const bankMovementChartData = bankMovementTimelineLabels.map((label) => {
+    const entry: Record<string, number | string> = { step: label }
+    bankBalanceTimelineData.forEach((bank) => {
+      const step = bank.timelineSteps.find((s) => s.label === label)
+      if (step) {
+        entry[bank.bankName] = step.value
+      }
+    })
+    return entry
+  })
 
   const displayedIncomeItems = bankSectionIncomeItems.filter(
     (item) => item.id !== 'salary-transfer-pnc-home-loans' && item.id !== 'salary-transfer-chase-month',
@@ -3471,8 +3569,13 @@ export default function App() {
       {isHelpDialogOpen ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal-card help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
-            <p className="eyebrow help-eyebrow">Help</p>
-            <h2 id="help-title">How This Financial Tracker Works</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <p className="eyebrow help-eyebrow">Help</p>
+                <h2 id="help-title">How This Financial Tracker Works</h2>
+              </div>
+              <button type="button" className="toolbar-button" onClick={handleHelpClose} aria-label="Close help" style={{ flexShrink: 0 }}>&times;</button>
+            </div>
             <p className="help-intro">
               This application helps you manage near-term cash flow by combining credit card obligations, debit card expenses,
               and bank account balances in one place. It is designed to show what needs attention now, what pressure is coming
@@ -3484,12 +3587,28 @@ export default function App() {
               <div className="help-visual-grid">
                 <article className="help-visual-card">
                   <div className="help-visual-frame" aria-hidden="true">
-                    <div className="help-mock-toolbar">
-                      <span className="help-mock-chip">Sample Tracker</span>
+                    <div className="help-mock-toolbar help-mock-toolbar-tight">
+                      <span className="help-mock-chip">Current Cycle</span>
+                      <span className="help-mock-chip help-mock-chip-muted">Mid to Mid</span>
                       <span className="help-mock-button">Save Changes</span>
                       <span className="help-mock-button help-mock-button-muted">Reset</span>
+                      <span className="help-mock-button help-mock-button-accent">Sample Tracker</span>
                     </div>
-                    <div className="help-mock-banner">Viewing sample plan</div>
+                    <div className="help-mock-banner-row">
+                      <div className="help-mock-banner">Viewing sample plan</div>
+                      <div className="help-mock-menu-dot" />
+                    </div>
+                    <div className="help-mock-progress">
+                      <span>62% through cycle</span>
+                      <span>11 days left</span>
+                    </div>
+                    <div className="help-mock-timeline">
+                      <span className="help-mock-timeline-point" />
+                      <span className="help-mock-timeline-line" />
+                      <span className="help-mock-timeline-point help-mock-timeline-point-active" />
+                      <span className="help-mock-timeline-line" />
+                      <span className="help-mock-timeline-point" />
+                    </div>
                   </div>
                   <h4>Top Toolbar</h4>
                   <p>Use this area to save, reset local edits, enter sample mode, switch timeline type, close the current cycle, or switch between current and previous cycles.</p>
@@ -3499,25 +3618,35 @@ export default function App() {
                   <div className="help-visual-frame" aria-hidden="true">
                     <div className="help-mock-table">
                       <div className="help-mock-table-header">
-                        <span>Account</span>
-                        <span>Avail Credit</span>
-                        <span>Total Due</span>
+                        <span>Bank</span>
+                        <span>Due</span>
+                        <span>State</span>
                       </div>
                       <div className="help-mock-table-row">
                         <span>Chase Freedom</span>
-                        <span>$4,250</span>
                         <span>$320</span>
+                        <span className="help-mock-status-row">
+                          <span className="help-mock-check help-mock-check-on" />
+                          <span className="help-mock-pill">Paid</span>
+                        </span>
                       </div>
                       <div className="help-mock-table-row">
                         <span>Amex Gold</span>
-                        <span>$2,880</span>
                         <span>$145</span>
+                        <span className="help-mock-status-row">
+                          <span className="help-mock-check" />
+                          <span className="help-mock-pill help-mock-pill-warn">Cycled</span>
+                        </span>
                       </div>
                       <div className="help-mock-table-total">
                         <span>Credit Card Totals</span>
-                        <span>$7,130</span>
                         <span>$465</span>
+                        <span>Exposure</span>
                       </div>
+                    </div>
+                    <div className="help-mock-kpi-strip">
+                      <span className="help-mock-kpi-box">Overdue Cards 1</span>
+                      <span className="help-mock-kpi-box">Next Cycle $2,320</span>
                     </div>
                   </div>
                   <h4>Credit Card Accounts</h4>
@@ -3526,6 +3655,11 @@ export default function App() {
 
                 <article className="help-visual-card">
                   <div className="help-visual-frame" aria-hidden="true">
+                    <div className="help-mock-subsection-tabs">
+                      <span className="help-mock-subsection-tab help-mock-subsection-tab-active">Plano</span>
+                      <span className="help-mock-subsection-tab">Sanford</span>
+                      <span className="help-mock-subsection-tab">Other</span>
+                    </div>
                     <div className="help-mock-table help-mock-table-compact">
                       <div className="help-mock-table-header">
                         <span>Expense</span>
@@ -3543,35 +3677,46 @@ export default function App() {
                         <span>$210</span>
                       </div>
                     </div>
+                    <div className="help-mock-action-row">
+                      <span className="help-mock-check help-mock-check-on" />
+                      <span className="help-mock-button help-mock-button-danger">Delete</span>
+                    </div>
                     <div className="help-mock-split-bars">
                       <span className="help-mock-bar help-mock-bar-current"></span>
                       <span className="help-mock-bar help-mock-bar-next"></span>
                     </div>
                   </div>
                   <h4>Debit Card Expenses</h4>
-                  <p>Separate what belongs to the current month from what should roll into next month.</p>
+                  <p>Current is the amount due this month. Once paid, update it to 0. Next is the amount due next month.</p>
                 </article>
 
                 <article className="help-visual-card">
                   <div className="help-visual-frame" aria-hidden="true">
+                    <div className="help-mock-bank-header">
+                      <span className="help-mock-bank-title">Bank Accounts</span>
+                      <span className="help-mock-bank-total">$5,890</span>
+                    </div>
                     <div className="help-mock-bank-grid">
                       <div className="help-mock-bank-card">
-                        <strong>Chase Checking</strong>
+                        <strong>Chase</strong>
                         <span>$6,420</span>
+                        <small>Salary arrived</small>
                       </div>
                       <div className="help-mock-bank-card">
-                        <strong>Month-End Salary</strong>
-                        <span>$3,100</span>
+                        <strong>PNC</strong>
+                        <span>$1,120</span>
+                        <small>Mid-month pending</small>
                       </div>
                     </div>
-                    <div className="help-mock-chart">
-                      <span className="help-mock-chart-bar help-mock-chart-bar-in"></span>
-                      <span className="help-mock-chart-bar help-mock-chart-bar-out"></span>
-                      <span className="help-mock-chart-bar help-mock-chart-bar-net"></span>
+                    <div className="help-mock-line-chart">
+                      <div className="help-mock-line-chart-grid" />
+                      <span className="help-mock-line help-mock-line-primary" />
+                      <span className="help-mock-line help-mock-line-secondary" />
+                      <span className="help-mock-line help-mock-line-tertiary" />
                     </div>
                   </div>
-                  <h4>Bank Accounts And Cash Flow</h4>
-                  <p>Use balances and income timing together with the chart to understand how much cash remains after expenses.</p>
+                  <h4>Bank Accounts &amp; Balance Movement</h4>
+                  <p>Track balances and income timing for each bank. The section header shows the total Month End Bank Balance across all banks. The multi-line chart shows how each bank balance changes after additional payments and additional income.</p>
                 </article>
               </div>
             </div>
@@ -3583,6 +3728,8 @@ export default function App() {
                 <li>Debit card expenses that belong to the current month and the next month.</li>
                 <li>Bank account balances, salary timing, additional income, and additional payments.</li>
                 <li>Projected financial exposure across current month, next month, and month after next month.</li>
+                <li>Customizable bank subsections with salary arrival timing so you can see which accounts have available funds at different points in the month.</li>
+                <li>Expense categories determined by text before the hyphen in expense labels, so you can track spending by category in the charts.</li>
               </ul>
             </div>
 
@@ -3590,32 +3737,44 @@ export default function App() {
               <h3>How To Read The Main Sections</h3>
               <ul className="help-list">
                 <li>Credit Card Accounts shows what is still owed, what is already paid, and what may roll into the next statement cycle.</li>
-                <li>Debit Card Expenses separates expected spending into Current Month and Next Month so you can see near-term cash needs clearly.</li>
-                <li>Bank Accounts lets you track balances and salary inflows for each bank subsection so projections reflect how cash is actually distributed.</li>
+                <li>Debit Card Expenses separates expected spending into Current Month and Next Month so you can see near-term cash needs clearly. Expenses can be organized into separate collections. You can delete specific expense rows using the checkbox and delete button below each table.</li>
+                <li>Bank Accounts lets you track balances and salary inflows for each bank subsection so projections reflect how cash is actually distributed. The section header displays the total Month End Bank Balance across all banks. Bank subsections are fully customizable: you can add new banks, delete existing ones, rename them, and mark when salary arrives for each.</li>
                 <li>Top KPI tiles summarize savings, overdue items, and projected exposure so you can quickly spot risk areas.</li>
+                <li>Each bank income subsection tracks bi-monthly salary arrivals, checking balance, additional payments, and additional income. Mark when each salary arrival has occurred so projections stay accurate.</li>
+                <li>The cycle progress bar shows what percentage of the current cycle has elapsed and how many days remain. For previous cycles it shows &quot;Archived cycle &bull; read only&quot; and for upcoming cycles it shows the start date.</li>
               </ul>
             </div>
 
             <div className="help-section">
               <h3>What The Key Metrics Mean</h3>
               <ul className="help-list">
-                <li>Savings Next Cycle shows the projected amount left after next month expenses are covered from the transfer-to-Chase amount.</li>
-                <li>Current Cycle Exposure shows current month credit card payments, current month debit card expenses, and additional payments from the default bank.</li>
+                <li>Savings Next Cycle shows the projected amount left after next month expenses are covered from the transfer-to-Chase amount. When savings are positive the pie chart shows your savings vs. next month expenses. When negative (shortfall) the chart shows the transfer amount vs. the shortfall amount.</li>
+                <li>Current Cycle Exposure shows current month credit card payments, current month debit card expenses, and additional payments from the default bank. When exposure exceeds your total credit limit the metric turns red to highlight the risk.</li>
                 <li>Next Cycle Exposure shows projected next statement balances plus next month debit card expenses.</li>
                 <li>Cycle After Next Cycle Exposure shows projected carry-forward pressure beyond next month.</li>
-                <li>Overdue Cards and Overdue Expenses show how many items are already past due based on the dates in the tracker.</li>
+                <li>Overdue Cards and Overdue Expenses show how many items are already past due based on the dates in the tracker. Any payment date or expense due date in the past with the item still unmarked as paid counts as overdue.</li>
               </ul>
             </div>
 
             <div className="help-section">
               <h3>How The Charts Should Be Interpreted</h3>
               <ul className="help-list">
-                <li>Savings Next Cycle compares expected next month expense load against projected leftover savings or shortfall.</li>
-                <li>Total Due by Card shows which cards are contributing the most to your total card burden.</li>
-                <li>Payment Due Timeline shows when payment pressure is arriving by due date.</li>
-                <li>Debit Card Expense Category groups debit expenses by the text before ` - ` in each expense label.</li>
+                <li>Savings Next Cycle compares expected next month expense load against projected leftover savings or shortfall. The chart switches between a savings view and a shortfall view depending on whether the projection is positive or negative.</li>
+                <li>Total Due by Card uses a stacked bar chart where each card&apos;s Payment Due this month is shown in one color and Next Statement Balance is shown in another, sorted by total due descending.</li>
+                <li>Payment Due Timeline shows when payment pressure is arriving by due date. Only accounts where payment due or next balance is greater than zero appear in this chart.</li>
+                <li>Debit Card Expense Category groups debit expenses by the text before ` - ` in each expense label. There are two separate pie charts: one for current month expenses and one for next month expenses.</li>
                 <li>If an expense label does not include a prefix before ` - `, it is grouped under Other.</li>
-                <li>Cash In vs Cash Out shows the major drivers of projected month-end cash position.</li>
+                <li>Bank Balance Movement is a multi-line chart where each line represents one bank. It shows the starting balance, the balance after additional payments, and the balance after additional income. Steps with very small or zero values across all banks are automatically hidden to reduce clutter.</li>
+              </ul>
+            </div>
+
+            <div className="help-section">
+              <h3>Customization</h3>
+              <ul className="help-list">
+                <li>You can rename the main section headers (Credit Card Accounts, Debit Card Expenses, Bank Accounts) by clicking on them. Custom names persist across saves.</li>
+                <li>Income item labels and balance item labels are editable so you can use your own names for salary sources and balance line items.</li>
+                <li>Bank subsections support adding or removing custom bank accounts. When you add banks, choose how many subsections you want. When you delete banks, select them via checkbox and click the delete button.</li>
+                <li>For each bank subsection, mark whether your bi-monthly salary has arrived mid-month and/or month-end. This helps the app calculate which accounts will have available funds at different times.</li>
               </ul>
             </div>
 
@@ -3626,9 +3785,11 @@ export default function App() {
                 <li>Reset discards unsaved local edits in the current cycle and restores the tracker to the last loaded or saved version after you confirm the warning.</li>
                 <li>Sample Tracker opens a temporary sample plan view. Changes there stay only in the current browser session and are not written to your saved plan.</li>
                 <li>Go Back To My Plan leaves sample mode and reloads your personal tracker.</li>
-                <li>Switch to Start to End or Mid to Mid changes your tracker timeline type, deletes previous cycle history, and removes anything you could revert to from the old timeline.</li>
-                <li>Close Cycle archives the current cycle as previous, replaces any existing previous cycle, and applies the rollover rules that reset paid and statement-cycled flags while moving next-month debit expenses into current month.</li>
-                <li>Revert Cycle undoes the most recent close-cycle action while it is still available in the current session.</li>
+                <li>Switch to Start to End or Mid to Mid changes your tracker timeline type, deletes previous cycle history, and removes anything you could revert to from the old timeline. Start to End runs from the first day to the last day of the month. Mid to Mid runs from mid-month to mid-month.</li>
+                <li>Close Cycle archives the current cycle as previous, replaces any existing previous cycle, and applies rollover rules: all credit card paid flags reset to unchecked, all statement cycled flags reset to unchecked, and all next-month debit expenses move into the current month.</li>
+                <li>Revert Cycle undoes the most recent close-cycle action while it is still available in the current browser session. Do not confuse it with Reset, which discards unsaved edits but does not undo a cycle close.</li>
+                <li>When switching to sample mode or switching cycles with unsaved changes, a confirmation dialog asks whether to discard changes, save first, or cancel.</li>
+                <li>Viewing the previous cycle puts the tracker in read-only mode. All editing, save, reset, close cycle, and timeline switching are disabled. Switch back to the current cycle to make edits.</li>
                 <li>Close Cycle is only enabled when all credit cards are marked paid, all statements are marked statement cycled, and all debit card current month expenses are 0.</li>
                 <li>Delete My Tracker removes only your saved tracker data and then starts you fresh with a new seeded tracker.</li>
               </ul>
@@ -3640,9 +3801,15 @@ export default function App() {
                 <li>Your data is tied to your signed-in Google account, so each user works with their own saved tracker.</li>
                 <li>Unsaved edits are only local until you use Save Changes.</li>
                 <li>Projections are only as accurate as the payment dates, balances, and current versus next month assignments you maintain.</li>
-                <li>Debit expense labels affect chart grouping, so consistent label prefixes make the category chart more useful.</li>
+                <li>Debit expense labels affect chart grouping, so consistent label prefixes make the category chart more useful. Categories are extracted from text before the hyphen in each expense label (e.g. &quot;Rent - Plano&quot; creates a &quot;Rent&quot; category).</li>
                 <li>Reset only affects your current unsaved edits. Revert Cycle undoes the last close-cycle transition. Delete My Tracker affects your saved personal data.</li>
                 <li>Deleting your tracker does not delete other users&apos; data. It only resets your own saved plan.</li>
+                <li>Dates in Credit Card Accounts and Debit Card Expenses that fall outside the current cycle start and end dates will blink red and show a hover tooltip saying Date outside of cycle.</li>
+                <li>In Credit Card Accounts, if payment made and statement cycled are both checked and the payment date is after the cycle end date, the payment date will not blink. If statement cycled is not checked and the statement date is before the cycle start date, the statement date will not blink.</li>
+                <li>Tables in Credit Card Accounts and Debit Card Expenses only sort when you click a column header sort icon. They do not re-sort automatically when you edit values. Credit cards default to sorting by bank name and expenses default to sorting by pay date. Sorting resets when you close a cycle or reload data.</li>
+                <li>The footer displays the build version and when the current cycle was last saved. If no cycle has been saved yet, it shows the current date and time in your local time zone.</li>
+                <li>In Credit Card Accounts, the next month balance calculation depends on the paid and statement cycled flags. If the statement has not cycled, next month balance equals the current statement balance. If the statement has cycled but the card is not paid, next month balance equals statement balance minus payment due. If both are checked, next month balance is zero.</li>
+                <li>Sample Tracker changes are stored only in your current browser session. Reloading the page or switching back to your personal tracker clears all sample data.</li>
               </ul>
             </div>
 
@@ -4275,6 +4442,10 @@ export default function App() {
                   style={{ width: getHeaderInputWidth(sectionTitles.incomeSchedule, 14) }}
                 />
               </h2>
+              <div style={{ marginLeft: 'auto', marginRight: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>Month End Bank Balance</span>
+                <span style={{ fontSize: '0.92rem', color: '#0f766e', fontWeight: 700 }}>{currency(totalMonthEndBalanceMinusDues)}</span>
+              </div>
               <div className="section-header-actions">
                 {selectedBankSubsectionIds.size > 0 && (
                   <button type="button" className="delete-row-button" onClick={deleteSelectedBankSubsections}>Delete ({selectedBankSubsectionIds.size})</button>
@@ -4312,22 +4483,44 @@ export default function App() {
 
         <article className="chart-card compact-section cashflow-side-panel">
           <div className="chart-card-header">
-            <h3>Cash In vs Cash Out</h3>
-            <span>Month-end balance drivers</span>
+            <h3>Bank Balance Movement</h3>
+            <span>Additional payment applied before additional income</span>
           </div>
-          <div className="chart-shell chart-shell-bank" style={{ height: `${overviewChartHeight}px` }}>
+          <div className="chart-shell chart-shell-bank">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={cashFlowDriverData} margin={{ top: 4, right: 8, left: -12, bottom: 16 }}>
+              <LineChart data={bankMovementChartData} margin={{ top: 16, right: 24, bottom: 8, left: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
-                <XAxis dataKey="name" angle={-18} textAnchor="end" height={54} stroke={CHART_COLORS.text} fontSize={10} />
-                <YAxis tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={11} width={48} />
-                <Tooltip formatter={(value: number) => currency(value)} />
-                <Bar dataKey="amount" radius={[6, 6, 0, 0]}>
-                  {cashFlowDriverData.map((entry) => (
-                    <Cell key={entry.name} fill={entry.fill} />
-                  ))}
-                </Bar>
-              </BarChart>
+                <XAxis
+                  dataKey="step"
+                  tick={{ fill: CHART_COLORS.text, fontSize: 12, fontWeight: 600 }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  tickFormatter={(v: number) => chartCurrency(v)}
+                  tick={{ fill: CHART_COLORS.muted, fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={76}
+                />
+                <Tooltip
+                  formatter={(value: number, name: string) => [currency(value), name]}
+                  contentStyle={{ borderRadius: 8, border: '1px solid rgba(148,163,184,0.28)', fontSize: 13 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 13, paddingTop: 8 }} />
+                {bankBalanceTimelineData.map((bank, index) => (
+                  <Line
+                    key={bank.bankName}
+                    type="monotone"
+                    dataKey={bank.bankName}
+                    stroke={BANK_COLORS[index % BANK_COLORS.length]}
+                    strokeWidth={2.5}
+                    dot={{ r: 5, strokeWidth: 2, fill: '#ffffff', stroke: BANK_COLORS[index % BANK_COLORS.length] }}
+                    activeDot={{ r: 7 }}
+                    connectNulls={false}
+                  />
+                ))}
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </article>

@@ -253,7 +253,7 @@ export const balanceItems: BalanceItem[] = [
   { id: 'additional-payments-chase', label: 'Additional Payments - Chase', amount: 0, month: '' },
   { id: 'total-balance-chase', label: 'Total Balance - Chase', amount: 10530.38, month: '' },
   { id: 'additional-income-chase', label: 'Additional Income - Chase', amount: 0, month: '' },
-  { id: 'checking-balance-month-end-chase', label: 'Checking Account Balance @Month End - Chase', amount: 7196.97, month: '' },
+  { id: 'checking-balance-month-end-chase', label: 'Month End Balance minus Dues', amount: 7196.97, month: '' },
   { id: 'chase-cd-balance', label: 'Chase CD Balance', amount: 0, month: '' },
   { id: 'checking-balance-pnc', label: 'Checking Account Balance - PNC', amount: 100.57, month: '' },
   { id: 'additional-other-income', label: 'Additional Other Income', amount: 0, month: '' },
