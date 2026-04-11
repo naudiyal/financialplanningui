@@ -1856,7 +1856,7 @@ export default function App() {
     'PNC',
   )
 
-  const bankBalanceMovementGroups = [
+  const rawBankBalanceMovementGroups = [
     {
       bankName: sectionTitles.defaultBank,
       startingBalance: Number(checkingAccountBalanceChase.toFixed(2)),
@@ -1876,6 +1876,33 @@ export default function App() {
       additionalPayments: Number(subsection.additionalPayments.toFixed(2)),
     })),
   ]
+
+  const bankBalanceMovementGroups = Array.from(
+    rawBankBalanceMovementGroups.reduce(
+      (groups, group) => {
+        const bankName = group.bankName.trim() || 'Unnamed Bank'
+        const key = bankName.toLocaleLowerCase()
+        const existingGroup = groups.get(key)
+
+        if (existingGroup) {
+          existingGroup.startingBalance = Number((existingGroup.startingBalance + group.startingBalance).toFixed(2))
+          existingGroup.additionalIncome = Number((existingGroup.additionalIncome + group.additionalIncome).toFixed(2))
+          existingGroup.additionalPayments = Number((existingGroup.additionalPayments + group.additionalPayments).toFixed(2))
+          return groups
+        }
+
+        groups.set(key, {
+          bankName,
+          startingBalance: group.startingBalance,
+          additionalIncome: group.additionalIncome,
+          additionalPayments: group.additionalPayments,
+        })
+
+        return groups
+      },
+      new Map<string, { bankName: string; startingBalance: number; additionalIncome: number; additionalPayments: number }>(),
+    ).values(),
+  )
 
   const showAdditionalPaymentStep = bankBalanceMovementGroups.some((group) => Math.abs(group.additionalPayments) > 0.004)
   const showAdditionalIncomeStep = bankBalanceMovementGroups.some((group) => Math.abs(group.additionalIncome) > 0.004)
