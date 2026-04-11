@@ -2054,15 +2054,31 @@ input.section-title-input {
 }
 
 .debit-expenses-table th:nth-child(4),
-.debit-expenses-table td:nth-child(4),
+.debit-expenses-table td:nth-child(4) {
+  width: 8.5rem !important;
+}
+
 .debit-expenses-table th:nth-child(5),
-.debit-expenses-table td:nth-child(5) {
+.debit-expenses-table td:nth-child(5),
+.debit-expenses-table th:nth-child(6),
+.debit-expenses-table td:nth-child(6) {
   width: 6.4rem !important;
   text-align: right;
 }
 
-.debit-expenses-table td:nth-child(4) input,
-.debit-expenses-table td:nth-child(5) input {
+.debit-expenses-table td:nth-child(4) select {
+  width: 100%;
+  min-width: 0;
+  height: 18px;
+  padding: 0 0.1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.2rem;
+  background: #ffffff;
+  font-size: 0.68rem;
+}
+
+.debit-expenses-table td:nth-child(5) input,
+.debit-expenses-table td:nth-child(6) input {
   width: calc(100% - 0.1rem);
   min-width: 0;
   padding: 0 0.1rem;
@@ -2079,7 +2095,8 @@ input.section-title-input {
 }
 
 .credit-accounts-table input,
-.debit-expenses-table input {
+.debit-expenses-table input,
+.debit-expenses-table select {
   min-width: 0;
   max-width: 100%;
   min-height: 18px;

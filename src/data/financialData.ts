@@ -279,6 +279,7 @@ export const defaultColumnLabels: FinancialPlanColumnLabels = {
   debitExpenses: [
     { id: 'expense', label: 'Expense' },
     { id: 'pay-date', label: 'Pay Date' },
+    { id: 'pay-from', label: 'Pay From' },
     { id: 'current-month', label: 'Current Month' },
     { id: 'next-month', label: 'Next Month' },
   ],

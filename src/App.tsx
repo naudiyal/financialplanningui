@@ -35,8 +35,14 @@ type ExpenseItem = {
   id: string
   label: string
   payDate: string
+  payFromBankId: string
   current: number
   next: number
+}
+
+type BankPayFromOption = {
+  id: string
+  label: string
 }
 
 type FinancialPlanData = {
@@ -207,15 +213,38 @@ const normalizeLegacyCreditAccountColumnLabel = (id: string, label: string) => {
 
 const normalizeColumnLabelsForUi = (columnLabels?: FinancialPlanColumnLabels): FinancialPlanColumnLabels => {
   const source = columnLabels ?? defaultColumnLabels
+  const debitExpenseColumnsById = new Map((source.debitExpenses ?? []).map((column) => [column.id, column]))
+  const normalizedDebitExpenses = defaultColumnLabels.debitExpenses.map((defaultColumn, index) => {
+    const indexedColumn = source.debitExpenses?.[index]
+    const actualColumn = debitExpenseColumnsById.get(defaultColumn.id)
+      ?? (indexedColumn != null && (!indexedColumn.id || indexedColumn.id === defaultColumn.id) ? indexedColumn : null)
+    return actualColumn == null ? defaultColumn : { ...defaultColumn, ...actualColumn }
+  })
 
   return {
     creditAccounts: source.creditAccounts.map((column) => ({
       ...column,
       label: normalizeLegacyCreditAccountColumnLabel(column.id, column.label),
     })),
-    debitExpenses: source.debitExpenses,
+    debitExpenses: normalizedDebitExpenses,
   }
 }
+
+const normalizeExpensePayFromBankId = (payFromBankId: string | undefined, validPayFromBankIds: Set<string>) => {
+  const normalizedValue = payFromBankId?.trim()
+
+  if (!normalizedValue || !validPayFromBankIds.has(normalizedValue)) {
+    return DEFAULT_BANK_EXPENSE_SOURCE_ID
+  }
+
+  return normalizedValue
+}
+
+const normalizeExpenseItemsForUi = (expenseItems: ExpenseItem[] | undefined, validPayFromBankIds: Set<string>): ExpenseItem[] =>
+  (expenseItems ?? []).map((item) => ({
+    ...item,
+    payFromBankId: normalizeExpensePayFromBankId(item.payFromBankId, validPayFromBankIds),
+  }))
 
 const formatViewerUserLabel = (user: SharedViewerUserSummary) => {
   const primaryLabel = user.displayName?.trim() || user.email?.trim() || user.userSub
@@ -263,24 +292,26 @@ const isPastDate = (value: string) => {
 
 const getHeaderInputWidth = (label: string, minChars = 8) => `${Math.max(label.length + 2, minChars)}ch`
 
+const DEFAULT_BANK_EXPENSE_SOURCE_ID = 'default-bank'
+
 const initialPlanoExpenses: ExpenseItem[] = [
-  { id: 'plano-water', label: 'Water (Chase)', payDate: convertToISODate('24-Mar'), current: 0, next: 87.94 },
-  { id: 'plano-internet-att', label: 'Internet ATT(Chase)', payDate: convertToISODate('19-Mar'), current: 0, next: 42.43 },
-  { id: 'plano-hoa', label: 'HOA (Chase)', payDate: convertToISODate('11-Apr'), current: 355, next: 355 },
-  { id: 'plano-electricity', label: 'Electricity (WellsFargo CC Tran)', payDate: convertToISODate('14-Apr'), current: 111, next: 111 },
+  { id: 'plano-water', label: 'Water (Chase)', payDate: convertToISODate('24-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 87.94 },
+  { id: 'plano-internet-att', label: 'Internet ATT(Chase)', payDate: convertToISODate('19-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 42.43 },
+  { id: 'plano-hoa', label: 'HOA (Chase)', payDate: convertToISODate('11-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 355, next: 355 },
+  { id: 'plano-electricity', label: 'Electricity (WellsFargo CC Tran)', payDate: convertToISODate('14-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 111, next: 111 },
 ]
 
 const initialSanfordExpenses: ExpenseItem[] = [
-  { id: 'sanford-water', label: 'Water (Chase)', payDate: convertToISODate('19-Mar'), current: 0, next: 90.48 },
-  { id: 'sanford-electricity', label: 'Electricity (Chase)', payDate: convertToISODate('19-Mar'), current: 0, next: 188.82 },
-  { id: 'sanford-internet-att', label: 'Internet ATT (Chase)', payDate: convertToISODate('24-Mar'), current: 0, next: 64.87 },
-  { id: 'sanford-hoa-quarterly', label: 'HOA -($628.64/Qtr) (Chase)', payDate: convertToISODate('7-Apr'), current: 628.64, next: 0 },
+  { id: 'sanford-water', label: 'Water (Chase)', payDate: convertToISODate('19-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 90.48 },
+  { id: 'sanford-electricity', label: 'Electricity (Chase)', payDate: convertToISODate('19-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 188.82 },
+  { id: 'sanford-internet-att', label: 'Internet ATT (Chase)', payDate: convertToISODate('24-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 64.87 },
+  { id: 'sanford-hoa-quarterly', label: 'HOA -($628.64/Qtr) (Chase)', payDate: convertToISODate('7-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 628.64, next: 0 },
 ]
 
 const initialOtherExpenses: ExpenseItem[] = [
-  { id: 'other-att-mobile', label: 'ATT - Mobile (Chase)', payDate: convertToISODate('4-Apr'), current: 65.35, next: 65.35 },
-  { id: 'other-529-college-savings', label: '529 College Savings', payDate: convertToISODate('5-Apr'), current: 0, next: 0 },
-  { id: 'other-geico-car-insurance', label: 'Geico Car Insurance (WellsFargo CC Tran)', payDate: convertToISODate('9-Apr'), current: 328.58, next: 328.58 },
+  { id: 'other-att-mobile', label: 'ATT - Mobile (Chase)', payDate: convertToISODate('4-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 65.35, next: 65.35 },
+  { id: 'other-529-college-savings', label: '529 College Savings', payDate: convertToISODate('5-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 0 },
+  { id: 'other-geico-car-insurance', label: 'Geico Car Insurance (WellsFargo CC Tran)', payDate: convertToISODate('9-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 328.58, next: 328.58 },
 ]
 
 type ExpenseGroupConfig = {
@@ -306,7 +337,7 @@ type CreditSortKey =
   | 'nextMonthStatementBalance'
   | 'utilizationPercent'
 
-type ExpenseSortKey = 'label' | 'payDate' | 'current' | 'next'
+type ExpenseSortKey = 'label' | 'payDate' | 'payFromBankId' | 'current' | 'next'
 
 type SortState<T extends string> = {
   key: T
@@ -385,6 +416,8 @@ const getExpenseSortValue = (item: ExpenseItem, key: ExpenseSortKey) => {
       return item.label.toLowerCase()
     case 'payDate':
       return item.payDate
+    case 'payFromBankId':
+      return item.payFromBankId
     case 'current':
       return item.current
     case 'next':
@@ -456,17 +489,27 @@ const serializeSectionTitles = (
   incomeScheduleChase: sectionTitles.defaultBank,
 })
 
-const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData => ({
-  creditAccounts: data.creditAccounts,
-  incomeItems: data.incomeItems,
-  balanceItems: data.balanceItems,
-  planoExpenses: data.planoExpenses,
-  sanfordExpenses: data.sanfordExpenses,
-  otherExpenses: data.otherExpenses,
-  columnLabels: normalizeColumnLabelsForUi(data.columnLabels),
-  sectionTitles: serializeSectionTitles(normalizeSectionTitles(data.sectionTitles)),
-  incomeSubsections: data.incomeSubsections ?? defaultIncomeSubsections,
-})
+const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData => {
+  const normalizedSectionTitles = normalizeSectionTitles(data.sectionTitles)
+  const normalizedIncomeSubsections = data.incomeSubsections ?? defaultIncomeSubsections
+  const validPayFromBankIds = new Set([
+    DEFAULT_BANK_EXPENSE_SOURCE_ID,
+    ...normalizedIncomeSubsections.map((subsection) => subsection.id),
+  ])
+
+  return {
+    creditAccounts: data.creditAccounts,
+    incomeItems: data.incomeItems,
+    balanceItems: data.balanceItems,
+    planoExpenses: normalizeExpenseItemsForUi(data.planoExpenses, validPayFromBankIds),
+    sanfordExpenses: normalizeExpenseItemsForUi(data.sanfordExpenses, validPayFromBankIds),
+    otherExpenses: normalizeExpenseItemsForUi(data.otherExpenses, validPayFromBankIds),
+    columnLabels: normalizeColumnLabelsForUi(data.columnLabels),
+    sectionTitles: serializeSectionTitles(normalizedSectionTitles),
+    incomeSubsections: normalizedIncomeSubsections,
+    summary: data.summary,
+  }
+}
 
 const getFinancialPlanSignature = (data: FinancialPlanData) =>
   JSON.stringify(normalizeFinancialPlanData({
@@ -947,6 +990,26 @@ export default function App() {
   const dismissSamplePromptOnMenuCloseRef = useRef(false)
   const skipNextCarryoverResetRef = useRef(false)
 
+  const expensePayFromOptions = useMemo<BankPayFromOption[]>(() => [
+    { id: DEFAULT_BANK_EXPENSE_SOURCE_ID, label: sectionTitles.defaultBank },
+    ...incomeSubsections.map((subsection) => ({
+      id: subsection.id,
+      label: subsection.title.trim() || 'Unnamed Bank',
+    })),
+  ], [incomeSubsections, sectionTitles.defaultBank])
+
+  const expensePayFromLabels = useMemo(
+    () => new Map(expensePayFromOptions.map((option) => [option.id, option.label])),
+    [expensePayFromOptions],
+  )
+
+  const validExpensePayFromBankIds = useMemo(
+    () => new Set(expensePayFromOptions.map((option) => option.id)),
+    [expensePayFromOptions],
+  )
+
+  const getExpensePayFromLabel = (payFromBankId: string) => expensePayFromLabels.get(payFromBankId) ?? sectionTitles.defaultBank
+
   const navigateToRoute = (nextRoute: AppRoute, options?: { replace?: boolean }) => {
     const normalizedRoute = normalizeAppRoute(nextRoute)
     const nextUrl = new URL(window.location.href)
@@ -1198,7 +1261,7 @@ export default function App() {
   const updateExpenseItemById = (
     setter: React.Dispatch<React.SetStateAction<ExpenseItem[]>>,
     itemId: string,
-    field: 'current' | 'next' | 'payDate',
+    field: 'current' | 'next' | 'payDate' | 'payFromBankId',
     value: number | string,
   ) => {
     if (isViewingPreviousCycle) {
@@ -1258,7 +1321,13 @@ export default function App() {
 
       setExpenseRowOrder(
         buildOrderedIds(
-          sortItems(expenseRows, ({ item }) => getExpenseSortValue(item, nextSort.key), nextSort.direction),
+          sortItems(
+            expenseRows,
+            ({ item }) => nextSort.key === 'payFromBankId'
+              ? getExpensePayFromLabel(item.payFromBankId).toLowerCase()
+              : getExpenseSortValue(item, nextSort.key),
+            nextSort.direction,
+          ),
           ({ item }) => item.id,
         ),
       )
@@ -1534,9 +1603,27 @@ export default function App() {
     return sum + nextMonthBalance
   }, 0)
 
-  const debitCardExpenseItems = [...planoExpenses, ...sanfordExpenses, ...otherExpenses]
+  const debitCardExpenseItems = [...planoExpenses, ...sanfordExpenses, ...otherExpenses].map((item) => ({
+    ...item,
+    payFromBankId: normalizeExpensePayFromBankId(item.payFromBankId, validExpensePayFromBankIds),
+  }))
   const debitCardExpensesTotalCurrent = sumExpenses(debitCardExpenseItems, 'current')
   const debitCardExpensesTotalNext = sumExpenses(debitCardExpenseItems, 'next')
+  const debitCardExpensesByBankCurrent = debitCardExpenseItems.reduce<Map<string, number>>((totals, item) => {
+    const currentTotal = totals.get(item.payFromBankId) ?? 0
+    totals.set(item.payFromBankId, currentTotal + item.current)
+    return totals
+  }, new Map())
+  const getCurrentDebitExpensesForBank = (bankId: string) => debitCardExpensesByBankCurrent.get(bankId) ?? 0
+  const defaultBankDebitExpensesCurrent = getCurrentDebitExpensesForBank(DEFAULT_BANK_EXPENSE_SOURCE_ID)
+  const getCurrentDuesForBank = (bankId: string) => (
+    bankId === DEFAULT_BANK_EXPENSE_SOURCE_ID
+      ? creditCardCurrentMonthPayments + defaultBankDebitExpensesCurrent
+      : getCurrentDebitExpensesForBank(bankId)
+  )
+  const getBankMonthEndBalance = (bankId: string, totalBalance: number, additionalIncome: number) => (
+    totalBalance + additionalIncome - getCurrentDuesForBank(bankId)
+  )
   const monthAfterNextMonthExpense = totalCardDue - creditCardCurrentMonthPayments - creditCardNextMonthBalance + debitCardExpensesTotalNext
   const j15 = creditCardCurrentMonthPayments
   const k15 = creditCardNextMonthBalance
@@ -1544,14 +1631,18 @@ export default function App() {
   const k36 = k15 + debitCardExpensesTotalNext
   const currentCycleExposure = j36 + additionalPaymentsChase
 
-  const checkingAccountBalanceMonthEndChase = totalBalanceChase + additionalIncomeChase - j36
+  const checkingAccountBalanceMonthEndChase = getBankMonthEndBalance(
+    DEFAULT_BANK_EXPENSE_SOURCE_ID,
+    totalBalanceChase,
+    additionalIncomeChase,
+  )
   const netBalanceMonthEnd = checkingAccountBalanceMonthEndChase + chaseCDBalance + checkingAccountBalancePNC + additionalOtherIncome
 
   const totalMonthEndBalanceMinusDues = incomeSubsections.reduce((sum, subsection) => {
     const midMonthSalary = subsection.midMonthSalaryArrived ? 0 : subsection.biMonthlySalary
     const monthEndSalary = subsection.monthEndSalaryArrived ? 0 : subsection.biMonthlySalary
     const totalBalance = midMonthSalary + monthEndSalary + subsection.checkingBalance - subsection.additionalPayments
-    return sum + totalBalance + subsection.additionalIncome
+    return sum + getBankMonthEndBalance(subsection.id, totalBalance, subsection.additionalIncome)
   }, checkingAccountBalanceMonthEndChase)
   const savingsNextMonth = salaryTransferToChase - k36
 
@@ -1858,22 +1949,28 @@ export default function App() {
 
   const rawBankBalanceMovementGroups = [
     {
+      bankId: DEFAULT_BANK_EXPENSE_SOURCE_ID,
       bankName: sectionTitles.defaultBank,
       startingBalance: Number(checkingAccountBalanceChase.toFixed(2)),
       additionalIncome: Number(additionalIncomeChase.toFixed(2)),
       additionalPayments: Number(additionalPaymentsChase.toFixed(2)),
+      dues: Number(getCurrentDuesForBank(DEFAULT_BANK_EXPENSE_SOURCE_ID).toFixed(2)),
     },
     {
+      bankId: 'legacy-pnc-bank',
       bankName: pncBankName,
       startingBalance: Number(checkingAccountBalancePNC.toFixed(2)),
       additionalIncome: Number(additionalOtherIncome.toFixed(2)),
       additionalPayments: 0,
+      dues: 0,
     },
     ...incomeSubsections.map((subsection) => ({
+      bankId: subsection.id,
       bankName: subsection.title,
       startingBalance: Number(subsection.checkingBalance.toFixed(2)),
       additionalIncome: Number(subsection.additionalIncome.toFixed(2)),
       additionalPayments: Number(subsection.additionalPayments.toFixed(2)),
+      dues: Number(getCurrentDuesForBank(subsection.id).toFixed(2)),
     })),
   ]
 
@@ -1888,6 +1985,7 @@ export default function App() {
           existingGroup.startingBalance = Number((existingGroup.startingBalance + group.startingBalance).toFixed(2))
           existingGroup.additionalIncome = Number((existingGroup.additionalIncome + group.additionalIncome).toFixed(2))
           existingGroup.additionalPayments = Number((existingGroup.additionalPayments + group.additionalPayments).toFixed(2))
+          existingGroup.dues = Number((existingGroup.dues + group.dues).toFixed(2))
           return groups
         }
 
@@ -1896,24 +1994,28 @@ export default function App() {
           startingBalance: group.startingBalance,
           additionalIncome: group.additionalIncome,
           additionalPayments: group.additionalPayments,
+          dues: group.dues,
         })
 
         return groups
       },
-      new Map<string, { bankName: string; startingBalance: number; additionalIncome: number; additionalPayments: number }>(),
+      new Map<string, { bankName: string; startingBalance: number; additionalIncome: number; additionalPayments: number; dues: number }>(),
     ).values(),
   )
 
   const showAdditionalPaymentStep = bankBalanceMovementGroups.some((group) => Math.abs(group.additionalPayments) > 0.004)
+  const showDuesStep = bankBalanceMovementGroups.some((group) => Math.abs(group.dues) > 0.004)
   const showAdditionalIncomeStep = bankBalanceMovementGroups.some((group) => Math.abs(group.additionalIncome) > 0.004)
   const bankMovementTimelineLabels = [
     'Starting Balance',
     ...(showAdditionalPaymentStep ? ['After Additional Payment'] : []),
+    ...(showDuesStep ? ['After Dues'] : []),
     ...(showAdditionalIncomeStep ? ['After Additional Income'] : []),
   ]
   const bankBalanceTimelineData = bankBalanceMovementGroups.map((group) => {
     const afterAdditionalPayment = Number((group.startingBalance - group.additionalPayments).toFixed(2))
-    const afterAdditionalIncome = Number((afterAdditionalPayment + group.additionalIncome).toFixed(2))
+    const afterDues = Number((afterAdditionalPayment - group.dues).toFixed(2))
+    const afterAdditionalIncome = Number((afterDues + group.additionalIncome).toFixed(2))
     const timelineSteps = [
       {
         label: 'Starting Balance',
@@ -1926,6 +2028,15 @@ export default function App() {
               label: 'After Additional Payment',
               value: afterAdditionalPayment,
               fill: CHART_COLORS.negative,
+            },
+          ]
+        : []),
+      ...(Math.abs(group.dues) > 0.004
+        ? [
+            {
+              label: 'After Dues',
+              value: afterDues,
+              fill: CHART_COLORS.deferred,
             },
           ]
         : []),
@@ -1949,6 +2060,7 @@ export default function App() {
       minValue,
       maxValue,
       additionalPayments: group.additionalPayments,
+      dues: group.dues,
       additionalIncome: group.additionalIncome,
     }
   })
@@ -2040,7 +2152,7 @@ export default function App() {
     const midMonthSalary = subsection.midMonthSalaryArrived ? 0 : subsection.biMonthlySalary
     const monthEndSalary = subsection.monthEndSalaryArrived ? 0 : subsection.biMonthlySalary
     const totalBalance = midMonthSalary + monthEndSalary + subsection.checkingBalance - subsection.additionalPayments
-    const monthEndBalance = totalBalance + subsection.additionalIncome
+    const monthEndBalance = getBankMonthEndBalance(subsection.id, totalBalance, subsection.additionalIncome)
 
     return (
       <div key={subsection.id} className={selectedBankSubsectionIds.has(subsection.id) ? 'subsection-block row-selected' : 'subsection-block'}>
@@ -2163,6 +2275,7 @@ export default function App() {
       id: `${prefix}-${Date.now()}`,
       label: 'New Expense',
       payDate: today,
+      payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID,
       current: 0,
       next: 0,
     }
@@ -2211,18 +2324,26 @@ export default function App() {
     setExpenseRowOrder((current) => reconcileOrderedIds(current, nextExpenseIds))
   }, [expenseRows])
 
-  const buildPayload = (overrides: Partial<FinancialPlanData> = {}): FinancialPlanData => ({
-    creditAccounts: overrides.creditAccounts ?? creditAccounts,
-    incomeItems: overrides.incomeItems ?? bankSectionIncomeItems,
-    balanceItems: overrides.balanceItems ?? bankSectionBalanceItems,
-    planoExpenses: overrides.planoExpenses ?? planoExpenses,
-    sanfordExpenses: overrides.sanfordExpenses ?? sanfordExpenses,
-    otherExpenses: overrides.otherExpenses ?? otherExpenses,
-    columnLabels: overrides.columnLabels ?? columnLabels,
-    sectionTitles: serializeSectionTitles(normalizeSectionTitles(overrides.sectionTitles ?? sectionTitles)),
-    incomeSubsections: overrides.incomeSubsections ?? incomeSubsections,
-    summary: overrides.summary,
-  })
+  const buildPayload = (overrides: Partial<FinancialPlanData> = {}): FinancialPlanData => {
+    const nextIncomeSubsections = overrides.incomeSubsections ?? incomeSubsections
+    const nextValidPayFromBankIds = new Set([
+      DEFAULT_BANK_EXPENSE_SOURCE_ID,
+      ...nextIncomeSubsections.map((subsection) => subsection.id),
+    ])
+
+    return {
+      creditAccounts: overrides.creditAccounts ?? creditAccounts,
+      incomeItems: overrides.incomeItems ?? bankSectionIncomeItems,
+      balanceItems: overrides.balanceItems ?? bankSectionBalanceItems,
+      planoExpenses: normalizeExpenseItemsForUi(overrides.planoExpenses ?? planoExpenses, nextValidPayFromBankIds),
+      sanfordExpenses: normalizeExpenseItemsForUi(overrides.sanfordExpenses ?? sanfordExpenses, nextValidPayFromBankIds),
+      otherExpenses: normalizeExpenseItemsForUi(overrides.otherExpenses ?? otherExpenses, nextValidPayFromBankIds),
+      columnLabels: overrides.columnLabels ?? columnLabels,
+      sectionTitles: serializeSectionTitles(normalizeSectionTitles(overrides.sectionTitles ?? sectionTitles)),
+      incomeSubsections: nextIncomeSubsections,
+      summary: overrides.summary,
+    }
+  }
 
   const canCloseCurrentCycle =
     creditAccounts.length > 0 &&
@@ -2362,15 +2483,16 @@ export default function App() {
     )
 
   const applyFinancialPlan = (data: FinancialPlanData) => {
+    const normalizedData = normalizeFinancialPlanData(data)
     const nextCreditAccounts = sortItems(
-      data.creditAccounts,
+      normalizedData.creditAccounts,
       (account) => getCreditSortValue(account, DEFAULT_CREDIT_SORT.key),
       DEFAULT_CREDIT_SORT.direction,
     )
     const nextExpenseRows: ExpenseRow[] = [
-      ...data.planoExpenses.map((item) => ({ item, setter: setPlanoExpenses })),
-      ...data.sanfordExpenses.map((item) => ({ item, setter: setSanfordExpenses })),
-      ...data.otherExpenses.map((item) => ({ item, setter: setOtherExpenses })),
+      ...normalizedData.planoExpenses.map((item) => ({ item, setter: setPlanoExpenses })),
+      ...normalizedData.sanfordExpenses.map((item) => ({ item, setter: setSanfordExpenses })),
+      ...normalizedData.otherExpenses.map((item) => ({ item, setter: setOtherExpenses })),
     ]
     const nextExpenseRowOrder = buildOrderedIds(
       sortItems(nextExpenseRows, ({ item }) => getExpenseSortValue(item, DEFAULT_EXPENSE_SORT.key), DEFAULT_EXPENSE_SORT.direction),
@@ -2382,14 +2504,14 @@ export default function App() {
     setCreditAccountOrder(buildOrderedIds(nextCreditAccounts, (account) => account.id))
     setExpenseRowOrder(nextExpenseRowOrder)
     setCreditAccounts(nextCreditAccounts)
-    setIncomeItemsState(data.incomeItems)
-    setBalanceItemsState(data.balanceItems)
-    setPlanoExpenses(data.planoExpenses)
-    setSanfordExpenses(data.sanfordExpenses)
-    setOtherExpenses(data.otherExpenses)
-    setColumnLabels(normalizeColumnLabelsForUi(data.columnLabels))
-    setSectionTitles(normalizeSectionTitles(data.sectionTitles))
-    setIncomeSubsections(data.incomeSubsections ?? defaultIncomeSubsections)
+    setIncomeItemsState(normalizedData.incomeItems)
+    setBalanceItemsState(normalizedData.balanceItems)
+    setPlanoExpenses(normalizedData.planoExpenses)
+    setSanfordExpenses(normalizedData.sanfordExpenses)
+    setOtherExpenses(normalizedData.otherExpenses)
+    setColumnLabels(normalizedData.columnLabels ?? defaultColumnLabels)
+    setSectionTitles(normalizeSectionTitles(normalizedData.sectionTitles))
+    setIncomeSubsections(normalizedData.incomeSubsections ?? defaultIncomeSubsections)
     setNewBankSubsectionIds(new Set())
     setSelectedBankSubsectionIds(new Set())
     setSelectedCreditIds(new Set())
@@ -2401,26 +2523,27 @@ export default function App() {
     successMessage = '',
     preserveCloseCycleBankData = false,
   ) => {
+    const normalizedData = normalizeFinancialPlanData(response.data)
     if (preserveCloseCycleBankData) {
       skipNextCarryoverResetRef.current = true
       setCloseCycleCarryoverBankData({
-        incomeItems: response.data.incomeItems,
-        balanceItems: response.data.balanceItems,
+        incomeItems: normalizedData.incomeItems,
+        balanceItems: normalizedData.balanceItems,
       })
     } else {
       setCloseCycleCarryoverBankData(null)
     }
 
-    applyFinancialPlan(response.data)
+    applyFinancialPlan(normalizedData)
     setSelectedCycle(response.selectedCycle)
     setTimelineType(response.timelineType)
     setCurrentCyclePeriod(response.currentCycle)
     setPreviousCyclePeriod(response.previousCycle)
     setLastCycleSavedAt(response.lastCycleSavedAt)
-    setLoadedPlanSignature(getFinancialPlanSignature(response.data))
+    setLoadedPlanSignature(getFinancialPlanSignature(normalizedData))
     setPersonalPlanSnapshot({
-      data: response.data,
-      loadedSignature: getFinancialPlanSignature(response.data),
+      data: normalizedData,
+      loadedSignature: getFinancialPlanSignature(normalizedData),
       saveState: successMessage ? 'saved' : 'idle',
       saveMessage: successMessage,
     })
@@ -4254,7 +4377,20 @@ export default function App() {
               <thead>
                 <tr>
                   <th className="select-col"></th>
-                  {columnLabels.debitExpenses.map((column, index) => (
+                  {columnLabels.debitExpenses.map((column) => {
+                    const sortKey = column.id === 'expense'
+                      ? 'label'
+                      : column.id === 'pay-date'
+                        ? 'payDate'
+                        : column.id === 'pay-from'
+                          ? 'payFromBankId'
+                          : column.id === 'current-month'
+                            ? 'current'
+                            : column.id === 'next-month'
+                              ? 'next'
+                              : null
+
+                    return (
                     <th key={column.id}>
                       <div className="sortable-header">
                         <input
@@ -4264,17 +4400,19 @@ export default function App() {
                           aria-readonly="true"
                           className="label-input table-header-input"
                         />
-                        <button
-                          type="button"
-                          className="sort-button"
-                          onClick={() => toggleExpenseSort(['label', 'payDate', 'current', 'next'][index] as ExpenseSortKey)}
-                          aria-label={`Sort debit expenses by ${column.label}`}
-                        >
-                          {getSortIndicator(expenseSort, ['label', 'payDate', 'current', 'next'][index] as ExpenseSortKey)}
-                        </button>
+                        {sortKey != null ? (
+                          <button
+                            type="button"
+                            className="sort-button"
+                            onClick={() => toggleExpenseSort(sortKey)}
+                            aria-label={`Sort debit expenses by ${column.label}`}
+                          >
+                            {getSortIndicator(expenseSort, sortKey)}
+                          </button>
+                        ) : null}
                       </div>
                     </th>
-                  ))}
+                  )})}
                 </tr>
               </thead>
               <tbody>
@@ -4307,6 +4445,18 @@ export default function App() {
                           />
                         </td>
                         <td>
+                          <select
+                            value={normalizeExpensePayFromBankId(item.payFromBankId, validExpensePayFromBankIds)}
+                            onChange={(e) => updateExpenseItemById(setter, item.id, 'payFromBankId', e.target.value)}
+                          >
+                            {expensePayFromOptions.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
                           <CurrencyInput
                             value={item.current}
                             onValueChange={(value) => updateExpenseItemById(setter, item.id, 'current', value)}
@@ -4327,6 +4477,7 @@ export default function App() {
                 <tr className="table-summary-row">
                   <td></td>
                   <td>Debit Card Expenses Total</td>
+                  <td></td>
                   <td></td>
                   <td>{currency(debitCardExpensesTotalCurrent)}</td>
                   <td>{currency(debitCardExpensesTotalNext)}</td>
@@ -4466,7 +4617,7 @@ export default function App() {
         <article className="chart-card compact-section cashflow-side-panel">
           <div className="chart-card-header">
             <h3>Bank Balance Movement</h3>
-            <span>Additional payment applied before additional income</span>
+            <span>Additional payments and assigned dues are applied before additional income</span>
           </div>
           <div className="chart-shell chart-shell-bank">
             <ResponsiveContainer width="100%" height="100%">
