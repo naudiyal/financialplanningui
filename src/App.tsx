@@ -60,6 +60,7 @@ type FinancialPlanData = {
 
 type AuthStatusResponse = {
   authenticated: boolean
+  admin: boolean
   email: string | null
   name: string | null
   pictureUrl: string | null
@@ -143,7 +144,6 @@ type AnalyticsKpiCard = {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
 const LOGIN_URL = `${API_BASE_URL}/oauth2/authorization/google`
-const TRACKERS_ALLOWED_EMAIL = 'naudiyal@gmail.com'
 const BUILD_VERSION_LABEL = `Build v${__APP_VERSION__}`
 
 const normalizeAppRoute = (pathname: string): AppRoute => (pathname === TRACKERS_ROUTE ? TRACKERS_ROUTE : PERSONAL_ROUTE)
@@ -1076,6 +1076,7 @@ export default function App() {
   const [sharedViewerUsers, setSharedViewerUsers] = useState<SharedViewerUserSummary[]>([])
   const [selectedSharedViewerUserSub, setSelectedSharedViewerUserSub] = useState('')
   const [personalPlanSnapshot, setPersonalPlanSnapshot] = useState<PersonalPlanSnapshot | null>(null)
+  const [samplePlanSnapshot, setSamplePlanSnapshot] = useState<PersonalPlanSnapshot | null>(null)
   const [hasSavedPersonalPlan, setHasSavedPersonalPlan] = useState(false)
   const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking')
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthStatusResponse | null>(null)
@@ -2522,22 +2523,25 @@ export default function App() {
 
   const isSampleMode = planViewMode === 'sample'
   const isTrackersRoute = appRoute === TRACKERS_ROUTE
-  const canAccessTrackersRoute = authenticatedUser?.email?.toLowerCase() === TRACKERS_ALLOWED_EMAIL
-  const isViewingPreviousCycle = !isSampleMode && selectedCycle === 'previous'
+  const canAccessTrackersRoute = authenticatedUser?.admin === true
+  const canEditSamplePlan = authenticatedUser?.admin === true
+  const isViewingPreviousCycle = selectedCycle === 'previous'
   const isTrackerReadOnly = isViewingPreviousCycle || isTrackersRoute
+  const isSampleReadOnly = isSampleMode && !canEditSamplePlan
+  const isPlanReadOnly = isTrackerReadOnly || isSampleReadOnly
   const hasSharedViewerUsers = sharedViewerUsers.length > 0
   const selectedSharedViewerUser = sharedViewerUsers.find((user) => user.userSub === selectedSharedViewerUserSub) ?? null
   const sampleHasLocalChanges = isSampleMode && loadedPlanSignature !== null && currentPlanSignature !== loadedPlanSignature
 
   const hasUnsavedChanges =
-    !isSampleMode &&
     !isTrackersRoute &&
     selectedCycle === 'current' &&
+    (!isSampleMode || canEditSamplePlan) &&
     hasCurrentCycleUserEdits &&
     loadedPlanSignature !== null &&
     currentPlanSignature !== loadedPlanSignature
   const canUseReset = hasUnsavedChanges
-  const canRevertClosedCycle = !isSampleMode && !isTrackersRoute && previousCyclePeriod !== null
+  const canRevertClosedCycle = !isTrackersRoute && previousCyclePeriod !== null
 
   const statusText =
     isTrackersRoute
@@ -2548,8 +2552,12 @@ export default function App() {
           : 'No other trackers available'
       : isSampleMode
       ? sampleHasLocalChanges
-        ? 'Sample changes are local only'
-        : 'Viewing sample plan'
+        ? canEditSamplePlan
+          ? 'Unsaved sample changes'
+          : 'Sample changes are local only'
+        : canEditSamplePlan
+          ? 'Editing sample plan'
+          : 'Viewing sample plan'
       : isViewingPreviousCycle && saveState === 'idle'
         ? 'Viewing previous cycle'
       : saveState === 'loading' || saveState === 'saving'
@@ -2561,7 +2569,7 @@ export default function App() {
           : ''
 
   const shouldWarnBeforeSwitchingCycle =
-    !isSampleMode && !isTrackersRoute && selectedCycle === 'current' && hasUnsavedChanges && !suppressCycleSwitchWarning && !needsPostCloseBaselineSync
+    !isTrackersRoute && selectedCycle === 'current' && hasUnsavedChanges && !suppressCycleSwitchWarning && !needsPostCloseBaselineSync
 
   const statusClassName = `status-text status-${isSampleMode ? 'saved' : hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
     const creditWidthCapStyle = creditTableWidth ? { width: `min(100%, ${creditTableWidth}px)` } : undefined
@@ -2639,14 +2647,40 @@ export default function App() {
     }
   }
 
+  const fetchSampleBankBalanceHistory = async (sampleTimelineType: TimelineType): Promise<BankBalanceHistoryCycle[]> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/sample/history?timelineType=${sampleTimelineType}`, {
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        return []
+      }
+
+      const historyResponse: BankBalanceHistoryResponse = await response.json()
+      return historyResponse.cycles
+        .map(normalizeBankBalanceHistoryCycle)
+        .sort((left, right) => left.cycle.startDate.localeCompare(right.cycle.startDate))
+    } catch {
+      return []
+    }
+  }
+
   const refreshBankBalanceHistory = async (viewerUserSub?: string) => {
-    const historyCycles = await fetchBankBalanceHistory(viewerUserSub)
+    const historyCycles = planViewMode === 'sample'
+      ? await fetchSampleBankBalanceHistory(timelineType)
+      : await fetchBankBalanceHistory(viewerUserSub)
     setBankBalanceHistoryCycles(historyCycles)
     return historyCycles
   }
 
   useEffect(() => {
-    if (authState !== 'authenticated' || planViewMode === 'sample') {
+    if (authState !== 'authenticated') {
+      return
+    }
+
+    if (planViewMode === 'sample') {
+      void refreshBankBalanceHistory()
       return
     }
 
@@ -2697,6 +2731,47 @@ export default function App() {
     setSharedViewerUsers([])
     setSelectedSharedViewerUserSub('')
     setPlanViewMode('personal')
+    setHasCurrentCycleUserEdits(false)
+    setSaveState(successMessage ? 'saved' : 'idle')
+    setSaveMessage(successMessage)
+    setNeedsPostCloseBaselineSync(true)
+    if (!preserveCloseCycleBankData) {
+      setSuppressCycleSwitchWarning(false)
+    }
+  }
+
+  const applySampleCycleResponse = (
+    response: FinancialPlanCycleResponse,
+    successMessage = '',
+    preserveCloseCycleBankData = false,
+  ) => {
+    const normalizedData = normalizeFinancialPlanData(response.data)
+    if (preserveCloseCycleBankData) {
+      skipNextCarryoverResetRef.current = true
+      setCloseCycleCarryoverBankData({
+        incomeItems: normalizedData.incomeItems,
+        balanceItems: normalizedData.balanceItems,
+      })
+    } else {
+      setCloseCycleCarryoverBankData(null)
+    }
+
+    applyFinancialPlan(normalizedData)
+    setSelectedCycle(response.selectedCycle)
+    setTimelineType(response.timelineType)
+    setCurrentCyclePeriod(response.currentCycle)
+    setPreviousCyclePeriod(response.previousCycle)
+    setLastCycleSavedAt(response.lastCycleSavedAt)
+    setLoadedPlanSignature(getFinancialPlanSignature(normalizedData))
+    setSamplePlanSnapshot({
+      data: normalizedData,
+      loadedSignature: getFinancialPlanSignature(normalizedData),
+      saveState: successMessage ? 'saved' : 'idle',
+      saveMessage: successMessage,
+    })
+    setSharedViewerUsers([])
+    setSelectedSharedViewerUserSub('')
+    setPlanViewMode('sample')
     setHasCurrentCycleUserEdits(false)
     setSaveState(successMessage ? 'saved' : 'idle')
     setSaveMessage(successMessage)
@@ -2761,6 +2836,45 @@ export default function App() {
     }
   }
 
+  const loadSamplePlan = async (cycle: CycleSelection = 'current', loadingMessage = 'Loading sample plan...') => {
+    setSaveState('loading')
+    setSaveMessage(loadingMessage)
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/sample?cycle=${cycle}&timelineType=${timelineType}`, {
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setSaveState('idle')
+        setSaveMessage('')
+        return false
+      }
+
+      if (response.status === 403) {
+        setSaveState('error')
+        setSaveMessage('Only the configured admin can edit the sample plan.')
+        return false
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to load sample financial plan: ${response.status}`)
+      }
+
+      const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      applySampleCycleResponse(cycleResponse)
+      await refreshBankBalanceHistory()
+      return true
+    } catch {
+      setSaveState('error')
+      setSaveMessage('Sample plan failed to load. Check the API server.')
+      return false
+    }
+  }
+
   const loadTrackersRoute = async (preferredUserSub?: string) => {
     setSaveState('loading')
     setSaveMessage('Loading available trackers...')
@@ -2797,7 +2911,7 @@ export default function App() {
       if (response.status === 403) {
         navigateToRoute(PERSONAL_ROUTE, { replace: true })
         setSaveState('error')
-        setSaveMessage('Only naudiyal@gmail.com can access the trackers page.')
+        setSaveMessage('Only the configured admin can access the trackers page.')
         return false
       }
 
@@ -2856,7 +2970,7 @@ export default function App() {
       if (response.status === 403) {
         navigateToRoute(PERSONAL_ROUTE, { replace: true })
         setSaveState('error')
-        setSaveMessage('Only naudiyal@gmail.com can access the trackers page.')
+        setSaveMessage('Only the configured admin can access the trackers page.')
         return false
       }
 
@@ -2897,11 +3011,54 @@ export default function App() {
     onSuccess?: () => void,
   ) => {
     if (isSampleMode) {
-      applyFinancialPlan(payload)
-      onSuccess?.()
-      setSaveState('idle')
-      setSaveMessage('')
-      return true
+      if (!canEditSamplePlan) {
+        setSaveState('idle')
+        setSaveMessage('')
+        return false
+      }
+
+      setSaveState('saving')
+      setSaveMessage('Saving sample plan...')
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/financial-plan/sample?timelineType=${timelineType}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        })
+
+        if (response.status === 401) {
+          setAuthenticatedUser(null)
+          setAuthState('unauthenticated')
+          setAuthMessage('Session expired. Sign in with Google to continue.')
+          setSaveState('idle')
+          setSaveMessage('')
+          return false
+        }
+
+        if (response.status === 403) {
+          setSaveState('error')
+          setSaveMessage('Only the configured admin can save the sample plan.')
+          return false
+        }
+
+        if (!response.ok) {
+          throw new Error(`Failed to save sample financial plan: ${response.status}`)
+        }
+
+        const cycleResponse: FinancialPlanCycleResponse = await response.json()
+        applySampleCycleResponse(cycleResponse, successMessage)
+        onSuccess?.()
+        await refreshBankBalanceHistory()
+        return true
+      } catch {
+        setSaveState('error')
+        setSaveMessage('Sample save failed. Check the API server.')
+        return false
+      }
     }
 
     if (isViewingPreviousCycle) {
@@ -2949,13 +3106,13 @@ export default function App() {
   }
 
   const handleSave = async () => {
-    if (isSampleMode || isTrackerReadOnly) {
+    if ((isSampleMode && !canEditSamplePlan) || isTrackerReadOnly) {
       setSaveState('idle')
       setSaveMessage('')
       return
     }
 
-    await persistFinancialPlan(buildPayload())
+    await persistFinancialPlan(buildPayload(), isSampleMode ? 'Sample saved to server' : 'Saved to server')
   }
 
   const switchToCycle = async (cycle: CycleSelection) => {
@@ -2973,7 +3130,7 @@ export default function App() {
       pendingCloseCycleReset.previousCycle.startDate === previousCyclePeriod.startDate &&
       pendingCloseCycleReset.previousCycle.endDate === previousCyclePeriod.endDate
     ) {
-      applyPersonalCycleResponse({
+      const cachedResponse: FinancialPlanCycleResponse = {
         data: pendingCloseCycleReset.previousData,
         selectedCycle: 'previous',
         timelineType,
@@ -2984,7 +3141,17 @@ export default function App() {
         hasSavedPlan: true,
         canCloseCycle: false,
         lastCycleSavedAt,
-      })
+      }
+      if (isSampleMode) {
+        applySampleCycleResponse(cachedResponse)
+      } else {
+        applyPersonalCycleResponse(cachedResponse)
+      }
+      return
+    }
+
+    if (isSampleMode) {
+      await loadSamplePlan(cycle, cycle === 'previous' ? 'Loading sample previous cycle...' : 'Loading sample current cycle...')
       return
     }
 
@@ -3049,7 +3216,7 @@ export default function App() {
   }
 
   const handleCloseCycleClick = () => {
-    if (isSampleMode || isTrackerReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle) {
+    if ((isSampleMode && !canEditSamplePlan) || isTrackerReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle) {
       return
     }
 
@@ -3069,7 +3236,11 @@ export default function App() {
     setSaveMessage('Closing cycle...')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/financial-plan/close-cycle`, {
+      const endpoint = isSampleMode
+        ? `${API_BASE_URL}/api/financial-plan/sample/close-cycle?timelineType=${timelineType}`
+        : `${API_BASE_URL}/api/financial-plan/close-cycle`
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -3091,13 +3262,24 @@ export default function App() {
         return
       }
 
+      if (response.status === 403) {
+        setSaveState('error')
+        setSaveMessage('Only the configured admin can close the sample plan cycle.')
+        setIsCloseCycleDialogOpen(false)
+        return
+      }
+
       if (!response.ok) {
         throw new Error(`Failed to close cycle: ${response.status}`)
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
       const archivedCurrentData = buildPayload()
-      applyPersonalCycleResponse(cycleResponse, 'Cycle closed. Started a new current cycle.', true)
+      if (isSampleMode) {
+        applySampleCycleResponse(cycleResponse, 'Cycle closed. Started a new current cycle.', true)
+      } else {
+        applyPersonalCycleResponse(cycleResponse, 'Cycle closed. Started a new current cycle.', true)
+      }
       await refreshBankBalanceHistory()
       setSuppressCycleSwitchWarning(true)
       setNeedsPostCloseBaselineSync(true)
@@ -3116,7 +3298,8 @@ export default function App() {
   }
 
   const handleResetClick = () => {
-    if (isSampleMode || isTrackerReadOnly || !canUseReset || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving') {
+    const activeSnapshot = isSampleMode ? samplePlanSnapshot : personalPlanSnapshot
+    if (isTrackerReadOnly || !canUseReset || !activeSnapshot || saveState === 'loading' || saveState === 'saving') {
       return
     }
 
@@ -3132,13 +3315,14 @@ export default function App() {
   }
 
   const handleResetConfirm = () => {
-    if (!personalPlanSnapshot) {
+    const activeSnapshot = isSampleMode ? samplePlanSnapshot : personalPlanSnapshot
+    if (!activeSnapshot) {
       setIsResetDialogOpen(false)
       return
     }
 
-    applyFinancialPlan(personalPlanSnapshot.data)
-    setLoadedPlanSignature(personalPlanSnapshot.loadedSignature)
+    applyFinancialPlan(activeSnapshot.data)
+    setLoadedPlanSignature(activeSnapshot.loadedSignature)
     setHasCurrentCycleUserEdits(false)
     setCloseCycleCarryoverBankData(null)
     setSuppressCycleSwitchWarning(false)
@@ -3176,7 +3360,11 @@ export default function App() {
     setSaveMessage('Reverting cycle...')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/financial-plan/revert-close-cycle`, {
+      const endpoint = isSampleMode
+        ? `${API_BASE_URL}/api/financial-plan/sample/revert-close-cycle?timelineType=${timelineType}`
+        : `${API_BASE_URL}/api/financial-plan/revert-close-cycle`
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -3198,13 +3386,24 @@ export default function App() {
         return
       }
 
+      if (response.status === 403) {
+        setSaveState('error')
+        setSaveMessage('Only the configured admin can revert the sample plan cycle.')
+        setIsRevertCycleDialogOpen(false)
+        return
+      }
+
       if (!response.ok) {
         throw new Error(`Failed to revert close cycle: ${response.status}`)
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      if (isSampleMode) {
+        applySampleCycleResponse(cycleResponse, 'Reverted to previous cycle.')
+      } else {
         applyPersonalCycleResponse(cycleResponse, 'Reverted to previous cycle.')
-        await refreshBankBalanceHistory()
+      }
+      await refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
       setSuppressCycleSwitchWarning(false)
       setIsRevertCycleDialogOpen(false)
@@ -3236,6 +3435,7 @@ export default function App() {
     setSharedViewerUsers([])
     setSelectedSharedViewerUserSub('')
     setPersonalPlanSnapshot(null)
+    setSamplePlanSnapshot(null)
     setHasSavedPersonalPlan(false)
     setShowSamplePrompt(false)
     setSelectedCycle('current')
@@ -3261,46 +3461,11 @@ export default function App() {
     setIsSampleConfirmDialogOpen(false)
     setSaveState('loading')
     setSaveMessage('Loading sample plan...')
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/financial-plan/sample`, {
-        credentials: 'include',
-      })
-
-      if (response.status === 401) {
-        setAuthenticatedUser(null)
-        setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
-        setPlanViewMode('personal')
-        setPersonalPlanSnapshot(null)
-        setPendingCloseCycleReset(null)
-        setSuppressCycleSwitchWarning(false)
-        setSaveState('idle')
-        setSaveMessage('')
-        return
-      }
-
-      if (!response.ok) {
-        throw new Error(`Failed to load sample financial plan: ${response.status}`)
-      }
-
-      const sampleData: FinancialPlanData = await response.json()
-      applyFinancialPlan(sampleData)
-      setBankBalanceHistoryCycles([])
-      setSharedViewerUsers([])
-      setSelectedSharedViewerUserSub('')
-      setPlanViewMode('sample')
-      setLastCycleSavedAt(null)
-      setLoadedPlanSignature(getFinancialPlanSignature(sampleData))
-      setHasCurrentCycleUserEdits(false)
-      setPendingCloseCycleReset(null)
-      setSuppressCycleSwitchWarning(false)
-      setSaveState('idle')
-      setSaveMessage('')
-    } catch {
-      setSaveState('error')
-      setSaveMessage('Sample plan failed to load. Check the API server.')
-    }
+    setSharedViewerUsers([])
+    setSelectedSharedViewerUserSub('')
+    setPendingCloseCycleReset(null)
+    setSuppressCycleSwitchWarning(false)
+    void loadSamplePlan('current', 'Loading sample plan...')
   }
 
   const shouldWarnBeforeSwitchingToSample = !isSampleMode && !isTrackersRoute && hasUnsavedChanges
@@ -3368,7 +3533,7 @@ export default function App() {
   }
 
   const handleDeleteTrackerClick = () => {
-    if (isSampleMode || isTrackersRoute) {
+    if (isTrackersRoute || (isSampleMode && !canEditSamplePlan)) {
       return
     }
 
@@ -3388,7 +3553,7 @@ export default function App() {
   }
 
   const handleTimelineSwitchClick = () => {
-    if (isTrackersRoute || isSampleMode || isViewingPreviousCycle || saveState === 'loading' || saveState === 'saving') {
+    if (isTrackersRoute || (isSampleMode && !canEditSamplePlan) || isViewingPreviousCycle || saveState === 'loading' || saveState === 'saving') {
       return
     }
 
@@ -3407,7 +3572,7 @@ export default function App() {
   }
 
   const handleTimelineSwitchConfirm = async () => {
-    if (!pendingTimelineTypeSwitch || isSampleMode || isTrackersRoute || isViewingPreviousCycle) {
+    if (!pendingTimelineTypeSwitch || isTrackersRoute || (isSampleMode && !canEditSamplePlan) || isViewingPreviousCycle) {
       return
     }
 
@@ -3415,7 +3580,11 @@ export default function App() {
     setSaveMessage('Switching timeline...')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/financial-plan/switch-timeline`, {
+      const endpoint = isSampleMode
+        ? `${API_BASE_URL}/api/financial-plan/sample/switch-timeline?timelineType=${timelineType}`
+        : `${API_BASE_URL}/api/financial-plan/switch-timeline`
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -3439,12 +3608,24 @@ export default function App() {
         return
       }
 
+      if (response.status === 403) {
+        setSaveState('error')
+        setSaveMessage('Only the configured admin can switch the sample plan timeline.')
+        setIsTimelineSwitchDialogOpen(false)
+        setPendingTimelineTypeSwitch(null)
+        return
+      }
+
       if (!response.ok) {
         throw new Error(`Failed to switch timeline: ${response.status}`)
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
-      applyPersonalCycleResponse(cycleResponse, `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`)
+      if (isSampleMode) {
+        applySampleCycleResponse(cycleResponse, `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`)
+      } else {
+        applyPersonalCycleResponse(cycleResponse, `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`)
+      }
       await refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
       setSelectedCycle('current')
@@ -3469,18 +3650,17 @@ export default function App() {
   }
 
   const handleDeleteTrackerConfirm = async () => {
-    if (isSampleMode) {
-      setIsDeleteDialogOpen(false)
-      return
-    }
-
     setDeleteState('deleting')
-    setDeleteMessage('Deleting your tracker data...')
+    setDeleteMessage(isSampleMode ? 'Deleting sample plan data...' : 'Deleting your tracker data...')
     setSaveState('loading')
-    setSaveMessage('Deleting tracker...')
+    setSaveMessage(isSampleMode ? 'Deleting sample plan...' : 'Deleting tracker...')
 
     try {
-      const deleteResponse = await fetch(`${API_BASE_URL}/api/financial-plan`, {
+      const deleteEndpoint = isSampleMode
+        ? `${API_BASE_URL}/api/financial-plan/sample?timelineType=${timelineType}`
+        : `${API_BASE_URL}/api/financial-plan`
+
+      const deleteResponse = await fetch(deleteEndpoint, {
         method: 'DELETE',
         credentials: 'include',
       })
@@ -3501,7 +3681,11 @@ export default function App() {
         throw new Error(`Failed to delete financial plan: ${deleteResponse.status}`)
       }
 
-      const reloadResponse = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=current`, {
+      const reloadEndpoint = isSampleMode
+        ? `${API_BASE_URL}/api/financial-plan/sample?cycle=current&timelineType=${timelineType}`
+        : `${API_BASE_URL}/api/financial-plan?cycle=current`
+
+      const reloadResponse = await fetch(reloadEndpoint, {
         credentials: 'include',
       })
 
@@ -3522,7 +3706,11 @@ export default function App() {
       }
 
       const freshResponse: FinancialPlanCycleResponse = await reloadResponse.json()
-      applyPersonalCycleResponse(freshResponse, 'Tracker deleted. Started fresh with a new plan.')
+      if (isSampleMode) {
+        applySampleCycleResponse(freshResponse, 'Sample tracker deleted. Started fresh with a new plan.')
+      } else {
+        applyPersonalCycleResponse(freshResponse, 'Tracker deleted. Started fresh with a new plan.')
+      }
       await refreshBankBalanceHistory()
       setIsDeleteDialogOpen(false)
       setDeleteState('idle')
@@ -3543,7 +3731,7 @@ export default function App() {
     if (appRoute === TRACKERS_ROUTE && !canAccessTrackersRoute) {
       navigateToRoute(PERSONAL_ROUTE, { replace: true })
       setSaveState('error')
-      setSaveMessage('Only naudiyal@gmail.com can access the trackers page.')
+      setSaveMessage('Only the configured admin can access the trackers page.')
       return
     }
 
@@ -3587,14 +3775,14 @@ export default function App() {
           <p className="build-stamp">{buildStampLabel}</p>
         </div>
         <div className="hero-actions">
-          <button type="button" className="toolbar-button" onClick={handleSave} disabled={isSampleMode || isTrackerReadOnly || saveState === 'loading' || saveState === 'saving'}>
-            {isSampleMode ? 'Sample Not Saved' : isTrackerReadOnly ? 'Read Only' : saveState === 'saving' ? 'Saving...' : 'Save Changes'}
+          <button type="button" className="toolbar-button" onClick={handleSave} disabled={isPlanReadOnly || saveState === 'loading' || saveState === 'saving'}>
+            {isSampleMode ? canEditSamplePlan ? (saveState === 'saving' ? 'Saving Sample...' : 'Save Sample') : 'Sample Read Only' : isTrackerReadOnly ? 'Read Only' : saveState === 'saving' ? 'Saving...' : 'Save Changes'}
           </button>
           <button
             type="button"
             className="toolbar-button"
             onClick={handleResetClick}
-            disabled={isSampleMode || isTrackerReadOnly || !canUseReset || !personalPlanSnapshot || saveState === 'loading' || saveState === 'saving'}
+            disabled={isTrackerReadOnly || !canUseReset || !(isSampleMode ? samplePlanSnapshot : personalPlanSnapshot) || saveState === 'loading' || saveState === 'saving'}
           >
             Reset
           </button>
@@ -3641,7 +3829,7 @@ export default function App() {
                       Sample Tracker
                     </button>
                   )}
-                  {!isSampleMode && !isTrackersRoute ? (
+                  {!isTrackersRoute ? (
                     <>
                       <button type="button" className="user-menu-item" disabled role="menuitem" aria-disabled="true">
                         Timeline: {formatTimelineTypeLabel(timelineType)}
@@ -3657,9 +3845,9 @@ export default function App() {
                       </button>
                     </>
                   ) : null}
-                  {!isSampleMode && !isTrackersRoute ? (
+                  {!isTrackersRoute && (!isSampleMode || canEditSamplePlan) ? (
                     <button type="button" className="user-menu-item user-menu-item-danger" onClick={handleDeleteTrackerClick} role="menuitem">
-                      Delete My Tracker
+                      {isSampleMode ? 'Delete Sample Tracker' : 'Delete My Tracker'}
                     </button>
                   ) : null}
                   <button type="button" className="user-menu-item" onClick={handleHelpClick} role="menuitem">
@@ -3678,8 +3866,8 @@ export default function App() {
       {isSampleMode ? (
         <section className="sample-banner" aria-label="Sample plan mode" style={creditWidthCapStyle}>
           <div>
-            <strong>Viewing sample plan</strong>
-            <span>Changes stay only in this browser session and are not saved to the server.</span>
+            <strong>{canEditSamplePlan ? 'Editing sample plan' : 'Viewing sample plan'}</strong>
+            <span>{canEditSamplePlan ? 'Admin can save, close, revert, reset, and switch timeline for the sample plan.' : 'Sample plan is read only for non-admin users.'}</span>
           </div>
           <button type="button" className="toolbar-button" onClick={handleReturnToMyPlan}>
             Go Back To My Plan
@@ -3687,7 +3875,7 @@ export default function App() {
         </section>
       ) : null}
 
-      {!isSampleMode && !isTrackersRoute && isViewingPreviousCycle ? (
+      {!isTrackersRoute && isViewingPreviousCycle ? (
         <section className="sample-banner previous-cycle-banner" aria-label="Previous cycle mode" style={creditWidthCapStyle}>
           <div>
             <strong>Viewing previous cycle</strong>
@@ -3739,14 +3927,14 @@ export default function App() {
         </section>
       ) : null}
 
-      {!isSampleMode ? (
+      {!isTrackersRoute ? (
         <div className="budget-cycle-toolbar-row" style={creditWidthCapStyle}>
           <span className="toolbar-button-wrap" title={budgetCycleButtonTooltip}>
             <button
               type="button"
               className="toolbar-button budget-cycle-button"
               onClick={handleCloseCycleClick}
-              disabled={isSampleMode || isTrackerReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle}
+              disabled={isPlanReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle}
             >
               Close Cycle
             </button>
@@ -4227,12 +4415,16 @@ export default function App() {
         <div className="modal-backdrop" role="presentation">
           <section className="modal-card danger-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-tracker-title">
             <p className="eyebrow danger-eyebrow">Danger Zone</p>
-            <h2 id="delete-tracker-title">Delete My Tracker?</h2>
+            <h2 id="delete-tracker-title">{isSampleMode ? 'Delete Sample Tracker?' : 'Delete My Tracker?'}</h2>
             <p className="danger-copy">
-              This will delete your saved tracker data from the database. You will have to start everything from scratch.
+              {isSampleMode
+                ? 'This will delete the saved sample tracker data for the current timeline from the database. A fresh sample tracker will be created when it is loaded again.'
+                : 'This will delete your saved tracker data from the database. You will have to start everything from scratch.'}
             </p>
             <p className="danger-copy-subtle">
-              If you cancel, nothing happens. If you confirm, your current saved tracker will be removed and a fresh tracker will be created for you.
+              {isSampleMode
+                ? 'If you cancel, nothing happens. If you confirm, the current sample tracker will be removed and a fresh sample tracker will be created the next time you load it.'
+                : 'If you cancel, nothing happens. If you confirm, your current saved tracker will be removed and a fresh tracker will be created for you.'}
             </p>
             {deleteState === 'error' ? <p className="auth-message auth-error">{deleteMessage}</p> : null}
             <div className="modal-actions">
@@ -4245,7 +4437,7 @@ export default function App() {
                 onClick={handleDeleteTrackerConfirm}
                 disabled={deleteState === 'deleting'}
               >
-                {deleteState === 'deleting' ? 'Deleting...' : 'Delete My Tracker'}
+                {deleteState === 'deleting' ? 'Deleting...' : isSampleMode ? 'Delete Sample Tracker' : 'Delete My Tracker'}
               </button>
             </div>
           </section>
@@ -4253,7 +4445,7 @@ export default function App() {
       ) : null}
 
       <section className="credit-accounts-section">
-        <fieldset className="section-readonly-fieldset" disabled={isTrackerReadOnly}>
+        <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
         <div className="section-content-fit">
           <div className="section-header">
             <h2>
@@ -4507,7 +4699,7 @@ export default function App() {
 
       <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
         <section className="expense-section compact-section">
-          <fieldset className="section-readonly-fieldset" disabled={isTrackerReadOnly}>
+          <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
           <div className="section-header">
             <h2>
               <input
@@ -4717,7 +4909,7 @@ export default function App() {
       <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
 
         <section className="compact-section compact-side-panel bank-accounts-section">
-          <fieldset className="section-readonly-fieldset" disabled={isTrackerReadOnly}>
+          <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
           <div className="section-content-fit">
             <div className="section-header bank-section-header">
               <h2>
