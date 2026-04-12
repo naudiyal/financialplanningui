@@ -100,6 +100,22 @@ type FinancialPlanCycleResponse = {
   lastCycleSavedAt: string | null
 }
 
+type BankBalanceHistoryPoint = {
+  bankId: string
+  bankName: string
+  monthEndBalanceMinusDues: number
+}
+
+type BankBalanceHistoryCycle = {
+  cycle: CyclePeriod
+  banks: BankBalanceHistoryPoint[]
+}
+
+type BankBalanceHistoryResponse = {
+  timelineType: TimelineType
+  cycles: BankBalanceHistoryCycle[]
+}
+
 type PersonalPlanSnapshot = {
   data: FinancialPlanData
   loadedSignature: string | null
@@ -154,14 +170,106 @@ const convertToISODate = (dateStr: string) => {
 const currency = (value: number) =>
   value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
-const extractBankNameFromLabel = (label: string | undefined, fallback: string) => {
-  if (!label) {
-    return fallback
+const getIncomeSubsectionStartingBalance = (subsection: IncomeSubsection) => {
+  let startingBalance = subsection.checkingBalance
+
+  if (!subsection.monthEndSalaryArrived) {
+    startingBalance += subsection.biMonthlySalary
+  } else if (!subsection.midMonthSalaryArrived) {
+    startingBalance += subsection.biMonthlySalary
   }
 
-  const parts = label.split('-')
-  const candidate = parts[parts.length - 1]?.trim()
-  return candidate || fallback
+  return startingBalance
+}
+
+const getIncomeSubsectionTotalBalance = (subsection: IncomeSubsection) => (
+  getIncomeSubsectionStartingBalance(subsection) - subsection.additionalPayments
+)
+
+const getDefaultBankStartingBalance = (
+  checkingBalance: number,
+  salary15thAmount: number,
+  salary1stAmount: number,
+) => checkingBalance + salary15thAmount + salary1stAmount
+
+type BankBalanceComparisonPoint = {
+  bankId: string
+  bankName: string
+  monthEndBalanceMinusDues: number
+}
+
+type BankBalanceHistoryChartRow = {
+  cycleLabel: string
+  cycleKey: string
+  [bankId: string]: string | number
+}
+
+type BankComparisonSeriesEntry = {
+  bankKey: string
+  bankName: string
+  values: number[]
+  stroke?: string
+  strokeDasharray?: string
+}
+
+type BudgetCycleTimelineSlot = {
+  label: string
+  toneClass: string
+  date: Date
+  hidden: boolean
+}
+
+const roundCurrencyAmount = (value: number) => Number(value.toFixed(2))
+
+const buildBankBalanceComparisonPoints = (data: FinancialPlanData): BankBalanceComparisonPoint[] => {
+  const normalizedData = normalizeFinancialPlanData(data)
+  const normalizedSectionTitles = normalizeSectionTitles(normalizedData.sectionTitles)
+  const normalizedIncomeSubsections = normalizedData.incomeSubsections ?? defaultIncomeSubsections
+  const validPayFromBankIds = new Set([
+    DEFAULT_BANK_EXPENSE_SOURCE_ID,
+    ...normalizedIncomeSubsections.map((subsection) => subsection.id),
+  ])
+  const debitCardExpenseItems = [...normalizedData.planoExpenses, ...normalizedData.sanfordExpenses, ...normalizedData.otherExpenses].map((item) => ({
+    ...item,
+    payFromBankId: normalizeExpensePayFromBankId(item.payFromBankId, validPayFromBankIds),
+  }))
+  const debitCardExpensesByBankCurrent = debitCardExpenseItems.reduce<Map<string, number>>((totals, item) => {
+    const currentTotal = totals.get(item.payFromBankId) ?? 0
+    totals.set(item.payFromBankId, currentTotal + item.current)
+    return totals
+  }, new Map())
+  const getCurrentDebitExpensesForBank = (bankId: string) => debitCardExpensesByBankCurrent.get(bankId) ?? 0
+  const creditCardCurrentMonthPayments = normalizedData.creditAccounts.reduce((sum, account) => {
+    const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
+    return sum + currentMonthPayment
+  }, 0)
+  const getCurrentDuesForBank = (bankId: string) => (
+    bankId === DEFAULT_BANK_EXPENSE_SOURCE_ID
+      ? creditCardCurrentMonthPayments + getCurrentDebitExpensesForBank(DEFAULT_BANK_EXPENSE_SOURCE_ID)
+      : getCurrentDebitExpensesForBank(bankId)
+  )
+  const biMonthlySalary = normalizedData.incomeItems.find((item) => item.id === 'bi-monthly-salary')?.amount ?? 0
+  const salary15th = (normalizedData.incomeItems.find((item) => item.id === 'salary-15th')?.amount ?? 0) === 0 ? 0 : biMonthlySalary
+  const salary1st = (normalizedData.incomeItems.find((item) => item.id === 'salary-1st')?.amount ?? 0) === 0 ? 0 : biMonthlySalary
+  const checkingAccountBalanceChase = normalizedData.balanceItems.find((item) => item.id === 'checking-balance-chase')?.amount ?? 0
+  const additionalPaymentsChase = normalizedData.balanceItems.find((item) => item.id === 'additional-payments-chase')?.amount ?? 0
+  const additionalIncomeChase = normalizedData.balanceItems.find((item) => item.id === 'additional-income-chase')?.amount ?? 0
+  const defaultBankMonthEndBalanceMinusDues = salary15th + salary1st + checkingAccountBalanceChase - additionalPaymentsChase + additionalIncomeChase - getCurrentDuesForBank(DEFAULT_BANK_EXPENSE_SOURCE_ID)
+
+  return [
+    {
+      bankId: DEFAULT_BANK_EXPENSE_SOURCE_ID,
+      bankName: normalizedSectionTitles.defaultBank.trim() || 'Unnamed Bank',
+      monthEndBalanceMinusDues: roundCurrencyAmount(defaultBankMonthEndBalanceMinusDues),
+    },
+    ...normalizedIncomeSubsections.map((subsection) => ({
+      bankId: subsection.id,
+      bankName: subsection.title.trim() || 'Unnamed Bank',
+      monthEndBalanceMinusDues: roundCurrencyAmount(
+        getIncomeSubsectionTotalBalance(subsection) + subsection.additionalIncome - getCurrentDuesForBank(subsection.id),
+      ),
+    })),
+  ]
 }
 
 const formatLocalDateTime = (value: string | Date) => {
@@ -293,6 +401,7 @@ const isPastDate = (value: string) => {
 const getHeaderInputWidth = (label: string, minChars = 8) => `${Math.max(label.length + 2, minChars)}ch`
 
 const DEFAULT_BANK_EXPENSE_SOURCE_ID = 'default-bank'
+const TOTAL_BANK_BALANCE_SERIES_KEY = '__total-bank-balance__'
 
 const initialPlanoExpenses: ExpenseItem[] = [
   { id: 'plano-water', label: 'Water (Chase)', payDate: convertToISODate('24-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 87.94 },
@@ -590,6 +699,17 @@ const buildPreviousCycleForTimeline = (today: Date, timelineType: TimelineType):
 }
 
 const createLocalDate = (year: number, monthIndex: number, day: number) => new Date(year, monthIndex, day, 12)
+
+const getCyclePeriodKey = (cyclePeriod: CyclePeriod) => `${cyclePeriod.startDate}:${cyclePeriod.endDate}`
+
+const normalizeBankBalanceHistoryCycle = (cycle: BankBalanceHistoryCycle): BankBalanceHistoryCycle => ({
+  cycle: cycle.cycle,
+  banks: cycle.banks.map((bank) => ({
+    bankId: bank.bankId,
+    bankName: bank.bankName,
+    monthEndBalanceMinusDues: bank.monthEndBalanceMinusDues,
+  })),
+})
 
 const getBudgetCycleTimeline = (cyclePeriod: CyclePeriod, today: Date) => {
   const currentDate = createLocalDate(today.getFullYear(), today.getMonth(), today.getDate())
@@ -977,6 +1097,7 @@ export default function App() {
   const [pendingCycleSelection, setPendingCycleSelection] = useState<CycleSelection | null>(null)
   const [currentCyclePeriod, setCurrentCyclePeriod] = useState<CyclePeriod>(() => buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
   const [previousCyclePeriod, setPreviousCyclePeriod] = useState<CyclePeriod | null>(null)
+  const [bankBalanceHistoryCycles, setBankBalanceHistoryCycles] = useState<BankBalanceHistoryCycle[]>([])
   const [pendingTimelineTypeSwitch, setPendingTimelineTypeSwitch] = useState<TimelineType | null>(null)
   const [isTimelineSwitchDialogOpen, setIsTimelineSwitchDialogOpen] = useState(false)
   const [pendingCloseCycleReset, setPendingCloseCycleReset] = useState<PendingCloseCycleReset | null>(null)
@@ -1609,6 +1730,11 @@ export default function App() {
   }))
   const debitCardExpensesTotalCurrent = sumExpenses(debitCardExpenseItems, 'current')
   const debitCardExpensesTotalNext = sumExpenses(debitCardExpenseItems, 'next')
+  const otherBanksNextCycleSalaryTotal = incomeSubsections.reduce(
+    (sum, subsection) => sum + subsection.biMonthlySalary * 2,
+    0,
+  )
+  const totalNextCycleSalaryFunding = salaryTransferToChase + otherBanksNextCycleSalaryTotal
   const debitCardExpensesByBankCurrent = debitCardExpenseItems.reduce<Map<string, number>>((totals, item) => {
     const currentTotal = totals.get(item.payFromBankId) ?? 0
     totals.set(item.payFromBankId, currentTotal + item.current)
@@ -1639,12 +1765,10 @@ export default function App() {
   const netBalanceMonthEnd = checkingAccountBalanceMonthEndChase + chaseCDBalance + checkingAccountBalancePNC + additionalOtherIncome
 
   const totalMonthEndBalanceMinusDues = incomeSubsections.reduce((sum, subsection) => {
-    const midMonthSalary = subsection.midMonthSalaryArrived ? 0 : subsection.biMonthlySalary
-    const monthEndSalary = subsection.monthEndSalaryArrived ? 0 : subsection.biMonthlySalary
-    const totalBalance = midMonthSalary + monthEndSalary + subsection.checkingBalance - subsection.additionalPayments
+    const totalBalance = getIncomeSubsectionTotalBalance(subsection)
     return sum + getBankMonthEndBalance(subsection.id, totalBalance, subsection.additionalIncome)
   }, checkingAccountBalanceMonthEndChase)
-  const savingsNextMonth = salaryTransferToChase - k36
+  const savingsNextMonth = totalNextCycleSalaryFunding - k36
 
   const adjustedIncomeItems = incomeItemsState.map((item) => {
     switch (item.id) {
@@ -1692,19 +1816,19 @@ export default function App() {
     (item) => isPastDate(item.payDate) && Math.abs(item.current) > 0.004,
   )
 
-  const savingsNextMonthCardStyles = getSavingsNextMonthCardStyles(savingsNextMonth, salaryTransferToChase)
+  const savingsNextMonthCardStyles = getSavingsNextMonthCardStyles(savingsNextMonth, totalNextCycleSalaryFunding)
   const overdueCardsStyles = getCountRiskCardStyles(overdueCreditAccounts.length, 4)
   const overdueExpensesStyles = getCountRiskCardStyles(overdueExpenses.length, 6)
   const currentMonthExposureStyles = getExposureCardStyles(currentCycleExposure, checkingAccountBalanceChase)
-  const nextMonthExposureStyles = getExposureCardStyles(k36, salaryTransferToChase)
-  const monthAfterNextMonthStyles = getExposureCardStyles(monthAfterNextMonthExpense, salaryTransferToChase)
+  const nextMonthExposureStyles = getExposureCardStyles(k36, totalNextCycleSalaryFunding)
+  const monthAfterNextMonthStyles = getExposureCardStyles(monthAfterNextMonthExpense, totalNextCycleSalaryFunding)
 
   const overdueAlertData: AnalyticsKpiCard[] = [
     {
       label: 'Savings Next Cycle',
       value: currency(savingsNextMonth),
       detail: 'Projected leftover after next month expenses',
-      ratio: Math.min(100, salaryTransferToChase === 0 ? 0 : Math.max(0, (savingsNextMonth / salaryTransferToChase) * 100)),
+      ratio: Math.min(100, totalNextCycleSalaryFunding === 0 ? 0 : Math.max(0, (savingsNextMonth / totalNextCycleSalaryFunding) * 100)),
       ...savingsNextMonthCardStyles,
     },
     {
@@ -1790,12 +1914,13 @@ export default function App() {
   const budgetCycleTodayLabel = formatCompactCycleDate(budgetCycleTimeline.currentDate)
   const budgetCycleCloseLabel = formatCompactCycleBoundaryDate(activeCyclePeriod.endDate)
 
-  const leftTimelineSlot = (() => {
+  const leftTimelineSlot: BudgetCycleTimelineSlot = (() => {
     if (budgetCycleTimeline.currentDate < budgetCycleTimeline.cycleStart) {
       return {
         label: budgetCycleTodayLabel,
         toneClass: 'budget-cycle-slot-today',
         date: budgetCycleTimeline.currentDate,
+        hidden: false,
       }
     }
 
@@ -1803,15 +1928,17 @@ export default function App() {
       label: budgetCycleStartLabel,
       toneClass: 'budget-cycle-slot-start',
       date: budgetCycleTimeline.cycleStart,
+      hidden: false,
     }
   })()
 
-  const middleTimelineSlot = (() => {
+  const middleTimelineSlot: BudgetCycleTimelineSlot = (() => {
     if (budgetCycleTimeline.currentDate < budgetCycleTimeline.cycleStart) {
       return {
         label: budgetCycleStartLabel,
         toneClass: 'budget-cycle-slot-start',
         date: budgetCycleTimeline.cycleStart,
+        hidden: false,
       }
     }
 
@@ -1820,6 +1947,7 @@ export default function App() {
         label: budgetCycleCloseLabel,
         toneClass: 'budget-cycle-slot-close',
         date: budgetCycleTimeline.cycleEnd,
+        hidden: false,
       }
     }
 
@@ -1827,15 +1955,17 @@ export default function App() {
       label: budgetCycleTodayLabel,
       toneClass: 'budget-cycle-slot-today',
       date: budgetCycleTimeline.currentDate,
+      hidden: false,
     }
   })()
 
-  const rightTimelineSlot = (() => {
+  const rightTimelineSlot: BudgetCycleTimelineSlot = (() => {
     if (budgetCycleTimeline.currentDate > budgetCycleTimeline.cycleEnd) {
       return {
         label: budgetCycleTodayLabel,
         toneClass: 'budget-cycle-slot-today',
         date: budgetCycleTimeline.currentDate,
+        hidden: false,
       }
     }
 
@@ -1843,6 +1973,7 @@ export default function App() {
       label: budgetCycleCloseLabel,
       toneClass: 'budget-cycle-slot-close',
       date: budgetCycleTimeline.cycleEnd,
+      hidden: false,
     }
   })()
 
@@ -1878,7 +2009,7 @@ export default function App() {
     : [
         {
           name: 'Chase Transfer',
-          value: Number(Math.max(0, salaryTransferToChase).toFixed(2)),
+          value: Number(Math.max(0, totalNextCycleSalaryFunding).toFixed(2)),
           color: CHART_COLORS.forecast,
         },
         {
@@ -1942,139 +2073,108 @@ export default function App() {
   const hasExpenseCategoryCurrentShareData = expenseCategoryCurrentShareData.length > 0
   const hasExpenseCategoryNextShareData = expenseCategoryNextShareData.length > 0
 
-  const pncBankName = extractBankNameFromLabel(
-    balanceItemsState.find((item) => item.id === 'checking-balance-pnc')?.label,
-    'PNC',
-  )
-
-  const rawBankBalanceMovementGroups = [
-    {
-      bankId: DEFAULT_BANK_EXPENSE_SOURCE_ID,
-      bankName: sectionTitles.defaultBank,
-      startingBalance: Number(checkingAccountBalanceChase.toFixed(2)),
-      additionalIncome: Number(additionalIncomeChase.toFixed(2)),
-      additionalPayments: Number(additionalPaymentsChase.toFixed(2)),
-      dues: Number(getCurrentDuesForBank(DEFAULT_BANK_EXPENSE_SOURCE_ID).toFixed(2)),
-    },
-    {
-      bankId: 'legacy-pnc-bank',
-      bankName: pncBankName,
-      startingBalance: Number(checkingAccountBalancePNC.toFixed(2)),
-      additionalIncome: Number(additionalOtherIncome.toFixed(2)),
-      additionalPayments: 0,
-      dues: 0,
-    },
-    ...incomeSubsections.map((subsection) => ({
-      bankId: subsection.id,
-      bankName: subsection.title,
-      startingBalance: Number(subsection.checkingBalance.toFixed(2)),
-      additionalIncome: Number(subsection.additionalIncome.toFixed(2)),
-      additionalPayments: Number(subsection.additionalPayments.toFixed(2)),
-      dues: Number(getCurrentDuesForBank(subsection.id).toFixed(2)),
-    })),
-  ]
-
-  const bankBalanceMovementGroups = Array.from(
-    rawBankBalanceMovementGroups.reduce(
-      (groups, group) => {
-        const bankName = group.bankName.trim() || 'Unnamed Bank'
-        const key = bankName.toLocaleLowerCase()
-        const existingGroup = groups.get(key)
-
-        if (existingGroup) {
-          existingGroup.startingBalance = Number((existingGroup.startingBalance + group.startingBalance).toFixed(2))
-          existingGroup.additionalIncome = Number((existingGroup.additionalIncome + group.additionalIncome).toFixed(2))
-          existingGroup.additionalPayments = Number((existingGroup.additionalPayments + group.additionalPayments).toFixed(2))
-          existingGroup.dues = Number((existingGroup.dues + group.dues).toFixed(2))
-          return groups
-        }
-
-        groups.set(key, {
-          bankName,
-          startingBalance: group.startingBalance,
-          additionalIncome: group.additionalIncome,
-          additionalPayments: group.additionalPayments,
-          dues: group.dues,
-        })
-
-        return groups
-      },
-      new Map<string, { bankName: string; startingBalance: number; additionalIncome: number; additionalPayments: number; dues: number }>(),
-    ).values(),
-  )
-
-  const showAdditionalPaymentStep = bankBalanceMovementGroups.some((group) => Math.abs(group.additionalPayments) > 0.004)
-  const showDuesStep = bankBalanceMovementGroups.some((group) => Math.abs(group.dues) > 0.004)
-  const showAdditionalIncomeStep = bankBalanceMovementGroups.some((group) => Math.abs(group.additionalIncome) > 0.004)
-  const bankMovementTimelineLabels = [
-    'Starting Balance',
-    ...(showAdditionalPaymentStep ? ['After Additional Payment'] : []),
-    ...(showDuesStep ? ['After Dues'] : []),
-    ...(showAdditionalIncomeStep ? ['After Additional Income'] : []),
-  ]
-  const bankBalanceTimelineData = bankBalanceMovementGroups.map((group) => {
-    const afterAdditionalPayment = Number((group.startingBalance - group.additionalPayments).toFixed(2))
-    const afterDues = Number((afterAdditionalPayment - group.dues).toFixed(2))
-    const afterAdditionalIncome = Number((afterDues + group.additionalIncome).toFixed(2))
-    const timelineSteps = [
-      {
-        label: 'Starting Balance',
-        value: group.startingBalance,
-        fill: CHART_COLORS.current,
-      },
-      ...(Math.abs(group.additionalPayments) > 0.004
-        ? [
-            {
-              label: 'After Additional Payment',
-              value: afterAdditionalPayment,
-              fill: CHART_COLORS.negative,
-            },
-          ]
-        : []),
-      ...(Math.abs(group.dues) > 0.004
-        ? [
-            {
-              label: 'After Dues',
-              value: afterDues,
-              fill: CHART_COLORS.deferred,
-            },
-          ]
-        : []),
-      ...(Math.abs(group.additionalIncome) > 0.004
-        ? [
-            {
-              label: 'After Additional Income',
-              value: afterAdditionalIncome,
-              fill: CHART_COLORS.positive,
-            },
-          ]
-        : []),
-    ]
-    const values = timelineSteps.map((step) => step.value)
-    const minValue = Math.min(...values)
-    const maxValue = Math.max(...values)
+  const liveBankComparisonData: FinancialPlanData = {
+    creditAccounts,
+    incomeItems: bankSectionIncomeItems,
+    balanceItems: bankSectionBalanceItems,
+    planoExpenses,
+    sanfordExpenses,
+    otherExpenses,
+    columnLabels,
+    sectionTitles,
+    incomeSubsections,
+  }
+  const liveCurrentBankHistoryCycle = useMemo<BankBalanceHistoryCycle | null>(() => {
+    if (appRoute === TRACKERS_ROUTE || selectedCycle !== 'current') {
+      return null
+    }
 
     return {
-      bankName: group.bankName,
-      timelineSteps,
-      minValue,
-      maxValue,
-      additionalPayments: group.additionalPayments,
-      dues: group.dues,
-      additionalIncome: group.additionalIncome,
+      cycle: currentCyclePeriod,
+      banks: buildBankBalanceComparisonPoints(liveBankComparisonData),
     }
-  })
+  }, [appRoute, currentCyclePeriod, liveBankComparisonData, selectedCycle])
 
-  const bankMovementChartData = bankMovementTimelineLabels.map((label) => {
-    const entry: Record<string, number | string> = { step: label }
-    bankBalanceTimelineData.forEach((bank) => {
-      const step = bank.timelineSteps.find((s) => s.label === label)
-      if (step) {
-        entry[bank.bankName] = step.value
+  const bankBalanceChartCycles = useMemo(() => {
+    if (planViewMode === 'sample') {
+      return [{
+        cycle: currentCyclePeriod,
+        banks: buildBankBalanceComparisonPoints(liveBankComparisonData),
+      }]
+    }
+
+    const cyclesByPeriod = new Map<string, BankBalanceHistoryCycle>()
+
+    bankBalanceHistoryCycles.forEach((cycle) => {
+      cyclesByPeriod.set(getCyclePeriodKey(cycle.cycle), cycle)
+    })
+
+    if (liveCurrentBankHistoryCycle) {
+      cyclesByPeriod.set(getCyclePeriodKey(liveCurrentBankHistoryCycle.cycle), liveCurrentBankHistoryCycle)
+    }
+
+    return Array.from(cyclesByPeriod.values())
+      .sort((left, right) => left.cycle.startDate.localeCompare(right.cycle.startDate))
+  }, [bankBalanceHistoryCycles, currentCyclePeriod, liveBankComparisonData, liveCurrentBankHistoryCycle, planViewMode])
+
+  const bankComparisonSeries: BankComparisonSeriesEntry[] = Array.from(
+    new Set(bankBalanceChartCycles.flatMap((cycle) => cycle.banks.map((bank) => bank.bankId))),
+  )
+    .map((bankId) => {
+      const mostRecentBank = [...bankBalanceChartCycles]
+        .reverse()
+        .flatMap((cycle) => cycle.banks)
+        .find((bank) => bank.bankId === bankId)
+      const values = bankBalanceChartCycles.map((cycle) => {
+        const matchingBank = cycle.banks.find((bank) => bank.bankId === bankId)
+        return matchingBank?.monthEndBalanceMinusDues ?? 0
+      })
+
+      return {
+        bankKey: bankId,
+        bankName: mostRecentBank?.bankName ?? 'Unnamed Bank',
+        values,
       }
     })
-    return entry
-  })
+    .filter((bank) => bank.values.some((value) => Math.abs(value) > 0.004))
+
+  const totalBankBalanceSeries: BankComparisonSeriesEntry | null = bankBalanceChartCycles.length === 0
+    ? null
+    : (() => {
+        const values = bankBalanceChartCycles.map((cycle) => cycle.banks.reduce(
+          (sum, bank) => sum + bank.monthEndBalanceMinusDues,
+          0,
+        ))
+
+        return values.some((value) => Math.abs(value) > 0.004)
+          ? {
+              bankKey: TOTAL_BANK_BALANCE_SERIES_KEY,
+              bankName: 'Total',
+              values,
+              stroke: '#0f172a',
+              strokeDasharray: '8 4',
+            }
+          : null
+      })()
+
+  const bankComparisonSeriesWithTotal = totalBankBalanceSeries == null
+    ? bankComparisonSeries
+    : [...bankComparisonSeries, totalBankBalanceSeries]
+
+  const bankBalanceComparisonChartData: BankBalanceHistoryChartRow[] = bankBalanceChartCycles.map((cycle) => ({
+    cycleLabel: formatCompactCycleBoundaryDate(cycle.cycle.endDate),
+    cycleKey: getCyclePeriodKey(cycle.cycle),
+    ...Object.fromEntries(
+      bankComparisonSeriesWithTotal.map((bank) => {
+        if (bank.bankKey === TOTAL_BANK_BALANCE_SERIES_KEY) {
+          return [bank.bankKey, cycle.banks.reduce((sum, point) => sum + point.monthEndBalanceMinusDues, 0)]
+        }
+
+        const matchingBank = cycle.banks.find((point) => point.bankId === bank.bankKey)
+        return [bank.bankKey, matchingBank?.monthEndBalanceMinusDues ?? 0]
+      }),
+    ),
+  }))
 
   const displayedIncomeItems = bankSectionIncomeItems.filter(
     (item) => item.id !== 'salary-transfer-pnc-home-loans' && item.id !== 'salary-transfer-chase-month',
@@ -2149,9 +2249,7 @@ export default function App() {
   }
 
   const renderIncomeSubsection = (subsection: IncomeSubsection, index: number) => {
-    const midMonthSalary = subsection.midMonthSalaryArrived ? 0 : subsection.biMonthlySalary
-    const monthEndSalary = subsection.monthEndSalaryArrived ? 0 : subsection.biMonthlySalary
-    const totalBalance = midMonthSalary + monthEndSalary + subsection.checkingBalance - subsection.additionalPayments
+    const totalBalance = getIncomeSubsectionTotalBalance(subsection)
     const monthEndBalance = getBankMonthEndBalance(subsection.id, totalBalance, subsection.additionalIncome)
 
     return (
@@ -2518,6 +2616,53 @@ export default function App() {
     setSelectedExpenseIds(new Set())
   }
 
+  const fetchBankBalanceHistory = async (viewerUserSub?: string): Promise<BankBalanceHistoryCycle[]> => {
+    const endpoint = viewerUserSub
+      ? `${API_BASE_URL}/api/financial-plan/viewer/history?userSub=${encodeURIComponent(viewerUserSub)}`
+      : `${API_BASE_URL}/api/financial-plan/history`
+
+    try {
+      const response = await fetch(endpoint, {
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        return []
+      }
+
+      const historyResponse: BankBalanceHistoryResponse = await response.json()
+      return historyResponse.cycles
+        .map(normalizeBankBalanceHistoryCycle)
+        .sort((left, right) => left.cycle.startDate.localeCompare(right.cycle.startDate))
+    } catch {
+      return []
+    }
+  }
+
+  const refreshBankBalanceHistory = async (viewerUserSub?: string) => {
+    const historyCycles = await fetchBankBalanceHistory(viewerUserSub)
+    setBankBalanceHistoryCycles(historyCycles)
+    return historyCycles
+  }
+
+  useEffect(() => {
+    if (authState !== 'authenticated' || planViewMode === 'sample') {
+      return
+    }
+
+    if (appRoute === TRACKERS_ROUTE) {
+      if (!selectedSharedViewerUserSub) {
+        setBankBalanceHistoryCycles([])
+        return
+      }
+
+      void refreshBankBalanceHistory(selectedSharedViewerUserSub)
+      return
+    }
+
+    void refreshBankBalanceHistory()
+  }, [appRoute, authState, planViewMode, selectedSharedViewerUserSub])
+
   const applyPersonalCycleResponse = (
     response: FinancialPlanCycleResponse,
     successMessage = '',
@@ -2594,6 +2739,7 @@ export default function App() {
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
       applyPersonalCycleResponse(cycleResponse)
+      await refreshBankBalanceHistory()
       setAuthState('authenticated')
       return true
     } catch {
@@ -2605,6 +2751,7 @@ export default function App() {
       setTimelineType('MID_TO_MID')
       setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
       setPreviousCyclePeriod(null)
+      setBankBalanceHistoryCycles([])
       setLastCycleSavedAt(null)
       setAuthState('error')
       setAuthMessage('Authentication or API service unavailable.')
@@ -2628,6 +2775,7 @@ export default function App() {
     setCloseCycleCarryoverBankData(null)
     setSelectedCycle('current')
     setPreviousCyclePeriod(null)
+    setBankBalanceHistoryCycles([])
     setLastCycleSavedAt(null)
     applyFinancialPlan(emptyFinancialPlanData)
     setLoadedPlanSignature(getFinancialPlanSignature(emptyFinancialPlanData))
@@ -2718,6 +2866,7 @@ export default function App() {
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
       applyFinancialPlan(cycleResponse.data)
+      await refreshBankBalanceHistory(userSub)
       setSelectedSharedViewerUserSub(userSub)
       setSelectedCycle(cycleResponse.selectedCycle)
       setCurrentCyclePeriod(cycleResponse.currentCycle)
@@ -2786,7 +2935,8 @@ export default function App() {
       }
 
       const savedResponse: FinancialPlanCycleResponse = await response.json()
-      applyPersonalCycleResponse(savedResponse, successMessage)
+        applyPersonalCycleResponse(savedResponse, successMessage)
+        await refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
       setSuppressCycleSwitchWarning(false)
       onSuccess?.()
@@ -2948,6 +3098,7 @@ export default function App() {
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
       const archivedCurrentData = buildPayload()
       applyPersonalCycleResponse(cycleResponse, 'Cycle closed. Started a new current cycle.', true)
+      await refreshBankBalanceHistory()
       setSuppressCycleSwitchWarning(true)
       setNeedsPostCloseBaselineSync(true)
       if (cycleResponse.previousCycle) {
@@ -3052,7 +3203,8 @@ export default function App() {
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
-      applyPersonalCycleResponse(cycleResponse, 'Reverted to previous cycle.')
+        applyPersonalCycleResponse(cycleResponse, 'Reverted to previous cycle.')
+        await refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
       setSuppressCycleSwitchWarning(false)
       setIsRevertCycleDialogOpen(false)
@@ -3091,6 +3243,7 @@ export default function App() {
     setTimelineType('MID_TO_MID')
     setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
     setPreviousCyclePeriod(null)
+    setBankBalanceHistoryCycles([])
     setLastCycleSavedAt(null)
     setPendingCloseCycleReset(null)
     setHasCurrentCycleUserEdits(false)
@@ -3133,6 +3286,7 @@ export default function App() {
 
       const sampleData: FinancialPlanData = await response.json()
       applyFinancialPlan(sampleData)
+      setBankBalanceHistoryCycles([])
       setSharedViewerUsers([])
       setSelectedSharedViewerUserSub('')
       setPlanViewMode('sample')
@@ -3291,6 +3445,7 @@ export default function App() {
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
       applyPersonalCycleResponse(cycleResponse, `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`)
+      await refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
       setSelectedCycle('current')
       setPendingTimelineTypeSwitch(null)
@@ -3368,6 +3523,7 @@ export default function App() {
 
       const freshResponse: FinancialPlanCycleResponse = await reloadResponse.json()
       applyPersonalCycleResponse(freshResponse, 'Tracker deleted. Started fresh with a new plan.')
+      await refreshBankBalanceHistory()
       setIsDeleteDialogOpen(false)
       setDeleteState('idle')
       setDeleteMessage('')
@@ -3848,7 +4004,7 @@ export default function App() {
             <div className="help-section">
               <h3>What The Key Metrics Mean</h3>
               <ul className="help-list">
-                <li>Savings Next Cycle shows the projected amount left after next month expenses are covered from the transfer-to-Chase amount. When savings are positive the pie chart shows your savings vs. next month expenses. When negative (shortfall) the chart shows the transfer amount vs. the shortfall amount.</li>
+                <li>Savings Next Cycle shows the projected amount left after next month expenses are covered from the combined bi-monthly salary funding across the default bank and other banks. When savings are positive the pie chart shows your savings vs. next month expenses. When negative (shortfall) the chart shows the funding amount vs. the shortfall amount.</li>
                 <li>Current Cycle Exposure shows current month credit card payments, current month debit card expenses, and additional payments from the default bank. When exposure exceeds your total credit limit the metric turns red to highlight the risk.</li>
                 <li>Next Cycle Exposure shows projected next statement balances plus next month debit card expenses.</li>
                 <li>Cycle After Next Cycle Exposure shows projected carry-forward pressure beyond next month.</li>
@@ -3864,7 +4020,7 @@ export default function App() {
                 <li>Payment Due Timeline shows when payment pressure is arriving by due date. Only accounts where payment due or next balance is greater than zero appear in this chart.</li>
                 <li>Debit Card Expense Category groups debit expenses by the text before ` - ` in each expense label. There are two separate pie charts: one for current month expenses and one for next month expenses.</li>
                 <li>If an expense label does not include a prefix before ` - `, it is grouped under Other.</li>
-                <li>Bank Balance Movement is a multi-line chart where each line represents one bank. It shows the starting balance, the balance after additional payments, and the balance after additional income. Steps with very small or zero values across all banks are automatically hidden to reduce clutter.</li>
+                <li>Change in Bank Balance is a history chart where each line represents one bank. It compares Month End Balance minus Dues across recent cycles, using the history window selected above the chart.</li>
               </ul>
             </div>
 
@@ -4616,45 +4772,58 @@ export default function App() {
 
         <article className="chart-card compact-section cashflow-side-panel">
           <div className="chart-card-header">
-            <h3>Bank Balance Movement</h3>
-            <span>Additional payments and assigned dues are applied before additional income</span>
+            <div>
+              <h3>Change in Bank Balance</h3>
+              <span>Each line tracks Month End Balance minus Dues across recent cycles.</span>
+            </div>
           </div>
           <div className="chart-shell chart-shell-bank">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={bankMovementChartData} margin={{ top: 16, right: 24, bottom: 8, left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
-                <XAxis
-                  dataKey="step"
-                  tick={{ fill: CHART_COLORS.text, fontSize: 12, fontWeight: 600 }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  tickFormatter={(v: number) => chartCurrency(v)}
-                  tick={{ fill: CHART_COLORS.muted, fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={76}
-                />
-                <Tooltip
-                  formatter={(value: number, name: string) => [currency(value), name]}
-                  contentStyle={{ borderRadius: 8, border: '1px solid rgba(148,163,184,0.28)', fontSize: 13 }}
-                />
-                <Legend wrapperStyle={{ fontSize: 13, paddingTop: 8 }} />
-                {bankBalanceTimelineData.map((bank, index) => (
-                  <Line
-                    key={bank.bankName}
-                    type="monotone"
-                    dataKey={bank.bankName}
-                    stroke={BANK_COLORS[index % BANK_COLORS.length]}
-                    strokeWidth={2.5}
-                    dot={{ r: 5, strokeWidth: 2, fill: '#ffffff', stroke: BANK_COLORS[index % BANK_COLORS.length] }}
-                    activeDot={{ r: 7 }}
-                    connectNulls={false}
+            {bankComparisonSeriesWithTotal.length === 0 || bankBalanceComparisonChartData.length === 0 ? (
+              <div className="chart-empty-state">No bank balance history available yet.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={bankBalanceComparisonChartData} margin={{ top: 16, right: 24, bottom: 8, left: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+                  <XAxis
+                    dataKey="cycleLabel"
+                    tick={{ fill: CHART_COLORS.text, fontSize: 12, fontWeight: 600 }}
+                    tickLine={false}
+                    axisLine={false}
                   />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+                  <YAxis
+                    tickFormatter={(v: number) => chartCurrency(v)}
+                    tick={{ fill: CHART_COLORS.muted, fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={76}
+                  />
+                  <Tooltip
+                    formatter={(value: number, name: string) => [currency(value), name]}
+                    labelFormatter={(_label, payload) => {
+                      const firstPoint = payload?.[0]?.payload as BankBalanceHistoryChartRow | undefined
+                      const matchingCycle = bankBalanceChartCycles.find((cycle) => getCyclePeriodKey(cycle.cycle) === firstPoint?.cycleKey)
+                      return matchingCycle ? formatCycleRangeLabel(matchingCycle.cycle) : ''
+                    }}
+                    contentStyle={{ borderRadius: 8, border: '1px solid rgba(148,163,184,0.28)', fontSize: 13 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 13, paddingTop: 8 }} />
+                  {bankComparisonSeriesWithTotal.map((bank, index) => (
+                    <Line
+                      key={bank.bankKey}
+                      type="linear"
+                      dataKey={bank.bankKey}
+                      name={bank.bankName}
+                      stroke={bank.stroke ?? BANK_COLORS[index % BANK_COLORS.length]}
+                      strokeWidth={2.5}
+                      strokeDasharray={bank.strokeDasharray}
+                      dot={{ r: 5, strokeWidth: 2, fill: '#ffffff', stroke: bank.stroke ?? BANK_COLORS[index % BANK_COLORS.length] }}
+                      activeDot={{ r: 7 }}
+                      connectNulls={false}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </article>
 
