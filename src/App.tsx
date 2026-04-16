@@ -145,6 +145,8 @@ type AnalyticsKpiCard = {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
 const LOGIN_URL = `${API_BASE_URL}/oauth2/authorization/google`
 const BUILD_VERSION_LABEL = `Build v${__APP_VERSION__}`
+const FIRST_PAYCHECK_ID = 'first-paycheck'
+const SECOND_PAYCHECK_ID = 'second-paycheck'
 
 const normalizeAppRoute = (pathname: string): AppRoute => (pathname === TRACKERS_ROUTE ? TRACKERS_ROUTE : PERSONAL_ROUTE)
 
@@ -171,15 +173,10 @@ const currency = (value: number) =>
   value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
 
 const getIncomeSubsectionStartingBalance = (subsection: IncomeSubsection) => {
-  let startingBalance = subsection.checkingBalance
+  const midMonthSalary = subsection.midMonthSalaryArrived ? 0 : subsection.biMonthlySalary
+  const monthEndSalary = subsection.monthEndSalaryArrived ? 0 : subsection.biMonthlySalary
 
-  if (!subsection.monthEndSalaryArrived) {
-    startingBalance += subsection.biMonthlySalary
-  } else if (!subsection.midMonthSalaryArrived) {
-    startingBalance += subsection.biMonthlySalary
-  }
-
-  return startingBalance
+  return subsection.checkingBalance + midMonthSalary + monthEndSalary
 }
 
 const getIncomeSubsectionTotalBalance = (subsection: IncomeSubsection) => (
@@ -249,12 +246,12 @@ const buildBankBalanceComparisonPoints = (data: FinancialPlanData): BankBalanceC
       : getCurrentDebitExpensesForBank(bankId)
   )
   const biMonthlySalary = normalizedData.incomeItems.find((item) => item.id === 'bi-monthly-salary')?.amount ?? 0
-  const salary15th = (normalizedData.incomeItems.find((item) => item.id === 'salary-15th')?.amount ?? 0) === 0 ? 0 : biMonthlySalary
-  const salary1st = (normalizedData.incomeItems.find((item) => item.id === 'salary-1st')?.amount ?? 0) === 0 ? 0 : biMonthlySalary
+  const firstPaycheck = (normalizedData.incomeItems.find((item) => item.id === FIRST_PAYCHECK_ID)?.amount ?? 0) === 0 ? 0 : biMonthlySalary
+  const secondPaycheck = (normalizedData.incomeItems.find((item) => item.id === SECOND_PAYCHECK_ID)?.amount ?? 0) === 0 ? 0 : biMonthlySalary
   const checkingAccountBalanceChase = normalizedData.balanceItems.find((item) => item.id === 'checking-balance-chase')?.amount ?? 0
   const additionalPaymentsChase = normalizedData.balanceItems.find((item) => item.id === 'additional-payments-chase')?.amount ?? 0
   const additionalIncomeChase = normalizedData.balanceItems.find((item) => item.id === 'additional-income-chase')?.amount ?? 0
-  const defaultBankMonthEndBalanceMinusDues = salary15th + salary1st + checkingAccountBalanceChase - additionalPaymentsChase + additionalIncomeChase - getCurrentDuesForBank(DEFAULT_BANK_EXPENSE_SOURCE_ID)
+  const defaultBankMonthEndBalanceMinusDues = firstPaycheck + secondPaycheck + checkingAccountBalanceChase - additionalPaymentsChase + additionalIncomeChase - getCurrentDuesForBank(DEFAULT_BANK_EXPENSE_SOURCE_ID)
 
   return [
     {
@@ -778,26 +775,6 @@ const shouldHighlightPaymentDate = (account: CreditAccount, cyclePeriod: CyclePe
   return true
 }
 
-const shouldHighlightStatementDate = (account: CreditAccount, cyclePeriod: CyclePeriod) => {
-  if (!isDateOutsideCyclePeriod(account.lastStatementDate, cyclePeriod)) {
-    return false
-  }
-
-  const statementDate = parseCycleBoundaryDate(account.lastStatementDate)
-  const cycleStart = parseCycleBoundaryDate(cyclePeriod.startDate)
-
-  if (
-    !account.statementCycledAfterPayment
-    && statementDate !== null
-    && cycleStart !== null
-    && statementDate < cycleStart
-  ) {
-    return false
-  }
-
-  return true
-}
-
 const shortenLabel = (value: string, maxLength = 18, trailingLength = 0) => {
   if (value.length <= maxLength) {
     return value
@@ -948,8 +925,8 @@ const getCountRiskCardStyles = (count: number, warningCount = 4) => {
   }
 }
 
-const getExposureCardStyles = (exposureAmount: number, monthlySalary: number) => {
-  if (monthlySalary <= 0) {
+const getExposureCardStyles = (exposureAmount: number, capacityAmount: number) => {
+  if (capacityAmount <= 0) {
     return {
       cardStyle: {
         borderColor: 'hsl(214 32% 78%)',
@@ -964,7 +941,7 @@ const getExposureCardStyles = (exposureAmount: number, monthlySalary: number) =>
     }
   }
 
-  const exposureRatio = exposureAmount / monthlySalary
+  const exposureRatio = exposureAmount / capacityAmount
 
   if (exposureRatio > 0.98) {
     const severity = Math.min(1, (exposureRatio - 0.98) / 0.22)
@@ -1540,7 +1517,7 @@ export default function App() {
         title: getNewBankSubsectionTitle(newBankCount),
         biMonthlySalaryLabel: 'Bi-monthly salary',
         biMonthlySalary: 0,
-        midMonthSalaryLabel: 'First Pay Check',
+        midMonthSalaryLabel: 'First Paycheck',
         midMonthSalaryArrived: false,
         monthEndSalaryLabel: 'Second Paycheck',
         monthEndSalaryArrived: false,
@@ -1677,7 +1654,7 @@ export default function App() {
   const editableIncomeIds = new Set([
     'bi-monthly-salary',
   ])
-  const checkboxIncomeIds = new Set(['salary-15th', 'salary-1st'])
+  const checkboxIncomeIds = new Set([FIRST_PAYCHECK_ID, SECOND_PAYCHECK_ID])
 
   const editableBalanceIds = new Set([
     'checking-balance-chase',
@@ -1695,8 +1672,8 @@ export default function App() {
   const totalUtilization = totalLimits > 0 ? (totalCardDue / totalLimits) * 100 : 0
 
   const biMonthlySalary = incomeItemsState.find((item) => item.id === 'bi-monthly-salary')?.amount ?? 0
-  const salary15th = (incomeItemsState.find((item) => item.id === 'salary-15th')?.amount ?? 0) === 0 ? 0 : biMonthlySalary
-  const salary1st = (incomeItemsState.find((item) => item.id === 'salary-1st')?.amount ?? 0) === 0 ? 0 : biMonthlySalary
+  const firstPaycheck = (incomeItemsState.find((item) => item.id === FIRST_PAYCHECK_ID)?.amount ?? 0) === 0 ? 0 : biMonthlySalary
+  const secondPaycheck = (incomeItemsState.find((item) => item.id === SECOND_PAYCHECK_ID)?.amount ?? 0) === 0 ? 0 : biMonthlySalary
   const salaryTransferToChase = biMonthlySalary * 2
   const salaryTransfersToPNC = 2000 * 2
   const totalSalaryPerMonth = salaryTransferToChase
@@ -1708,7 +1685,7 @@ export default function App() {
   const checkingAccountBalancePNC = balanceItemsState.find((item) => item.id === 'checking-balance-pnc')?.amount ?? 0
   const additionalOtherIncome = balanceItemsState.find((item) => item.id === 'additional-other-income')?.amount ?? 0
 
-  const totalBalanceChase = salary15th + salary1st + checkingAccountBalanceChase - additionalPaymentsChase
+  const totalBalanceChase = firstPaycheck + secondPaycheck + checkingAccountBalanceChase - additionalPaymentsChase
 
   const creditCardCurrentMonthPayments = creditAccounts.reduce((sum, account) => {
     const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
@@ -1769,14 +1746,22 @@ export default function App() {
     const totalBalance = getIncomeSubsectionTotalBalance(subsection)
     return sum + getBankMonthEndBalance(subsection.id, totalBalance, subsection.additionalIncome)
   }, checkingAccountBalanceMonthEndChase)
+  const currentCycleExposureCapacity = incomeSubsections.reduce((sum, subsection) => {
+    if (subsection.biMonthlySalary <= 0) {
+      return sum
+    }
+
+    const totalBalance = getIncomeSubsectionTotalBalance(subsection)
+    return sum + totalBalance + subsection.additionalIncome
+  }, biMonthlySalary > 0 ? totalBalanceChase + additionalIncomeChase : 0)
   const savingsNextMonth = totalNextCycleSalaryFunding - k36
 
   const adjustedIncomeItems = incomeItemsState.map((item) => {
     switch (item.id) {
-      case 'salary-15th':
-        return { ...item, amount: salary15th }
-      case 'salary-1st':
-        return { ...item, amount: salary1st }
+      case FIRST_PAYCHECK_ID:
+        return { ...item, amount: firstPaycheck }
+      case SECOND_PAYCHECK_ID:
+        return { ...item, amount: secondPaycheck }
       case 'salary-transfer-chase-month':
         return { ...item, amount: salaryTransferToChase }
       case 'salary-transfer-pnc-home-loans':
@@ -1820,7 +1805,7 @@ export default function App() {
   const savingsNextMonthCardStyles = getSavingsNextMonthCardStyles(savingsNextMonth, totalNextCycleSalaryFunding)
   const overdueCardsStyles = getCountRiskCardStyles(overdueCreditAccounts.length, 4)
   const overdueExpensesStyles = getCountRiskCardStyles(overdueExpenses.length, 6)
-  const currentMonthExposureStyles = getExposureCardStyles(currentCycleExposure, checkingAccountBalanceChase)
+  const currentMonthExposureStyles = getExposureCardStyles(currentCycleExposure, currentCycleExposureCapacity)
   const nextMonthExposureStyles = getExposureCardStyles(k36, totalNextCycleSalaryFunding)
   const monthAfterNextMonthStyles = getExposureCardStyles(monthAfterNextMonthExpense, totalNextCycleSalaryFunding)
 
@@ -1849,8 +1834,8 @@ export default function App() {
     {
       label: 'Current Cycle Exposure',
       value: currency(currentCycleExposure),
-      detail: 'Cards, current debit expenses, and default bank additional payments',
-      ratio: Math.min(100, totalLimits === 0 ? 0 : (currentCycleExposure / totalLimits) * 100),
+      detail: 'Compared against Total Balance plus Additional Income of salary checking accounts',
+      ratio: Math.min(100, currentCycleExposureCapacity <= 0 ? 0 : Math.max(0, (currentCycleExposure / currentCycleExposureCapacity) * 100)),
       ...currentMonthExposureStyles,
     },
     {
@@ -2182,8 +2167,8 @@ export default function App() {
   )
   const chaseIncomeOrder = [
     'bi-monthly-salary',
-    'salary-15th',
-    'salary-1st',
+    FIRST_PAYCHECK_ID,
+    SECOND_PAYCHECK_ID,
   ]
   const chaseBalanceIds = new Set([
     'checking-balance-chase',
@@ -2424,6 +2409,7 @@ export default function App() {
   }, [expenseRows])
 
   const buildPayload = (overrides: Partial<FinancialPlanData> = {}): FinancialPlanData => {
+    const nextIncomeItems = overrides.incomeItems ?? bankSectionIncomeItems
     const nextIncomeSubsections = overrides.incomeSubsections ?? incomeSubsections
     const nextValidPayFromBankIds = new Set([
       DEFAULT_BANK_EXPENSE_SOURCE_ID,
@@ -2432,7 +2418,7 @@ export default function App() {
 
     return {
       creditAccounts: overrides.creditAccounts ?? creditAccounts,
-      incomeItems: overrides.incomeItems ?? bankSectionIncomeItems,
+      incomeItems: nextIncomeItems,
       balanceItems: overrides.balanceItems ?? bankSectionBalanceItems,
       planoExpenses: normalizeExpenseItemsForUi(overrides.planoExpenses ?? planoExpenses, nextValidPayFromBankIds),
       sanfordExpenses: normalizeExpenseItemsForUi(overrides.sanfordExpenses ?? sanfordExpenses, nextValidPayFromBankIds),
@@ -2615,8 +2601,8 @@ export default function App() {
     setPlanoExpenses(normalizedData.planoExpenses)
     setSanfordExpenses(normalizedData.sanfordExpenses)
     setOtherExpenses(normalizedData.otherExpenses)
-    setColumnLabels(normalizedData.columnLabels ?? defaultColumnLabels)
     setSectionTitles(normalizeSectionTitles(normalizedData.sectionTitles))
+    setColumnLabels(normalizedData.columnLabels ?? defaultColumnLabels)
     setIncomeSubsections(normalizedData.incomeSubsections ?? defaultIncomeSubsections)
     setNewBankSubsectionIds(new Set())
     setSelectedBankSubsectionIds(new Set())
@@ -2655,7 +2641,7 @@ export default function App() {
 
       if (!response.ok) {
         return []
-      }
+        }
 
       const historyResponse: BankBalanceHistoryResponse = await response.json()
       return historyResponse.cycles
@@ -2664,7 +2650,7 @@ export default function App() {
     } catch {
       return []
     }
-  }
+    }
 
   const refreshBankBalanceHistory = async (viewerUserSub?: string) => {
     const historyCycles = planViewMode === 'sample'
@@ -4485,10 +4471,10 @@ export default function App() {
                           onClick={() => toggleCreditSort([
                             'name',
                             'availableCredit',
+                            'lastStatementDate',
                             'nextPaymentDate',
                             'paidThisMonth',
                             'statementCycledAfterPayment',
-                            'lastStatementDate',
                             'lastStatementBalance',
                             'creditLimit',
                             'totalDueForCard',
@@ -4501,10 +4487,10 @@ export default function App() {
                           {getSortIndicator(creditSort, [
                             'name',
                             'availableCredit',
+                            'lastStatementDate',
                             'nextPaymentDate',
                             'paidThisMonth',
                             'statementCycledAfterPayment',
-                            'lastStatementDate',
                             'lastStatementBalance',
                             'creditLimit',
                             'totalDueForCard',
@@ -4523,7 +4509,6 @@ export default function App() {
                 const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, utilizationPercent } = getCreditMetrics(account)
                 const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
                 const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
-                const isStatementDateOutsideCycle = shouldHighlightStatementDate(account, activeCyclePeriod)
 
                 return (
                   <tr key={account.id} className={selectedCreditIds.has(account.id) ? 'row-selected' : ''}>
@@ -4542,6 +4527,13 @@ export default function App() {
                       <CurrencyInput
                         value={account.availableCredit}
                         onValueChange={(value) => updateAccountById(account.id, 'availableCredit', value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="date"
+                        value={account.lastStatementDate}
+                        onChange={(e) => updateAccountById(account.id, 'lastStatementDate', e.target.value)}
                       />
                     </td>
                     <td>
@@ -4566,15 +4558,6 @@ export default function App() {
                         type="checkbox"
                         checked={account.statementCycledAfterPayment}
                         onChange={(e) => updateAccountById(account.id, 'statementCycledAfterPayment', e.target.checked)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="date"
-                        value={account.lastStatementDate}
-                        onChange={(e) => updateAccountById(account.id, 'lastStatementDate', e.target.value)}
-                        className={joinClassNames(isStatementDateOutsideCycle ? 'cycle-outside-date' : undefined)}
-                        title={isStatementDateOutsideCycle ? 'Date outside of cycle' : undefined}
                       />
                     </td>
                     <td>
