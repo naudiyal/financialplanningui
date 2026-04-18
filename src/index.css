@@ -1601,6 +1601,14 @@ th {
   white-space: normal;
 }
 
+.credit-accounts-table .table-header-label {
+  min-height: calc(1.1em * 2);
+}
+
+.debit-expenses-table .table-header-label {
+  min-height: calc(1.1em * 2);
+}
+
 .table-header-label-line {
   display: block;
   white-space: nowrap;
@@ -1986,6 +1994,16 @@ input.section-title-input {
 .finance-overview-row > .compact-side-panel {
   grid-column: auto;
   width: 100%;
+}
+
+.expense-analytics-stack {
+  display: grid;
+  gap: 0.5rem;
+  align-content: start;
+}
+
+.expense-analytics-stack > .chart-card {
+  margin-top: 0;
 }
 
 .finance-overview-row > .chart-card {

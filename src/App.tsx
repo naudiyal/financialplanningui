@@ -5,6 +5,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Legend,
   Line,
   LineChart,
@@ -341,6 +342,46 @@ const formatTableHeaderLabel = (label: string) => {
     words.slice(0, bestIndex).join(' '),
     words.slice(bestIndex).join(' '),
   ]
+}
+
+const formatCreditTableHeaderLabel = (label: string) => {
+  const trimmedLabel = label.trim()
+
+  if (!trimmedLabel.includes(' ')) {
+    return [trimmedLabel, '']
+  }
+
+  const words = trimmedLabel.split(/\s+/)
+  if (words.length === 2) {
+    return words
+  }
+
+  const formattedLines = formatTableHeaderLabel(trimmedLabel)
+  if (formattedLines.length >= 2) {
+    return [formattedLines[0], formattedLines[1]]
+  }
+
+  return [trimmedLabel, '']
+}
+
+const formatDebitTableHeaderLabel = (label: string) => {
+  const trimmedLabel = label.trim()
+
+  if (!trimmedLabel.includes(' ')) {
+    return [trimmedLabel, '']
+  }
+
+  const words = trimmedLabel.split(/\s+/)
+  if (words.length === 2) {
+    return words
+  }
+
+  const formattedLines = formatTableHeaderLabel(trimmedLabel)
+  if (formattedLines.length >= 2) {
+    return [formattedLines[0], formattedLines[1]]
+  }
+
+  return [trimmedLabel, '']
 }
 
 const normalizeLegacyCreditAccountColumnLabel = (id: string, label: string) => {
@@ -727,6 +768,35 @@ const chartCurrency = (value: number) =>
     notation: Math.abs(value) >= 1000 ? 'compact' : 'standard',
     maximumFractionDigits: 1,
   }).format(value)
+
+const renderCompactBarValueLabel = (props: {
+  x?: number
+  y?: number
+  width?: number
+  height?: number
+  value?: number | string
+}) => {
+  const width = props.width ?? 0
+  const height = props.height ?? 0
+  const numericValue = Number(props.value ?? 0)
+
+  if (!Number.isFinite(numericValue) || numericValue <= 0 || width < 34 || height < 10) {
+    return null
+  }
+
+  return (
+    <text
+      x={(props.x ?? 0) + width / 2}
+      y={(props.y ?? 0) + height / 2 + 3}
+      textAnchor="middle"
+      fill="#ffffff"
+      fontSize={9}
+      fontWeight={700}
+    >
+      {chartCurrency(numericValue)}
+    </text>
+  )
+}
 
 const formatShortDate = (value: string) => {
   const [year, month, day] = value.split('-').map(Number)
@@ -1182,7 +1252,7 @@ export default function App() {
   const [closeCycleCarryoverBankData, setCloseCycleCarryoverBankData] = useState<Pick<FinancialPlanData, 'incomeItems' | 'balanceItems'> | null>(null)
   const [creditTableWidth, setCreditTableWidth] = useState<number | null>(null)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
-  const creditTableWrapperRef = useRef<HTMLDivElement | null>(null)
+  const creditTableWrapperRef = useRef<HTMLElement | null>(null)
   const dismissSamplePromptOnMenuCloseRef = useRef(false)
   const skipNextCarryoverResetRef = useRef(false)
 
@@ -2081,7 +2151,7 @@ export default function App() {
   const savingsNextMonthPieData = savingsNextMonth >= 0
     ? [
         {
-          name: 'Next Month Expenses',
+          name: 'Expenses Next Cycle',
           value: Number(Math.max(0, k36).toFixed(2)),
           color: CHART_COLORS.next,
         },
@@ -2157,6 +2227,25 @@ export default function App() {
 
   const hasExpenseCategoryCurrentShareData = expenseCategoryCurrentShareData.length > 0
   const hasExpenseCategoryNextShareData = expenseCategoryNextShareData.length > 0
+
+  const expensePayFromData = expensePayFromOptions
+    .map((option) => {
+      const matchingItems = debitCardExpenseItems.filter((item) => item.payFromBankId === option.id)
+      const current = matchingItems.reduce((sum, item) => sum + item.current, 0)
+      const next = matchingItems.reduce((sum, item) => sum + item.next, 0)
+
+      return {
+        name: option.label,
+        current: Number(current.toFixed(2)),
+        next: Number(next.toFixed(2)),
+        total: Number((current + next).toFixed(2)),
+      }
+    })
+    .filter((item) => item.total > 0)
+    .sort((left, right) => right.total - left.total || left.name.localeCompare(right.name))
+
+  const hasExpensePayFromData = expensePayFromData.length > 0
+  const expensePayFromChartHeight = Math.max(84, expensePayFromData.length * 16)
 
   const liveBankComparisonData: FinancialPlanData = {
     creditAccounts,
@@ -4529,7 +4618,89 @@ export default function App() {
         </div>
       ) : null}
 
-      <section className="credit-accounts-section">
+      <div className="section-cluster chart-grid credit-chart-grid" style={creditWidthCapStyle}>
+        <article className="chart-card">
+          <div className="chart-card-header">
+            <h3>Savings/Expenses Next Cycle</h3>
+            <span>{savingsNextMonth >= 0 ? 'Next month expenses vs remaining savings' : 'Next month expenses exceed transfer'}</span>
+          </div>
+          <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
+            {hasSavingsNextMonthPieData ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={savingsNextMonthPieData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={54}
+                    outerRadius={84}
+                    paddingAngle={2}
+                  >
+                    {savingsNextMonthPieData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number) => currency(value)} />
+                  <Legend wrapperStyle={{ fontSize: '11px' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="chart-empty-state">No next month savings data yet</div>
+            )}
+          </div>
+        </article>
+        <article className="chart-card">
+          <div className="chart-card-header">
+            <h3>Total Due by Card</h3>
+            <span>Highest total due cards shown first</span>
+          </div>
+          <div className="chart-shell" style={{ height: `${totalDueByCardChartHeight}px` }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={creditTotalDueData} layout="vertical" margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
+                <XAxis type="number" tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={11} />
+                <YAxis
+                  type="category"
+                  dataKey="fullName"
+                  width={128}
+                  interval={0}
+                  minTickGap={0}
+                  stroke={CHART_COLORS.text}
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  tick={renderCreditTotalDueYAxisTick}
+                />
+                <Tooltip formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName ?? ''} />
+                <Legend wrapperStyle={{ fontSize: '11px' }} />
+                <Bar dataKey="paymentDue" name="Payment Due" stackId="totalDue" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} />
+                <Bar dataKey="nextStmtBalance" name="Next Stmt Balance" stackId="totalDue" fill={CHART_COLORS.deferred} radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+        <article className="chart-card">
+          <div className="chart-card-header">
+            <h3>Payment Due Timeline</h3>
+            <span>Upcoming payment pressure by pay date</span>
+          </div>
+          <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={paymentTimelineData} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+                <XAxis dataKey="payDateLabel" stroke={CHART_COLORS.text} fontSize={11} />
+                <YAxis tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={11} width={48} />
+                <Tooltip formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.name ?? ''} />
+                <Legend wrapperStyle={{ fontSize: '11px' }} />
+                <Bar dataKey="paymentDue" name="Payment Due" fill={CHART_COLORS.current} radius={[6, 6, 0, 0]} />
+                <Bar dataKey="nextBalance" name="Next Stmt" fill={CHART_COLORS.next} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </article>
+      </div>
+
+      <section className="credit-accounts-section section-cluster" ref={creditTableWrapperRef}>
         <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
         <div className="section-content-fit">
           <div className="section-header">
@@ -4548,7 +4719,7 @@ export default function App() {
               <button type="button" className="add-row-button" onClick={addCreditAccount}>+ Add</button>
             </div>
           </div>
-          <div className="table-wrapper compact-credit-table" ref={creditTableWrapperRef}>
+          <div className="table-wrapper compact-credit-table">
             <table className="credit-accounts-table">
               <thead>
                 <tr>
@@ -4561,7 +4732,7 @@ export default function App() {
                           aria-label={column.label}
                           title={getCreditColumnHeaderTooltip(column.id)}
                         >
-                          {formatTableHeaderLabel(column.label).map((line, lineIndex) => (
+                          {formatCreditTableHeaderLabel(column.label).map((line, lineIndex) => (
                             <span key={`${column.id}-line-${lineIndex}`} className="table-header-label-line">
                               {line}
                             </span>
@@ -4699,87 +4870,6 @@ export default function App() {
               </tbody>
             </table>
           </div>
-          <div className="section-cluster chart-grid credit-chart-grid" style={creditWidthCapStyle}>
-            <article className="chart-card">
-              <div className="chart-card-header">
-                <h3>Savings Next Cycle</h3>
-                <span>{savingsNextMonth >= 0 ? 'Next month expenses vs remaining savings' : 'Next month expenses exceed transfer'}</span>
-              </div>
-              <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
-                {hasSavingsNextMonthPieData ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={savingsNextMonthPieData}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={54}
-                        outerRadius={84}
-                        paddingAngle={2}
-                      >
-                        {savingsNextMonthPieData.map((entry) => (
-                          <Cell key={entry.name} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value: number) => currency(value)} />
-                      <Legend wrapperStyle={{ fontSize: '11px' }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="chart-empty-state">No next month savings data yet</div>
-                )}
-              </div>
-            </article>
-            <article className="chart-card">
-              <div className="chart-card-header">
-                <h3>Total Due by Card</h3>
-                <span>Highest total due cards shown first</span>
-              </div>
-              <div className="chart-shell" style={{ height: `${totalDueByCardChartHeight}px` }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={creditTotalDueData} layout="vertical" margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
-                    <XAxis type="number" tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={11} />
-                    <YAxis
-                      type="category"
-                      dataKey="fullName"
-                      width={128}
-                      interval={0}
-                      minTickGap={0}
-                      stroke={CHART_COLORS.text}
-                      fontSize={11}
-                      tickLine={false}
-                      axisLine={false}
-                      tick={renderCreditTotalDueYAxisTick}
-                    />
-                    <Tooltip formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName ?? ''} />
-                    <Legend wrapperStyle={{ fontSize: '11px' }} />
-                    <Bar dataKey="paymentDue" name="Payment Due" stackId="totalDue" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="nextStmtBalance" name="Next Stmt Balance" stackId="totalDue" fill={CHART_COLORS.deferred} radius={[0, 6, 6, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </article>
-            <article className="chart-card">
-              <div className="chart-card-header">
-                <h3>Payment Due Timeline</h3>
-                <span>Upcoming payment pressure by pay date</span>
-              </div>
-              <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={paymentTimelineData} margin={{ top: 4, right: 8, left: -20, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
-                    <XAxis dataKey="payDateLabel" stroke={CHART_COLORS.text} fontSize={11} />
-                    <YAxis tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={11} width={48} />
-                    <Tooltip formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.name ?? ''} />
-                    <Legend wrapperStyle={{ fontSize: '11px' }} />
-                    <Bar dataKey="paymentDue" name="Payment Due" fill={CHART_COLORS.current} radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="nextBalance" name="Next Stmt" fill={CHART_COLORS.next} radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </article>
-          </div>
         </div>
         </fieldset>
       </section>
@@ -4833,7 +4923,7 @@ export default function App() {
                           aria-label={column.label}
                           title={getDebitColumnHeaderTooltip(column.id)}
                         >
-                          {formatTableHeaderLabel(column.label).map((line, lineIndex) => (
+                          {formatDebitTableHeaderLabel(column.label).map((line, lineIndex) => (
                             <span key={`${column.id}-line-${lineIndex}`} className="table-header-label-line">
                               {line}
                             </span>
@@ -4927,73 +5017,112 @@ export default function App() {
           </fieldset>
         </section>
 
-        <article className="chart-card compact-section expense-category-side-panel">
-          <div className="chart-card-header">
-            <h3>Debit Card Expense Category</h3>
-            <span>Grouped by label prefix with separate current and next month views</span>
-          </div>
-          <div className="expense-category-comparison-grid">
-            <section className="expense-category-panel" aria-label="Current month debit expense categories">
-              <div className="expense-category-panel-header">
-                <h4>Current Month Expense</h4>
-              </div>
-              <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
-                {hasExpenseCategoryCurrentShareData ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={expenseCategoryCurrentShareData}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={46}
-                        outerRadius={76}
-                        paddingAngle={2}
-                      >
-                        {expenseCategoryCurrentShareData.map((entry) => (
-                          <Cell key={entry.name} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value: number) => currency(value)} />
-                      <Legend wrapperStyle={{ fontSize: '11px' }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="chart-empty-state">No current month debit expenses</div>
-                )}
-              </div>
-            </section>
+        <div className="compact-side-panel expense-analytics-stack">
+          <article className="chart-card compact-section expense-category-side-panel">
+            <div className="chart-card-header">
+              <h3>Debit Card Expense Category</h3>
+              <span>Grouped by label prefix with separate current and next month views</span>
+            </div>
+            <div className="expense-category-comparison-grid">
+              <section className="expense-category-panel" aria-label="Current month debit expense categories">
+                <div className="expense-category-panel-header">
+                  <h4>Current Month Expense</h4>
+                </div>
+                <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
+                  {hasExpenseCategoryCurrentShareData ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={expenseCategoryCurrentShareData}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius={46}
+                          outerRadius={76}
+                          paddingAngle={2}
+                        >
+                          {expenseCategoryCurrentShareData.map((entry) => (
+                            <Cell key={entry.name} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: number) => currency(value)} />
+                        <Legend wrapperStyle={{ fontSize: '11px' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="chart-empty-state">No current month debit expenses</div>
+                  )}
+                </div>
+              </section>
 
-            <section className="expense-category-panel" aria-label="Next month debit expense categories">
-              <div className="expense-category-panel-header">
-                <h4>Next Month Expense</h4>
-              </div>
-              <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
-                {hasExpenseCategoryNextShareData ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={expenseCategoryNextShareData}
-                        dataKey="value"
-                        nameKey="name"
-                        innerRadius={46}
-                        outerRadius={76}
-                        paddingAngle={2}
-                      >
-                        {expenseCategoryNextShareData.map((entry) => (
-                          <Cell key={entry.name} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value: number) => currency(value)} />
-                      <Legend wrapperStyle={{ fontSize: '11px' }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="chart-empty-state">No next month debit expenses</div>
-                )}
-              </div>
-            </section>
-          </div>
-        </article>
+              <section className="expense-category-panel" aria-label="Next month debit expense categories">
+                <div className="expense-category-panel-header">
+                  <h4>Next Month Expense</h4>
+                </div>
+                <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
+                  {hasExpenseCategoryNextShareData ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={expenseCategoryNextShareData}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius={46}
+                          outerRadius={76}
+                          paddingAngle={2}
+                        >
+                          {expenseCategoryNextShareData.map((entry) => (
+                            <Cell key={entry.name} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(value: number) => currency(value)} />
+                        <Legend wrapperStyle={{ fontSize: '11px' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="chart-empty-state">No next month debit expenses</div>
+                  )}
+                </div>
+              </section>
+            </div>
+          </article>
+
+          <article className="chart-card compact-section expense-pay-from-side-panel">
+            <div className="chart-card-header">
+              <h3>Debit Card Expense Pay From</h3>
+              <span>Totals by source for current and next month payments</span>
+            </div>
+            <div className="chart-shell" style={{ height: `${expensePayFromChartHeight}px` }}>
+              {hasExpensePayFromData ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={expensePayFromData} layout="vertical" barCategoryGap="12%" margin={{ top: 2, right: 10, left: 0, bottom: 2 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
+                    <XAxis type="number" tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={10} />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      width={104}
+                      interval={0}
+                      tickLine={false}
+                      axisLine={false}
+                      stroke={CHART_COLORS.text}
+                      fontSize={10}
+                    />
+                    <Tooltip formatter={(value: number) => currency(value)} />
+                    <Legend wrapperStyle={{ fontSize: '10px' }} />
+                    <Bar dataKey="current" name="Current Month Payment" stackId="payFromTotal" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} barSize={10}>
+                      <LabelList dataKey="current" content={renderCompactBarValueLabel} />
+                    </Bar>
+                    <Bar dataKey="next" name="Next Month Payment" stackId="payFromTotal" fill={CHART_COLORS.next} radius={[0, 6, 6, 0]} barSize={10}>
+                      <LabelList dataKey="next" content={renderCompactBarValueLabel} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="chart-empty-state">No pay from expense totals yet</div>
+              )}
+            </div>
+          </article>
+        </div>
 
       </div>
 
