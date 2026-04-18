@@ -1983,6 +1983,8 @@ export default function App() {
         right.nextStmtBalance - left.nextStmtBalance,
     )
 
+  const totalDueByCardChartHeight = Math.max(200, creditTotalDueData.length * 28)
+
   const activeCyclePeriod = selectedCycle === 'previous' && previousCyclePeriod ? previousCyclePeriod : currentCyclePeriod
   const budgetCycleTimeline = useMemo(() => getBudgetCycleTimeline(activeCyclePeriod, new Date()), [activeCyclePeriod])
   const budgetCycleTitle = formatCycleRangeLabel(activeCyclePeriod)
@@ -4733,7 +4735,7 @@ export default function App() {
                 <h3>Total Due by Card</h3>
                 <span>Highest total due cards shown first</span>
               </div>
-              <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
+              <div className="chart-shell" style={{ height: `${totalDueByCardChartHeight}px` }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={creditTotalDueData} layout="vertical" margin={{ top: 4, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
@@ -4742,6 +4744,8 @@ export default function App() {
                       type="category"
                       dataKey="fullName"
                       width={128}
+                      interval={0}
+                      minTickGap={0}
                       stroke={CHART_COLORS.text}
                       fontSize={11}
                       tickLine={false}
