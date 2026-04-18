@@ -4935,7 +4935,7 @@ export default function App() {
           <div className="expense-category-comparison-grid">
             <section className="expense-category-panel" aria-label="Current month debit expense categories">
               <div className="expense-category-panel-header">
-                <h4>Current Month</h4>
+                <h4>Current Month Expense</h4>
               </div>
               <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
                 {hasExpenseCategoryCurrentShareData ? (
@@ -4965,7 +4965,7 @@ export default function App() {
 
             <section className="expense-category-panel" aria-label="Next month debit expense categories">
               <div className="expense-category-panel-header">
-                <h4>Next Month</h4>
+                <h4>Next Month Expense</h4>
               </div>
               <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
                 {hasExpenseCategoryNextShareData ? (
