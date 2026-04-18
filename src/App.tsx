@@ -304,13 +304,104 @@ const advanceIsoDateByOneMonth = (value: string) => {
 
 const joinClassNames = (...classNames: Array<string | undefined>) => classNames.filter(Boolean).join(' ')
 
+const formatTableHeaderLabel = (label: string) => {
+  const trimmedLabel = label.trim()
+
+  if (trimmedLabel === 'Stmt Cycled?') {
+    return ['Stmt', 'Cycled?']
+  }
+
+  if (trimmedLabel === 'Current Month Payment') {
+    return ['Current Month', 'Payment']
+  }
+
+  if (trimmedLabel.length <= 14 || !trimmedLabel.includes(' ')) {
+    return [trimmedLabel]
+  }
+
+  const words = trimmedLabel.split(/\s+/)
+  if (words.length < 2) {
+    return [trimmedLabel]
+  }
+
+  let bestIndex = 1
+  let bestScore = Number.POSITIVE_INFINITY
+
+  for (let index = 1; index < words.length; index++) {
+    const firstLine = words.slice(0, index).join(' ')
+    const secondLine = words.slice(index).join(' ')
+    const score = Math.abs(firstLine.length - secondLine.length)
+    if (score < bestScore) {
+      bestScore = score
+      bestIndex = index
+    }
+  }
+
+  return [
+    words.slice(0, bestIndex).join(' '),
+    words.slice(bestIndex).join(' '),
+  ]
+}
+
 const normalizeLegacyCreditAccountColumnLabel = (id: string, label: string) => {
   if (id === 'pay-date' && label === 'Pay Date') {
     return 'Payment Date'
   }
 
+  if (id === 'statement-date' && (label === 'Stmt Date' || label === 'Last Stmt Date')) {
+    return 'Prev Cycle Stmt Date'
+  }
+
+  if (id === 'statement-cycled' && (label === 'Stmt Cycled' || label === 'New Stmt Cycled?' || label === 'Current Cycle Stmt Cycled?')) {
+    return 'Stmt Cycled?'
+  }
+
   if (id === 'credit-limit' && label === 'Limit') {
     return 'Credit Limit'
+  }
+
+  return label
+}
+
+const getCreditColumnHeaderTooltip = (columnId: string) => {
+  if (columnId === 'statement-date') {
+    return 'Prev cycle stmt date is auto updated at close cycle. Change it after close cycle only if required.'
+  }
+
+  if (columnId === 'pay-date') {
+    return 'Payment Date is updated at close cycle. Change it after close cycle only if required.'
+  }
+
+  if (columnId === 'paid') {
+    return 'Current cycle payment made?'
+  }
+
+  if (columnId === 'statement-cycled') {
+    return 'Current cycle stmt cycled?'
+  }
+
+  if (columnId === 'statement-balance') {
+    return 'Latest stmt balance i.e. either previous or current if cycled'
+  }
+
+  return undefined
+}
+
+const getDebitColumnHeaderTooltip = (columnId: string) => {
+  if (columnId === 'current-month') {
+    return 'Update to $0 if payment made'
+  }
+
+  return undefined
+}
+
+const normalizeLegacyDebitExpenseColumnLabel = (id: string, label: string) => {
+  if (id === 'current-month' && label === 'Current Month') {
+    return 'Current Month Payment'
+  }
+
+  if (id === 'next-month' && label === 'Next Month') {
+    return 'Next Month Payment'
   }
 
   return label
@@ -323,7 +414,13 @@ const normalizeColumnLabelsForUi = (columnLabels?: FinancialPlanColumnLabels): F
     const indexedColumn = source.debitExpenses?.[index]
     const actualColumn = debitExpenseColumnsById.get(defaultColumn.id)
       ?? (indexedColumn != null && (!indexedColumn.id || indexedColumn.id === defaultColumn.id) ? indexedColumn : null)
-    return actualColumn == null ? defaultColumn : { ...defaultColumn, ...actualColumn }
+    return actualColumn == null
+      ? defaultColumn
+      : {
+          ...defaultColumn,
+          ...actualColumn,
+          label: normalizeLegacyDebitExpenseColumnLabel(defaultColumn.id, actualColumn.label),
+        }
   })
 
   return {
@@ -395,7 +492,7 @@ const isPastDate = (value: string) => {
   return targetDate < today
 }
 
-const getHeaderInputWidth = (label: string, minChars = 8) => `${Math.max(label.length + 2, minChars)}ch`
+const getHeaderInputWidth = (label: string, minChars = 0) => `${Math.max(label.length + 2, minChars)}ch`
 
 const DEFAULT_BANK_EXPENSE_SOURCE_ID = 'default-bank'
 const TOTAL_BANK_BALANCE_SERIES_KEY = '__total-bank-balance__'
@@ -4457,14 +4554,17 @@ export default function App() {
                   {columnLabels.creditAccounts.map((column, index) => (
                     <th key={column.id}>
                       <div className="sortable-header">
-                        <input
-                          type="text"
-                          value={column.label}
-                          readOnly
-                          aria-readonly="true"
-                          className="label-input table-header-input"
-                          style={{ width: getHeaderInputWidth(column.label) }}
-                        />
+                        <span
+                          className="table-header-label"
+                          aria-label={column.label}
+                          title={getCreditColumnHeaderTooltip(column.id)}
+                        >
+                          {formatTableHeaderLabel(column.label).map((line, lineIndex) => (
+                            <span key={`${column.id}-line-${lineIndex}`} className="table-header-label-line">
+                              {line}
+                            </span>
+                          ))}
+                        </span>
                         <button
                           type="button"
                           className="sort-button"
@@ -4724,13 +4824,17 @@ export default function App() {
                     return (
                     <th key={column.id}>
                       <div className="sortable-header">
-                        <input
-                          type="text"
-                          value={column.label}
-                          readOnly
-                          aria-readonly="true"
-                          className="label-input table-header-input"
-                        />
+                        <span
+                          className="table-header-label"
+                          aria-label={column.label}
+                          title={getDebitColumnHeaderTooltip(column.id)}
+                        >
+                          {formatTableHeaderLabel(column.label).map((line, lineIndex) => (
+                            <span key={`${column.id}-line-${lineIndex}`} className="table-header-label-line">
+                              {line}
+                            </span>
+                          ))}
+                        </span>
                         {sortKey != null ? (
                           <button
                             type="button"

@@ -265,10 +265,10 @@ export const defaultColumnLabels: FinancialPlanColumnLabels = {
   creditAccounts: [
     { id: 'account', label: 'Account' },
     { id: 'available-credit', label: 'Avail Credit' },
-    { id: 'statement-date', label: 'Last Stmt Date' },
+    { id: 'statement-date', label: 'Prev Cycle Stmt Date' },
     { id: 'pay-date', label: 'Payment Date' },
     { id: 'paid', label: 'Paid' },
-    { id: 'statement-cycled', label: 'New Stmt Cycled?' },
+    { id: 'statement-cycled', label: 'Stmt Cycled?' },
     { id: 'statement-balance', label: 'Latest Stmt Balance' },
     { id: 'credit-limit', label: 'Credit Limit' },
     { id: 'due', label: 'Total Due' },
@@ -280,8 +280,8 @@ export const defaultColumnLabels: FinancialPlanColumnLabels = {
     { id: 'expense', label: 'Expense' },
     { id: 'pay-date', label: 'Pay Date' },
     { id: 'pay-from', label: 'Pay From' },
-    { id: 'current-month', label: 'Current Month' },
-    { id: 'next-month', label: 'Next Month' },
+    { id: 'current-month', label: 'Current Month Payment' },
+    { id: 'next-month', label: 'Next Month Payment' },
   ],
 }
 
