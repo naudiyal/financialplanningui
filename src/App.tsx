@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import { NumericFormat } from 'react-number-format'
 import {
   Bar,
@@ -55,6 +55,7 @@ type FinancialPlanData = {
   otherExpenses: ExpenseItem[]
   columnLabels?: FinancialPlanColumnLabels
   sectionTitles?: FinancialPlanSectionTitles & { incomeScheduleChase?: string }
+  viewModes?: FinancialPlanViewModes
   incomeSubsections?: IncomeSubsection[]
   summary?: Record<string, number>
 }
@@ -146,6 +147,7 @@ type AnalyticsKpiCard = {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
 const LOGIN_URL = `${API_BASE_URL}/oauth2/authorization/google`
 const BUILD_VERSION_LABEL = `Build v${__APP_VERSION__}`
+const HISTORY_REQUEST_TIMEOUT_MS = 10_000
 const FIRST_PAYCHECK_ID = 'first-paycheck'
 const SECOND_PAYCHECK_ID = 'second-paycheck'
 
@@ -389,12 +391,12 @@ const normalizeLegacyCreditAccountColumnLabel = (id: string, label: string) => {
     return 'Payment Date'
   }
 
-  if (id === 'statement-date' && (label === 'Stmt Date' || label === 'Last Stmt Date')) {
-    return 'Prev Cycle Stmt Date'
+  if (id === 'statement-date' && (label === 'Stmt Date' || label === 'Last Stmt Date' || label === 'Prev Cycle Stmt Date' || label === 'Current Payment Stmt Date' || label === 'Credit Card Statement Date')) {
+    return 'Current Payment Stmt Date'
   }
 
-  if (id === 'statement-cycled' && (label === 'Stmt Cycled' || label === 'New Stmt Cycled?' || label === 'Current Cycle Stmt Cycled?')) {
-    return 'Stmt Cycled?'
+  if (id === 'statement-cycled' && (label === 'Stmt Cycled' || label === 'Stmt Cycled?' || label === 'New Stmt Cycled?' || label === 'Current Cycle Stmt Cycled?')) {
+    return 'Current Cycle Stmt Cycled?'
   }
 
   if (id === 'credit-limit' && label === 'Limit') {
@@ -406,7 +408,7 @@ const normalizeLegacyCreditAccountColumnLabel = (id: string, label: string) => {
 
 const getCreditColumnHeaderTooltip = (columnId: string) => {
   if (columnId === 'statement-date') {
-    return 'Prev cycle stmt date is auto updated at close cycle. Change it after close cycle only if required.'
+    return 'Current payment stmt date is auto updated at close cycle. Change it after close cycle only if required.'
   }
 
   if (columnId === 'pay-date') {
@@ -588,6 +590,16 @@ type SortState<T extends string> = {
   direction: SortDirection
 }
 
+type CreditViewMode = 'table' | 'tab'
+type ExpenseViewMode = 'table' | 'tab'
+type BankViewMode = 'table' | 'tab'
+
+type FinancialPlanViewModes = {
+  creditAccounts: CreditViewMode
+  debitExpenses: ExpenseViewMode
+  bankAccounts: BankViewMode
+}
+
 type ExpenseRow = {
   item: ExpenseItem
   setter: React.Dispatch<React.SetStateAction<ExpenseItem[]>>
@@ -601,6 +613,59 @@ const DEFAULT_CREDIT_SORT: SortState<CreditSortKey> = {
 const DEFAULT_EXPENSE_SORT: SortState<ExpenseSortKey> = {
   key: 'payDate',
   direction: 'asc',
+}
+
+const defaultViewModes: FinancialPlanViewModes = {
+  creditAccounts: 'table',
+  debitExpenses: 'table',
+  bankAccounts: 'table',
+}
+
+const getCreditColumnSortKey = (columnId: string): CreditSortKey | null => {
+  switch (columnId) {
+    case 'account':
+      return 'name'
+    case 'available-credit':
+      return 'availableCredit'
+    case 'statement-date':
+      return 'lastStatementDate'
+    case 'pay-date':
+      return 'nextPaymentDate'
+    case 'paid':
+      return 'paidThisMonth'
+    case 'statement-cycled':
+      return 'statementCycledAfterPayment'
+    case 'statement-balance':
+      return 'lastStatementBalance'
+    case 'credit-limit':
+      return 'creditLimit'
+    case 'due':
+      return 'totalDueForCard'
+    case 'current-payment':
+      return 'currentMonthPayment'
+    case 'next-balance':
+      return 'nextMonthStatementBalance'
+    case 'utilization':
+      return 'utilizationPercent'
+    default:
+      return null
+  }
+}
+const getExpenseColumnSortKey = (columnId: string): ExpenseSortKey | null => {
+  switch (columnId) {
+    case 'expense':
+      return 'label'
+    case 'pay-date':
+      return 'payDate'
+    case 'pay-from':
+      return 'payFromBankId'
+    case 'current-month':
+      return 'current'
+    case 'next-month':
+      return 'next'
+    default:
+      return null
+  }
 }
 
 const sumExpenses = (items: ExpenseItem[], field: 'current' | 'next') =>
@@ -733,8 +798,22 @@ const serializeSectionTitles = (
   incomeScheduleChase: sectionTitles.defaultBank,
 })
 
+const normalizeViewMode = <T extends 'table' | 'tab'>(
+  viewMode: string | undefined,
+  fallback: T,
+): T => (viewMode === 'tab' ? 'tab' : fallback)
+
+const normalizeViewModes = (
+  viewModes?: FinancialPlanData['viewModes'],
+): FinancialPlanViewModes => ({
+  creditAccounts: normalizeViewMode(viewModes?.creditAccounts, defaultViewModes.creditAccounts),
+  debitExpenses: normalizeViewMode(viewModes?.debitExpenses, defaultViewModes.debitExpenses),
+  bankAccounts: normalizeViewMode(viewModes?.bankAccounts, defaultViewModes.bankAccounts),
+})
+
 const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData => {
   const normalizedSectionTitles = normalizeSectionTitles(data.sectionTitles)
+  const normalizedViewModes = normalizeViewModes(data.viewModes)
   const normalizedIncomeSubsections = data.incomeSubsections ?? defaultIncomeSubsections
   const validPayFromBankIds = new Set([
     DEFAULT_BANK_EXPENSE_SOURCE_ID,
@@ -750,6 +829,7 @@ const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData 
     otherExpenses: normalizeExpenseItemsForUi(data.otherExpenses, validPayFromBankIds),
     columnLabels: normalizeColumnLabelsForUi(data.columnLabels),
     sectionTitles: serializeSectionTitles(normalizedSectionTitles),
+    viewModes: normalizedViewModes,
     incomeSubsections: normalizedIncomeSubsections,
     summary: data.summary,
   }
@@ -1251,10 +1331,17 @@ export default function App() {
   const [needsPostCloseBaselineSync, setNeedsPostCloseBaselineSync] = useState(false)
   const [closeCycleCarryoverBankData, setCloseCycleCarryoverBankData] = useState<Pick<FinancialPlanData, 'incomeItems' | 'balanceItems'> | null>(null)
   const [creditTableWidth, setCreditTableWidth] = useState<number | null>(null)
+  const [creditViewMode, setCreditViewMode] = useState<CreditViewMode>(defaultViewModes.creditAccounts)
+  const [expandedCreditAccountId, setExpandedCreditAccountId] = useState<string | null>(initialCreditAccounts[0]?.id ?? null)
+  const [expenseViewMode, setExpenseViewMode] = useState<ExpenseViewMode>(defaultViewModes.debitExpenses)
+  const [expandedExpenseRowId, setExpandedExpenseRowId] = useState<string | null>(null)
+  const [bankViewMode, setBankViewMode] = useState<BankViewMode>(defaultViewModes.bankAccounts)
+  const [expandedBankSectionId, setExpandedBankSectionId] = useState(DEFAULT_BANK_EXPENSE_SOURCE_ID)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
   const creditTableWrapperRef = useRef<HTMLElement | null>(null)
   const dismissSamplePromptOnMenuCloseRef = useRef(false)
   const skipNextCarryoverResetRef = useRef(false)
+  const bankBalanceHistoryRequestIdRef = useRef(0)
 
   const expensePayFromOptions = useMemo<BankPayFromOption[]>(() => [
     { id: DEFAULT_BANK_EXPENSE_SOURCE_ID, label: sectionTitles.defaultBank },
@@ -1410,8 +1497,28 @@ export default function App() {
       return
     }
 
+    const measurementTarget = wrapper.parentElement ?? wrapper
+
     const updateCreditTableWidth = () => {
-      setCreditTableWidth(wrapper.getBoundingClientRect().width)
+      const content = wrapper.querySelector<HTMLElement>('.section-content-fit')
+      const tableWrapper = wrapper.querySelector<HTMLElement>('.compact-credit-table, .compact-credit-table-measurement')
+
+      if (!tableWrapper) {
+        return
+      }
+
+      const availableWidth = measurementTarget.getBoundingClientRect().width
+      const chromeWidth = content
+        ? Math.max(wrapper.getBoundingClientRect().width - content.getBoundingClientRect().width, 0)
+        : 0
+      const naturalContentWidth = tableWrapper?.scrollWidth ?? content?.scrollWidth ?? 0
+      const nextWidth = Math.round(
+        naturalContentWidth > 0
+          ? Math.min(availableWidth, naturalContentWidth + chromeWidth)
+          : availableWidth,
+      )
+
+      setCreditTableWidth((current) => (current === nextWidth ? current : nextWidth))
     }
 
     updateCreditTableWidth()
@@ -1420,12 +1527,12 @@ export default function App() {
       updateCreditTableWidth()
     })
 
-    resizeObserver.observe(wrapper)
+    resizeObserver.observe(measurementTarget)
 
     return () => {
       resizeObserver.disconnect()
     }
-  }, [columnLabels.creditAccounts, creditAccounts])
+  }, [columnLabels.creditAccounts, creditAccounts, creditViewMode])
 
   useEffect(() => {
     if (!closeCycleCarryoverBankData) {
@@ -2509,6 +2616,24 @@ export default function App() {
     )
   }
 
+  const renderDefaultBankSubsection = () => (
+    <div className="subsection-block chase-subsection">
+      <h3>
+        <input
+          type="text"
+          value={sectionTitles.defaultBank}
+          onChange={(e) => updateSectionTitle('defaultBank', e.target.value)}
+          className="label-input subsection-title-input"
+          title="Default Bank Account"
+        />
+      </h3>
+      <div className="card-list">
+        {chaseIncomeItems.map(renderIncomeCard)}
+        {chaseBalanceItems.map(renderBalanceCard)}
+      </div>
+    </div>
+  )
+
   const addCreditAccount = () => {
     if (isViewingPreviousCycle) {
       return
@@ -2576,6 +2701,7 @@ export default function App() {
   ]
 
   const displayedCreditAccounts = applyOrderedIds(creditAccounts, creditAccountOrder, (account) => account.id)
+  const activeDisplayedCreditAccount = displayedCreditAccounts.find((account) => account.id === expandedCreditAccountId) ?? displayedCreditAccounts[0] ?? null
 
   const expenseRows: ExpenseRow[] = expenseGroups.flatMap((group) =>
     group.items.map((item) => ({
@@ -2585,6 +2711,12 @@ export default function App() {
   )
 
   const displayedExpenseRows = applyOrderedIds(expenseRows, expenseRowOrder, ({ item }) => item.id)
+  const activeDisplayedExpenseRow = displayedExpenseRows.find(({ item }) => item.id === expandedExpenseRowId) ?? displayedExpenseRows[0] ?? null
+  const displayedBankSectionIds = useMemo(
+    () => [DEFAULT_BANK_EXPENSE_SOURCE_ID, ...incomeSubsections.map((subsection) => subsection.id)],
+    [incomeSubsections],
+  )
+  const activeDisplayedBankSubsection = incomeSubsections.find((subsection) => subsection.id === expandedBankSectionId) ?? null
 
   useEffect(() => {
     const nextCreditIds = buildOrderedIds(creditAccounts, (account) => account.id)
@@ -2595,6 +2727,34 @@ export default function App() {
     const nextExpenseIds = buildOrderedIds(expenseRows, ({ item }) => item.id)
     setExpenseRowOrder((current) => reconcileOrderedIds(current, nextExpenseIds))
   }, [expenseRows])
+
+  useEffect(() => {
+    if (displayedCreditAccounts.length === 0) {
+      setExpandedCreditAccountId(null)
+      return
+    }
+
+    if (!expandedCreditAccountId || !displayedCreditAccounts.some((account) => account.id === expandedCreditAccountId)) {
+      setExpandedCreditAccountId(displayedCreditAccounts[0].id)
+    }
+  }, [displayedCreditAccounts, expandedCreditAccountId])
+
+  useEffect(() => {
+    if (displayedExpenseRows.length === 0) {
+      setExpandedExpenseRowId(null)
+      return
+    }
+
+    if (!expandedExpenseRowId || !displayedExpenseRows.some(({ item }) => item.id === expandedExpenseRowId)) {
+      setExpandedExpenseRowId(displayedExpenseRows[0].item.id)
+    }
+  }, [displayedExpenseRows, expandedExpenseRowId])
+
+  useEffect(() => {
+    if (!displayedBankSectionIds.includes(expandedBankSectionId)) {
+      setExpandedBankSectionId(displayedBankSectionIds[0] ?? DEFAULT_BANK_EXPENSE_SOURCE_ID)
+    }
+  }, [displayedBankSectionIds, expandedBankSectionId])
 
   const buildPayload = (overrides: Partial<FinancialPlanData> = {}): FinancialPlanData => {
     const nextIncomeItems = overrides.incomeItems ?? bankSectionIncomeItems
@@ -2613,6 +2773,11 @@ export default function App() {
       otherExpenses: normalizeExpenseItemsForUi(overrides.otherExpenses ?? otherExpenses, nextValidPayFromBankIds),
       columnLabels: overrides.columnLabels ?? columnLabels,
       sectionTitles: serializeSectionTitles(normalizeSectionTitles(overrides.sectionTitles ?? sectionTitles)),
+      viewModes: normalizeViewModes(overrides.viewModes ?? {
+        creditAccounts: creditViewMode,
+        debitExpenses: expenseViewMode,
+        bankAccounts: bankViewMode,
+      }),
       incomeSubsections: nextIncomeSubsections,
       summary: overrides.summary,
     }
@@ -2679,7 +2844,7 @@ export default function App() {
           loadedSignature: currentPlanSignature,
         })
     setNeedsPostCloseBaselineSync(false)
-  }, [buildPayload, currentPlanSignature, needsPostCloseBaselineSync])
+  }, [currentPlanSignature, needsPostCloseBaselineSync])
 
   useEffect(() => {
     if (
@@ -2746,9 +2911,147 @@ export default function App() {
     !isTrackersRoute && selectedCycle === 'current' && hasUnsavedChanges && !suppressCycleSwitchWarning && !needsPostCloseBaselineSync
 
   const statusClassName = `status-text status-${isSampleMode ? 'saved' : hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
-    const creditWidthCapStyle = creditTableWidth ? { width: `min(100%, ${creditTableWidth}px)` } : undefined
-    const creditWidthMaxStyle = creditTableWidth ? { maxWidth: `${creditTableWidth}px` } : undefined
-    const renderCreditTotalDueYAxisTick = ({ x, y, payload }: { x?: number; y?: number; payload?: { value: string } }) => (
+  const creditWidthCapStyle = creditTableWidth
+    ? { width: `min(100%, ${creditTableWidth}px)`, marginLeft: 'auto', marginRight: 'auto' }
+    : undefined
+  const creditWidthMaxStyle = creditTableWidth ? { maxWidth: `${creditTableWidth}px` } : undefined
+  const creditSectionStyle = creditViewMode === 'tab'
+    ? creditWidthCapStyle
+    : { marginLeft: 'auto', marginRight: 'auto' }
+  const renderCreditAccountsTable = (tableWrapperClassName: string) => (
+    <div className={tableWrapperClassName} aria-hidden={tableWrapperClassName.includes('measurement') ? 'true' : undefined}>
+      <table className="credit-accounts-table">
+        <thead>
+          <tr>
+            <th className="select-col"></th>
+            {columnLabels.creditAccounts.map((column) => {
+              const sortKey = getCreditColumnSortKey(column.id)
+
+              return (
+                <th key={column.id}>
+                  <div className="sortable-header">
+                    <span
+                      className="table-header-label"
+                      aria-label={column.label}
+                      title={getCreditColumnHeaderTooltip(column.id)}
+                    >
+                      {formatCreditTableHeaderLabel(column.label).map((line, lineIndex) => (
+                        <span key={`${column.id}-line-${lineIndex}`} className="table-header-label-line">
+                          {line}
+                        </span>
+                      ))}
+                    </span>
+                    {sortKey != null ? (
+                      <button
+                        type="button"
+                        className="sort-button"
+                        onClick={() => toggleCreditSort(sortKey)}
+                        aria-label={`Sort credit accounts by ${column.label}`}
+                      >
+                        {getSortIndicator(creditSort, sortKey)}
+                      </button>
+                    ) : null}
+                  </div>
+                </th>
+              )
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {displayedCreditAccounts.map((account) => {
+            const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, utilizationPercent } = getCreditMetrics(account)
+            const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
+            const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
+
+            return (
+              <tr key={account.id} className={selectedCreditIds.has(account.id) ? 'row-selected' : ''}>
+                <td className="select-col">
+                  <input type="checkbox" checked={selectedCreditIds.has(account.id)} onChange={() => toggleCreditSelection(account.id)} />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    value={account.name}
+                    onChange={(e) => updateAccountById(account.id, 'name', e.target.value)}
+                    className="label-input"
+                  />
+                </td>
+                <td>
+                  <CurrencyInput
+                    value={account.availableCredit}
+                    onValueChange={(value) => updateAccountById(account.id, 'availableCredit', value)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="date"
+                    value={account.lastStatementDate}
+                    onChange={(e) => updateAccountById(account.id, 'lastStatementDate', e.target.value)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="date"
+                    value={account.nextPaymentDate}
+                    onChange={(e) => updateAccountById(account.id, 'nextPaymentDate', e.target.value)}
+                    className={joinClassNames(isNextPaymentOutsideCycle ? 'cycle-outside-date' : undefined)}
+                    title={isNextPaymentOutsideCycle ? 'Date outside of cycle' : undefined}
+                  />
+                </td>
+                <td className={isPastDueUnpaid ? 'overdue-checkbox-cell' : undefined}>
+                  <input
+                    type="checkbox"
+                    checked={account.paidThisMonth}
+                    onChange={(e) => updateAccountById(account.id, 'paidThisMonth', e.target.checked)}
+                    className={isPastDueUnpaid ? 'overdue-checkbox' : undefined}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={account.statementCycledAfterPayment}
+                    onChange={(e) => updateAccountById(account.id, 'statementCycledAfterPayment', e.target.checked)}
+                  />
+                </td>
+                <td>
+                  <CurrencyInput
+                    value={account.lastStatementBalance}
+                    onValueChange={(value) => updateAccountById(account.id, 'lastStatementBalance', value)}
+                  />
+                </td>
+                <td>
+                  <CurrencyInput
+                    value={account.creditLimit}
+                    onValueChange={(value) => updateAccountById(account.id, 'creditLimit', value)}
+                  />
+                </td>
+                <td>{currency(totalDueForCard)}</td>
+                <td>{currency(currentMonthPayment)}</td>
+                <td>{currency(nextMonthStatementBalance)}</td>
+                <td>{utilizationPercent.toFixed(1)}%</td>
+              </tr>
+            )
+          })}
+          <tr className="table-summary-row">
+            <td></td>
+            <td>Credit Card Totals</td>
+            <td>{currency(totalAvailable)}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td>{currency(totalDue)}</td>
+            <td>{currency(totalLimits)}</td>
+            <td>{currency(totalCardDue)}</td>
+            <td>{currency(creditCardCurrentMonthPayments)}</td>
+            <td>{currency(creditCardNextMonthBalance)}</td>
+            <td>{totalUtilization.toFixed(1)}%</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  )
+  const renderCreditTotalDueYAxisTick = ({ x, y, payload }: { x?: number; y?: number; payload?: { value: string } }) => (
       <text
         x={(x ?? 0) - 1}
         y={y ?? 0}
@@ -2764,6 +3067,7 @@ export default function App() {
 
   const applyFinancialPlan = (data: FinancialPlanData) => {
     const normalizedData = normalizeFinancialPlanData(data)
+    const normalizedViewModes = normalizeViewModes(normalizedData.viewModes)
     const nextCreditAccounts = sortItems(
       normalizedData.creditAccounts,
       (account) => getCreditSortValue(account, DEFAULT_CREDIT_SORT.key),
@@ -2791,6 +3095,9 @@ export default function App() {
     setOtherExpenses(normalizedData.otherExpenses)
     setSectionTitles(normalizeSectionTitles(normalizedData.sectionTitles))
     setColumnLabels(normalizedData.columnLabels ?? defaultColumnLabels)
+    setCreditViewMode(normalizedViewModes.creditAccounts)
+    setExpenseViewMode(normalizedViewModes.debitExpenses)
+    setBankViewMode(normalizedViewModes.bankAccounts)
     setIncomeSubsections(normalizedData.incomeSubsections ?? defaultIncomeSubsections)
     setNewBankSubsectionIds(new Set())
     setSelectedBankSubsectionIds(new Set())
@@ -2798,14 +3105,67 @@ export default function App() {
     setSelectedExpenseIds(new Set())
   }
 
+  const persistViewModesIfEligible = (nextViewModes: FinancialPlanViewModes) => {
+    if (
+      isSampleMode
+      || isTrackerReadOnly
+      || selectedCycle !== 'current'
+      || !hasSavedPersonalPlan
+    ) {
+      return
+    }
+
+    void fetch(`${API_BASE_URL}/api/financial-plan?cycle=current`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildPayload({ viewModes: nextViewModes })),
+    }).catch(() => {
+      // silent fail — view mode preference is non-critical
+    })
+  }
+
+  const handleCreditViewModeToggle = () => {
+    const nextViewMode: CreditViewMode = creditViewMode === 'table' ? 'tab' : 'table'
+    startTransition(() => setCreditViewMode(nextViewMode))
+    persistViewModesIfEligible({
+      creditAccounts: nextViewMode,
+      debitExpenses: expenseViewMode,
+      bankAccounts: bankViewMode,
+    })
+  }
+
+  const handleExpenseViewModeToggle = () => {
+    const nextViewMode: ExpenseViewMode = expenseViewMode === 'table' ? 'tab' : 'table'
+    startTransition(() => setExpenseViewMode(nextViewMode))
+    persistViewModesIfEligible({
+      creditAccounts: creditViewMode,
+      debitExpenses: nextViewMode,
+      bankAccounts: bankViewMode,
+    })
+  }
+
+  const handleBankViewModeToggle = () => {
+    const nextViewMode: BankViewMode = bankViewMode === 'table' ? 'tab' : 'table'
+    startTransition(() => setBankViewMode(nextViewMode))
+    persistViewModesIfEligible({
+      creditAccounts: creditViewMode,
+      debitExpenses: expenseViewMode,
+      bankAccounts: nextViewMode,
+    })
+  }
+
   const fetchBankBalanceHistory = async (viewerUserSub?: string): Promise<BankBalanceHistoryCycle[]> => {
     const endpoint = viewerUserSub
       ? `${API_BASE_URL}/api/financial-plan/viewer/history?userSub=${encodeURIComponent(viewerUserSub)}`
       : `${API_BASE_URL}/api/financial-plan/history`
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), HISTORY_REQUEST_TIMEOUT_MS)
 
     try {
       const response = await fetch(endpoint, {
         credentials: 'include',
+        signal: controller.signal,
       })
 
       if (!response.ok) {
@@ -2818,13 +3178,19 @@ export default function App() {
         .sort((left, right) => left.cycle.startDate.localeCompare(right.cycle.startDate))
     } catch {
       return []
+    } finally {
+      window.clearTimeout(timeoutId)
     }
   }
 
   const fetchSampleBankBalanceHistory = async (sampleTimelineType: TimelineType): Promise<BankBalanceHistoryCycle[]> => {
+    const controller = new AbortController()
+    const timeoutId = window.setTimeout(() => controller.abort(), HISTORY_REQUEST_TIMEOUT_MS)
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/financial-plan/sample/history?timelineType=${sampleTimelineType}`, {
         credentials: 'include',
+        signal: controller.signal,
       })
 
       if (!response.ok) {
@@ -2837,14 +3203,21 @@ export default function App() {
         .sort((left, right) => left.cycle.startDate.localeCompare(right.cycle.startDate))
     } catch {
       return []
+    } finally {
+      window.clearTimeout(timeoutId)
     }
-    }
+  }
 
   const refreshBankBalanceHistory = async (viewerUserSub?: string) => {
+    const requestId = ++bankBalanceHistoryRequestIdRef.current
     const historyCycles = planViewMode === 'sample'
       ? await fetchSampleBankBalanceHistory(timelineType)
       : await fetchBankBalanceHistory(viewerUserSub)
-    setBankBalanceHistoryCycles(historyCycles)
+
+    if (requestId === bankBalanceHistoryRequestIdRef.current) {
+      setBankBalanceHistoryCycles(historyCycles)
+    }
+
     return historyCycles
   }
 
@@ -2988,7 +3361,7 @@ export default function App() {
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
       applyPersonalCycleResponse(cycleResponse)
-      await refreshBankBalanceHistory()
+      void refreshBankBalanceHistory()
       setAuthState('authenticated')
       return true
     } catch {
@@ -3040,7 +3413,7 @@ export default function App() {
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
       applySampleCycleResponse(cycleResponse)
-      await refreshBankBalanceHistory()
+  void refreshBankBalanceHistory()
       return true
     } catch {
       setSaveState('error')
@@ -3154,7 +3527,7 @@ export default function App() {
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
       applyFinancialPlan(cycleResponse.data)
-      await refreshBankBalanceHistory(userSub)
+  void refreshBankBalanceHistory(userSub)
       setSelectedSharedViewerUserSub(userSub)
       setSelectedCycle(cycleResponse.selectedCycle)
       setCurrentCyclePeriod(cycleResponse.currentCycle)
@@ -3226,7 +3599,7 @@ export default function App() {
         const cycleResponse: FinancialPlanCycleResponse = await response.json()
         applySampleCycleResponse(cycleResponse, successMessage)
         onSuccess?.()
-        await refreshBankBalanceHistory()
+  void refreshBankBalanceHistory()
         return true
       } catch {
         setSaveState('error')
@@ -3267,7 +3640,7 @@ export default function App() {
 
       const savedResponse: FinancialPlanCycleResponse = await response.json()
         applyPersonalCycleResponse(savedResponse, successMessage)
-        await refreshBankBalanceHistory()
+        void refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
       setSuppressCycleSwitchWarning(false)
       onSuccess?.()
@@ -3454,7 +3827,7 @@ export default function App() {
       } else {
         applyPersonalCycleResponse(cycleResponse, 'Cycle closed. Started a new current cycle.', true)
       }
-      await refreshBankBalanceHistory()
+      void refreshBankBalanceHistory()
       setSuppressCycleSwitchWarning(true)
       setNeedsPostCloseBaselineSync(true)
       if (cycleResponse.previousCycle) {
@@ -3577,7 +3950,7 @@ export default function App() {
       } else {
         applyPersonalCycleResponse(cycleResponse, 'Reverted to previous cycle.')
       }
-      await refreshBankBalanceHistory()
+      void refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
       setSuppressCycleSwitchWarning(false)
       setIsRevertCycleDialogOpen(false)
@@ -3800,7 +4173,7 @@ export default function App() {
       } else {
         applyPersonalCycleResponse(cycleResponse, `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`)
       }
-      await refreshBankBalanceHistory()
+      void refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
       setSelectedCycle('current')
       setPendingTimelineTypeSwitch(null)
@@ -3885,7 +4258,7 @@ export default function App() {
       } else {
         applyPersonalCycleResponse(freshResponse, 'Tracker deleted. Started fresh with a new plan.')
       }
-      await refreshBankBalanceHistory()
+      void refreshBankBalanceHistory()
       setIsDeleteDialogOpen(false)
       setDeleteState('idle')
       setDeleteMessage('')
@@ -4621,7 +4994,7 @@ export default function App() {
       <div className="section-cluster chart-grid credit-chart-grid" style={creditWidthCapStyle}>
         <article className="chart-card">
           <div className="chart-card-header">
-            <h3>Savings/Expenses Next Cycle</h3>
+            <h3 className="chart-title-no-wrap">Savings/Expenses Next Cycle</h3>
             <span>{savingsNextMonth >= 0 ? 'Next month expenses vs remaining savings' : 'Next month expenses exceed transfer'}</span>
           </div>
           <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
@@ -4635,6 +5008,7 @@ export default function App() {
                     innerRadius={54}
                     outerRadius={84}
                     paddingAngle={2}
+                    isAnimationActive={false}
                   >
                     {savingsNextMonthPieData.map((entry) => (
                       <Cell key={entry.name} fill={entry.color} />
@@ -4651,7 +5025,7 @@ export default function App() {
         </article>
         <article className="chart-card">
           <div className="chart-card-header">
-            <h3>Total Due by Card</h3>
+            <h3>Total Due by Credit Card</h3>
             <span>Highest total due cards shown first</span>
           </div>
           <div className="chart-shell" style={{ height: `${totalDueByCardChartHeight}px` }}>
@@ -4673,15 +5047,15 @@ export default function App() {
                 />
                 <Tooltip formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName ?? ''} />
                 <Legend wrapperStyle={{ fontSize: '11px' }} />
-                <Bar dataKey="paymentDue" name="Payment Due" stackId="totalDue" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} />
-                <Bar dataKey="nextStmtBalance" name="Next Stmt Balance" stackId="totalDue" fill={CHART_COLORS.deferred} radius={[0, 6, 6, 0]} />
+                <Bar dataKey="paymentDue" name="Payment Due" stackId="totalDue" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} isAnimationActive={false} />
+                <Bar dataKey="nextStmtBalance" name="Next Stmt Balance" stackId="totalDue" fill={CHART_COLORS.deferred} radius={[0, 6, 6, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </article>
         <article className="chart-card">
           <div className="chart-card-header">
-            <h3>Payment Due Timeline</h3>
+            <h3 className="chart-title-no-wrap">Credit Card Payment Due Timeline</h3>
             <span>Upcoming payment pressure by pay date</span>
           </div>
           <div className="chart-shell" style={{ height: `${creditChartHeight}px` }}>
@@ -4692,15 +5066,19 @@ export default function App() {
                 <YAxis tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={11} width={48} />
                 <Tooltip formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.name ?? ''} />
                 <Legend wrapperStyle={{ fontSize: '11px' }} />
-                <Bar dataKey="paymentDue" name="Payment Due" fill={CHART_COLORS.current} radius={[6, 6, 0, 0]} />
-                <Bar dataKey="nextBalance" name="Next Stmt" fill={CHART_COLORS.next} radius={[6, 6, 0, 0]} />
+                <Bar dataKey="paymentDue" name="Payment Due" fill={CHART_COLORS.current} radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                <Bar dataKey="nextBalance" name="Next Stmt" fill={CHART_COLORS.next} radius={[6, 6, 0, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </article>
       </div>
 
-      <section className="credit-accounts-section section-cluster" ref={creditTableWrapperRef}>
+      <section
+        className="credit-accounts-section section-cluster"
+        ref={creditTableWrapperRef}
+        style={creditSectionStyle}
+      >
         <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
         <div className="section-content-fit">
           <div className="section-header">
@@ -4713,168 +5091,193 @@ export default function App() {
               />
             </h2>
             <div className="section-header-actions">
+              <button
+                type="button"
+                className="credit-view-toggle-button-primary"
+                data-view-mode={creditViewMode}
+                data-credit-view-toggle="true"
+                onClick={handleCreditViewModeToggle}
+                aria-label={creditViewMode === 'table' ? 'Switch to tab view' : 'Switch to table view'}
+                title={creditViewMode === 'table' ? 'Switch to Tab View' : 'Switch to Table View'}
+              >
+                <span className="view-toggle-track" aria-hidden="true">
+                  <span className="view-toggle-thumb" />
+                </span>
+                <span className="view-toggle-label">{creditViewMode === 'table' ? 'Tab' : 'Table'}</span>
+              </button>
               {selectedCreditIds.size > 0 && (
                 <button type="button" className="delete-row-button" onClick={deleteSelectedCredits}>Delete ({selectedCreditIds.size})</button>
               )}
               <button type="button" className="add-row-button" onClick={addCreditAccount}>+ Add</button>
             </div>
           </div>
-          <div className="table-wrapper compact-credit-table">
-            <table className="credit-accounts-table">
-              <thead>
-                <tr>
-                  <th className="select-col"></th>
-                  {columnLabels.creditAccounts.map((column, index) => (
-                    <th key={column.id}>
-                      <div className="sortable-header">
-                        <span
-                          className="table-header-label"
-                          aria-label={column.label}
-                          title={getCreditColumnHeaderTooltip(column.id)}
-                        >
-                          {formatCreditTableHeaderLabel(column.label).map((line, lineIndex) => (
-                            <span key={`${column.id}-line-${lineIndex}`} className="table-header-label-line">
-                              {line}
-                            </span>
-                          ))}
-                        </span>
-                        <button
-                          type="button"
-                          className="sort-button"
-                          onClick={() => toggleCreditSort([
-                            'name',
-                            'availableCredit',
-                            'lastStatementDate',
-                            'nextPaymentDate',
-                            'paidThisMonth',
-                            'statementCycledAfterPayment',
-                            'lastStatementBalance',
-                            'creditLimit',
-                            'totalDueForCard',
-                            'currentMonthPayment',
-                            'nextMonthStatementBalance',
-                            'utilizationPercent',
-                          ][index] as CreditSortKey)}
-                          aria-label={`Sort credit accounts by ${column.label}`}
-                        >
-                          {getSortIndicator(creditSort, [
-                            'name',
-                            'availableCredit',
-                            'lastStatementDate',
-                            'nextPaymentDate',
-                            'paidThisMonth',
-                            'statementCycledAfterPayment',
-                            'lastStatementBalance',
-                            'creditLimit',
-                            'totalDueForCard',
-                            'currentMonthPayment',
-                            'nextMonthStatementBalance',
-                            'utilizationPercent',
-                          ][index] as CreditSortKey)}
-                        </button>
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
+          {creditViewMode === 'table' ? (
+            renderCreditAccountsTable('table-wrapper compact-credit-table')
+          ) : (
+            <div className="credit-tab-shell">
+              <div className="credit-tab-strip" role="tablist" aria-label="Credit card account tabs">
                 {displayedCreditAccounts.map((account) => {
+                  const { currentMonthPayment } = getCreditMetrics(account)
+                  const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
+                  const isActive = activeDisplayedCreditAccount?.id === account.id
+
+                  return (
+                    <button
+                      key={account.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      aria-controls={`credit-account-panel-${account.id}`}
+                      id={`credit-account-tab-${account.id}`}
+                      className={joinClassNames(
+                        'credit-tab',
+                        isActive ? 'credit-tab-active' : undefined,
+                        selectedCreditIds.has(account.id) ? 'credit-tab-selected' : undefined,
+                        isPastDueUnpaid ? 'credit-tab-alert' : undefined,
+                      )}
+                      onClick={() => setExpandedCreditAccountId(account.id)}
+                    >
+                      <span className="credit-tab-title">{account.name || 'Untitled account'}</span>
+                      <span className="credit-tab-summary">Payment - {formatShortDate(account.nextPaymentDate)}, {currency(currentMonthPayment)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {activeDisplayedCreditAccount ? (() => {
+                const account = activeDisplayedCreditAccount
                 const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, utilizationPercent } = getCreditMetrics(account)
                 const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
                 const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
 
                 return (
-                  <tr key={account.id} className={selectedCreditIds.has(account.id) ? 'row-selected' : ''}>
-                    <td className="select-col">
-                      <input type="checkbox" checked={selectedCreditIds.has(account.id)} onChange={() => toggleCreditSelection(account.id)} />
-                    </td>
-                    <td>
+                  <article
+                    id={`credit-account-panel-${account.id}`}
+                    role="tabpanel"
+                    aria-labelledby={`credit-account-tab-${account.id}`}
+                    className={joinClassNames(
+                      'credit-account-card',
+                      'credit-account-card-expanded',
+                      selectedCreditIds.has(account.id) ? 'credit-account-card-selected' : undefined,
+                      isPastDueUnpaid ? 'credit-account-card-alert' : undefined,
+                    )}
+                  >
+                    <div className="credit-account-card-topbar">
                       <input
                         type="text"
                         value={account.name}
                         onChange={(e) => updateAccountById(account.id, 'name', e.target.value)}
-                        className="label-input"
+                        className="label-input credit-account-card-name"
                       />
-                    </td>
-                    <td>
-                      <CurrencyInput
-                        value={account.availableCredit}
-                        onValueChange={(value) => updateAccountById(account.id, 'availableCredit', value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="date"
-                        value={account.lastStatementDate}
-                        onChange={(e) => updateAccountById(account.id, 'lastStatementDate', e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="date"
-                        value={account.nextPaymentDate}
-                        onChange={(e) => updateAccountById(account.id, 'nextPaymentDate', e.target.value)}
-                        className={joinClassNames(isNextPaymentOutsideCycle ? 'cycle-outside-date' : undefined)}
-                        title={isNextPaymentOutsideCycle ? 'Date outside of cycle' : undefined}
-                      />
-                    </td>
-                    <td className={isPastDueUnpaid ? 'overdue-checkbox-cell' : undefined}>
-                      <input
-                        type="checkbox"
-                        checked={account.paidThisMonth}
-                        onChange={(e) => updateAccountById(account.id, 'paidThisMonth', e.target.checked)}
-                        className={isPastDueUnpaid ? 'overdue-checkbox' : undefined}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={account.statementCycledAfterPayment}
-                        onChange={(e) => updateAccountById(account.id, 'statementCycledAfterPayment', e.target.checked)}
-                      />
-                    </td>
-                    <td>
-                      <CurrencyInput
-                        value={account.lastStatementBalance}
-                        onValueChange={(value) => updateAccountById(account.id, 'lastStatementBalance', value)}
-                      />
-                    </td>
-                    <td>
-                      <CurrencyInput
-                        value={account.creditLimit}
-                        onValueChange={(value) => updateAccountById(account.id, 'creditLimit', value)}
-                      />
-                    </td>
-                    <td>{currency(totalDueForCard)}</td>
-                    <td>{currency(currentMonthPayment)}</td>
-                    <td>{currency(nextMonthStatementBalance)}</td>
-                    <td>{utilizationPercent.toFixed(1)}%</td>
-                  </tr>
+                      <div className="credit-account-card-title-row">
+                        <label className="credit-account-select">
+                          <input type="checkbox" checked={selectedCreditIds.has(account.id)} onChange={() => toggleCreditSelection(account.id)} />
+                          <span>Select</span>
+                        </label>
+                        <div className="credit-account-badges">
+                          {isPastDueUnpaid ? (
+                            <span className="credit-account-badge credit-account-badge-danger">Past due</span>
+                          ) : null}
+                          {isNextPaymentOutsideCycle ? (
+                            <span className="credit-account-badge credit-account-badge-danger" title="Date outside of cycle">Outside cycle</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="credit-account-card-body credit-account-card-body-static">
+                      <div className="credit-account-metric-grid">
+                        <div className="credit-account-metric">
+                          <span>Total Due</span>
+                          <strong>{currency(totalDueForCard)}</strong>
+                        </div>
+                        <div className="credit-account-metric">
+                          <span>Curr Payment</span>
+                          <strong>{currency(currentMonthPayment)}</strong>
+                        </div>
+                        <div className="credit-account-metric">
+                          <span>Next Balance</span>
+                          <strong>{currency(nextMonthStatementBalance)}</strong>
+                        </div>
+                        <div className="credit-account-metric">
+                          <span>Util %</span>
+                          <strong>{utilizationPercent.toFixed(1)}%</strong>
+                        </div>
+                      </div>
+
+                      <div className="credit-account-fields">
+                        <label className="credit-account-field">
+                          <span>{columnLabels.creditAccounts[1]?.label ?? 'Available Credit'}</span>
+                          <CurrencyInput
+                            value={account.availableCredit}
+                            onValueChange={(value) => updateAccountById(account.id, 'availableCredit', value)}
+                          />
+                        </label>
+                        <label className="credit-account-field">
+                          <span>{columnLabels.creditAccounts[2]?.label ?? 'Current Payment Stmt Date'}</span>
+                          <input
+                            type="date"
+                            value={account.lastStatementDate}
+                            onChange={(e) => updateAccountById(account.id, 'lastStatementDate', e.target.value)}
+                          />
+                        </label>
+                        <label className="credit-account-field">
+                          <span>{columnLabels.creditAccounts[3]?.label ?? 'Payment Date'}</span>
+                          <input
+                            type="date"
+                            value={account.nextPaymentDate}
+                            onChange={(e) => updateAccountById(account.id, 'nextPaymentDate', e.target.value)}
+                            className={joinClassNames(isNextPaymentOutsideCycle ? 'cycle-outside-date' : undefined)}
+                            title={isNextPaymentOutsideCycle ? 'Date outside of cycle' : undefined}
+                          />
+                        </label>
+                        <label className="credit-account-field">
+                          <span>{columnLabels.creditAccounts[6]?.label ?? 'Latest Stmt Balance'}</span>
+                          <CurrencyInput
+                            value={account.lastStatementBalance}
+                            onValueChange={(value) => updateAccountById(account.id, 'lastStatementBalance', value)}
+                          />
+                        </label>
+                        <label className="credit-account-field">
+                          <span>{columnLabels.creditAccounts[7]?.label ?? 'Credit Limit'}</span>
+                          <CurrencyInput
+                            value={account.creditLimit}
+                            onValueChange={(value) => updateAccountById(account.id, 'creditLimit', value)}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="credit-account-toggle-row">
+                        <label className={joinClassNames('credit-account-toggle', isPastDueUnpaid ? 'credit-account-toggle-alert' : undefined)}>
+                          <span>{columnLabels.creditAccounts[4]?.label ?? 'Paid'}</span>
+                          <input
+                            type="checkbox"
+                            checked={account.paidThisMonth}
+                            onChange={(e) => updateAccountById(account.id, 'paidThisMonth', e.target.checked)}
+                            className={isPastDueUnpaid ? 'overdue-checkbox' : undefined}
+                          />
+                        </label>
+                        <label className="credit-account-toggle">
+                          <span>{columnLabels.creditAccounts[5]?.label ?? 'Current Cycle Stmt Cycled?'}</span>
+                          <input
+                            type="checkbox"
+                            checked={account.statementCycledAfterPayment}
+                            onChange={(e) => updateAccountById(account.id, 'statementCycledAfterPayment', e.target.checked)}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </article>
                 )
-              })}
-                <tr className="table-summary-row">
-                  <td></td>
-                  <td>Credit Card Totals</td>
-                  <td>{currency(totalAvailable)}</td>
-                  <td></td>
-                  <td></td>
-                  <td></td>
-                  <td></td>
-                  <td>{currency(totalDue)}</td>
-                  <td>{currency(totalLimits)}</td>
-                  <td>{currency(totalCardDue)}</td>
-                  <td>{currency(creditCardCurrentMonthPayments)}</td>
-                  <td>{currency(creditCardNextMonthBalance)}</td>
-                  <td>{totalUtilization.toFixed(1)}%</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+              })() : null}
+              {renderCreditAccountsTable('table-wrapper compact-credit-table-measurement')}
+            </div>
+          )}
         </div>
         </fieldset>
       </section>
 
-      <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
+      <div className="section-cluster finance-overview-row expense-overview-row" style={creditWidthCapStyle}>
         <section className="expense-section compact-section">
           <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
           <div className="section-header">
@@ -4888,12 +5291,26 @@ export default function App() {
               />
             </h2>
             <div className="section-header-actions">
+              <button
+                type="button"
+                className="credit-view-toggle-button-primary"
+                data-view-mode={expenseViewMode}
+                onClick={handleExpenseViewModeToggle}
+                aria-label={expenseViewMode === 'table' ? 'Switch to tab view' : 'Switch to table view'}
+                title={expenseViewMode === 'table' ? 'Switch to Tab View' : 'Switch to Table View'}
+              >
+                <span className="view-toggle-track" aria-hidden="true">
+                  <span className="view-toggle-thumb" />
+                </span>
+                <span className="view-toggle-label">{expenseViewMode === 'table' ? 'Tab' : 'Table'}</span>
+              </button>
               {selectedExpenseIds.size > 0 && (
                 <button type="button" className="delete-row-button" onClick={deleteSelectedExpenses}>Delete ({selectedExpenseIds.size})</button>
               )}
               <button type="button" className="add-row-button" onClick={() => addExpenseRow(setOtherExpenses, otherExpenses, 'other')}>+ Add</button>
             </div>
           </div>
+          {expenseViewMode === 'table' ? (
           <div
             className="table-wrapper compact-expense-table"
             style={creditWidthMaxStyle}
@@ -4903,17 +5320,7 @@ export default function App() {
                 <tr>
                   <th className="select-col"></th>
                   {columnLabels.debitExpenses.map((column) => {
-                    const sortKey = column.id === 'expense'
-                      ? 'label'
-                      : column.id === 'pay-date'
-                        ? 'payDate'
-                        : column.id === 'pay-from'
-                          ? 'payFromBankId'
-                          : column.id === 'current-month'
-                            ? 'current'
-                            : column.id === 'next-month'
-                              ? 'next'
-                              : null
+                    const sortKey = getExpenseColumnSortKey(column.id)
 
                     return (
                     <th key={column.id}>
@@ -5014,6 +5421,134 @@ export default function App() {
               </tbody>
             </table>
           </div>
+          ) : (
+            <div className="expense-tab-shell">
+              <div className="expense-tab-strip" role="tablist" aria-label="Debit expense tabs">
+                {displayedExpenseRows.map(({ item }) => {
+                  const isPastDueCurrentExpense = isPastDate(item.payDate) && Math.abs(item.current) > 0.004
+                  const isExpenseDateOutsideCycle = isDateOutsideCyclePeriod(item.payDate, activeCyclePeriod)
+                  const isActive = activeDisplayedExpenseRow?.item.id === item.id
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      aria-controls={`expense-row-panel-${item.id}`}
+                      id={`expense-row-tab-${item.id}`}
+                      className={joinClassNames(
+                        'expense-tab',
+                        isActive ? 'expense-tab-active' : undefined,
+                        selectedExpenseIds.has(item.id) ? 'expense-tab-selected' : undefined,
+                        isPastDueCurrentExpense || isExpenseDateOutsideCycle ? 'expense-tab-alert' : undefined,
+                      )}
+                      onClick={() => setExpandedExpenseRowId(item.id)}
+                    >
+                      <span className="expense-tab-title">{item.label || 'Untitled expense'}</span>
+                      <span className="expense-tab-summary">Payment - {formatShortDate(item.payDate)}, {currency(item.current)}</span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {activeDisplayedExpenseRow ? (() => {
+                const { item, setter } = activeDisplayedExpenseRow
+                const isPastDueCurrentExpense = isPastDate(item.payDate) && Math.abs(item.current) > 0.004
+                const isExpenseDateOutsideCycle = isDateOutsideCyclePeriod(item.payDate, activeCyclePeriod)
+                const payFromLabel = getExpensePayFromLabel(normalizeExpensePayFromBankId(item.payFromBankId, validExpensePayFromBankIds))
+
+                return (
+                  <article
+                    id={`expense-row-panel-${item.id}`}
+                    role="tabpanel"
+                    aria-labelledby={`expense-row-tab-${item.id}`}
+                    className={joinClassNames(
+                      'expense-item-card',
+                      selectedExpenseIds.has(item.id) ? 'expense-item-card-selected' : undefined,
+                      isPastDueCurrentExpense || isExpenseDateOutsideCycle ? 'expense-item-card-alert' : undefined,
+                    )}
+                  >
+                    <div className="expense-item-card-topbar">
+                      <input
+                        type="text"
+                        value={item.label}
+                        onChange={(e) => updateExpenseLabelById(setter, item.id, e.target.value)}
+                        className="label-input expense-item-card-name"
+                      />
+                      <div className="expense-item-card-title-row">
+                        <label className="expense-item-select">
+                          <input type="checkbox" checked={selectedExpenseIds.has(item.id)} onChange={() => toggleExpenseSelection(item.id)} />
+                          <span>Select</span>
+                        </label>
+                        <div className="expense-item-badges">
+                          {isPastDueCurrentExpense ? (
+                            <span className="expense-item-badge expense-item-badge-danger">Past due</span>
+                          ) : null}
+                          {isExpenseDateOutsideCycle ? (
+                            <span className="expense-item-badge expense-item-badge-danger" title="Date outside of cycle">Outside cycle</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="expense-item-card-body">
+                      <div className="expense-item-fields">
+                        <label className="expense-item-field expense-item-field-wide">
+                          <span>{columnLabels.debitExpenses[0]?.label ?? 'Expense'}</span>
+                          <input
+                            type="text"
+                            value={item.label}
+                            onChange={(e) => updateExpenseLabelById(setter, item.id, e.target.value)}
+                          />
+                        </label>
+                        <label className="expense-item-field">
+                          <span>{columnLabels.debitExpenses[1]?.label ?? 'Pay Date'}</span>
+                          <input
+                            type="date"
+                            value={item.payDate}
+                            onChange={(e) => updateExpenseItemById(setter, item.id, 'payDate', e.target.value)}
+                            className={joinClassNames(isExpenseDateOutsideCycle ? 'cycle-outside-date' : undefined)}
+                            title={isExpenseDateOutsideCycle ? 'Date outside of cycle' : undefined}
+                          />
+                        </label>
+                        <label className="expense-item-field">
+                          <span>{columnLabels.debitExpenses[2]?.label ?? 'Pay From'}</span>
+                          <select
+                            value={normalizeExpensePayFromBankId(item.payFromBankId, validExpensePayFromBankIds)}
+                            onChange={(e) => updateExpenseItemById(setter, item.id, 'payFromBankId', e.target.value)}
+                          >
+                            {expensePayFromOptions.map((option) => (
+                              <option key={option.id} value={option.id}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="expense-item-field">
+                          <span>{columnLabels.debitExpenses[3]?.label ?? 'Current Month'}</span>
+                          <CurrencyInput
+                            value={item.current}
+                            onValueChange={(value) => updateExpenseItemById(setter, item.id, 'current', value)}
+                            wrapClassName="expense-currency-input-wrap"
+                            inputClassName={joinClassNames('currency-amount-input', isPastDueCurrentExpense ? 'overdue-amount-input' : undefined)}
+                          />
+                        </label>
+                        <label className="expense-item-field">
+                          <span>{columnLabels.debitExpenses[4]?.label ?? 'Next Month'}</span>
+                          <CurrencyInput
+                            value={item.next}
+                            onValueChange={(value) => updateExpenseItemById(setter, item.id, 'next', value)}
+                            wrapClassName="expense-currency-input-wrap"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </article>
+                )
+              })() : null}
+            </div>
+          )}
           </fieldset>
         </section>
 
@@ -5036,9 +5571,10 @@ export default function App() {
                           data={expenseCategoryCurrentShareData}
                           dataKey="value"
                           nameKey="name"
-                          innerRadius={46}
-                          outerRadius={76}
+                          innerRadius="46%"
+                          outerRadius="77%"
                           paddingAngle={2}
+                          isAnimationActive={false}
                         >
                           {expenseCategoryCurrentShareData.map((entry) => (
                             <Cell key={entry.name} fill={entry.color} />
@@ -5066,9 +5602,10 @@ export default function App() {
                           data={expenseCategoryNextShareData}
                           dataKey="value"
                           nameKey="name"
-                          innerRadius={46}
-                          outerRadius={76}
+                          innerRadius="46%"
+                          outerRadius="77%"
                           paddingAngle={2}
+                          isAnimationActive={false}
                         >
                           {expenseCategoryNextShareData.map((entry) => (
                             <Cell key={entry.name} fill={entry.color} />
@@ -5109,10 +5646,10 @@ export default function App() {
                     />
                     <Tooltip formatter={(value: number) => currency(value)} />
                     <Legend wrapperStyle={{ fontSize: '10px' }} />
-                    <Bar dataKey="current" name="Current Month Payment" stackId="payFromTotal" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} barSize={10}>
+                    <Bar dataKey="current" name="Current Month Payment" stackId="payFromTotal" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} barSize={10} isAnimationActive={false}>
                       <LabelList dataKey="current" content={renderCompactBarValueLabel} />
                     </Bar>
-                    <Bar dataKey="next" name="Next Month Payment" stackId="payFromTotal" fill={CHART_COLORS.next} radius={[0, 6, 6, 0]} barSize={10}>
+                    <Bar dataKey="next" name="Next Month Payment" stackId="payFromTotal" fill={CHART_COLORS.next} radius={[0, 6, 6, 0]} barSize={10} isAnimationActive={false}>
                       <LabelList dataKey="next" content={renderCompactBarValueLabel} />
                     </Bar>
                   </BarChart>
@@ -5147,30 +5684,99 @@ export default function App() {
                 <span style={{ fontSize: '0.92rem', color: '#0f766e', fontWeight: 700 }}>{currency(totalMonthEndBalanceMinusDues)}</span>
               </div>
               <div className="section-header-actions">
+                <button
+                  type="button"
+                  className="credit-view-toggle-button-primary"
+                  data-view-mode={bankViewMode}
+                  onClick={handleBankViewModeToggle}
+                  aria-label={bankViewMode === 'table' ? 'Switch to tab view' : 'Switch to table view'}
+                  title={bankViewMode === 'table' ? 'Switch to Tab View' : 'Switch to Table View'}
+                >
+                  <span className="view-toggle-track" aria-hidden="true">
+                    <span className="view-toggle-thumb" />
+                  </span>
+                  <span className="view-toggle-label">{bankViewMode === 'table' ? 'Tab' : 'Table'}</span>
+                </button>
                 {selectedBankSubsectionIds.size > 0 && (
                   <button type="button" className="delete-row-button" onClick={deleteSelectedBankSubsections}>Delete ({selectedBankSubsectionIds.size})</button>
                 )}
                 <button type="button" className="add-row-button" onClick={addIncomeSubsection}>+ Add</button>
               </div>
             </div>
-            <div className="income-subsection-grid">
-              <div className="subsection-block chase-subsection">
-                <h3>
-                  <input
-                    type="text"
-                    value={sectionTitles.defaultBank}
-                    onChange={(e) => updateSectionTitle('defaultBank', e.target.value)}
-                    className="label-input subsection-title-input"
-                    title="Default Bank Account"
-                  />
-                </h3>
-                <div className="card-list">
-                  {chaseIncomeItems.map(renderIncomeCard)}
-                  {chaseBalanceItems.map(renderBalanceCard)}
-                </div>
+            {bankViewMode === 'table' ? (
+              <div className="income-subsection-grid">
+                {renderDefaultBankSubsection()}
+                {incomeSubsections.map(renderIncomeSubsection)}
               </div>
-              {incomeSubsections.map(renderIncomeSubsection)}
-            </div>
+            ) : (
+              <div className="bank-tab-shell">
+                <div className="bank-tab-strip" role="tablist" aria-label="Bank account tabs">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={expandedBankSectionId === DEFAULT_BANK_EXPENSE_SOURCE_ID}
+                    aria-controls={`bank-section-panel-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
+                    id={`bank-section-tab-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
+                    className={joinClassNames(
+                      'bank-tab',
+                      expandedBankSectionId === DEFAULT_BANK_EXPENSE_SOURCE_ID ? 'bank-tab-active' : undefined,
+                    )}
+                    onClick={() => setExpandedBankSectionId(DEFAULT_BANK_EXPENSE_SOURCE_ID)}
+                  >
+                    <span className="bank-tab-title">{sectionTitles.defaultBank || 'Default Bank'}</span>
+                    <span className="bank-tab-summary">Month End - {currency(checkingAccountBalanceMonthEndChase)}</span>
+                  </button>
+                  {incomeSubsections.map((subsection, index) => {
+                    const totalBalance = getIncomeSubsectionTotalBalance(subsection)
+                    const monthEndBalance = getBankMonthEndBalance(subsection.id, totalBalance, subsection.additionalIncome)
+                    const isActive = expandedBankSectionId === subsection.id
+
+                    return (
+                      <button
+                        key={subsection.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        aria-controls={`bank-section-panel-${subsection.id}`}
+                        id={`bank-section-tab-${subsection.id}`}
+                        className={joinClassNames(
+                          'bank-tab',
+                          isActive ? 'bank-tab-active' : undefined,
+                          selectedBankSubsectionIds.has(subsection.id) ? 'bank-tab-selected' : undefined,
+                        )}
+                        onClick={() => setExpandedBankSectionId(subsection.id)}
+                      >
+                        <span className="bank-tab-title">{subsection.title || `Bank ${index + 1}`}</span>
+                        <span className="bank-tab-summary">Month End - {currency(monthEndBalance)}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {expandedBankSectionId === DEFAULT_BANK_EXPENSE_SOURCE_ID ? (
+                  <div
+                    id={`bank-section-panel-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
+                    role="tabpanel"
+                    aria-labelledby={`bank-section-tab-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
+                    className="bank-tab-panel"
+                  >
+                    {renderDefaultBankSubsection()}
+                  </div>
+                ) : activeDisplayedBankSubsection ? (
+                  <div
+                    id={`bank-section-panel-${activeDisplayedBankSubsection.id}`}
+                    role="tabpanel"
+                    aria-labelledby={`bank-section-tab-${activeDisplayedBankSubsection.id}`}
+                    className="bank-tab-panel"
+                  >
+                    {renderIncomeSubsection(
+                      activeDisplayedBankSubsection,
+                      incomeSubsections.findIndex((subsection) => subsection.id === activeDisplayedBankSubsection.id),
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
             {otherIncomeItems.length > 0 ? (
               <div className="subsection-block">
                 <div className="card-list">
@@ -5231,6 +5837,7 @@ export default function App() {
                       dot={{ r: 5, strokeWidth: 2, fill: '#ffffff', stroke: bank.stroke ?? BANK_COLORS[index % BANK_COLORS.length] }}
                       activeDot={{ r: 7 }}
                       connectNulls={false}
+                      isAnimationActive={false}
                     />
                   ))}
                 </LineChart>
