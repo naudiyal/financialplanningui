@@ -1317,10 +1317,10 @@ export default function App() {
   const [deleteState, setDeleteState] = useState<'idle' | 'deleting' | 'error'>('idle')
   const [deleteMessage, setDeleteMessage] = useState('')
   const [selectedCycle, setSelectedCycle] = useState<CycleSelection>('current')
-  const [timelineType, setTimelineType] = useState<TimelineType>('MID_TO_MID')
+  const [timelineType, setTimelineType] = useState<TimelineType>('START_TO_END')
   const [lastCycleSavedAt, setLastCycleSavedAt] = useState<string | null>(null)
   const [pendingCycleSelection, setPendingCycleSelection] = useState<CycleSelection | null>(null)
-  const [currentCyclePeriod, setCurrentCyclePeriod] = useState<CyclePeriod>(() => buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
+  const [currentCyclePeriod, setCurrentCyclePeriod] = useState<CyclePeriod>(() => buildCurrentCycleForTimeline(new Date(), 'START_TO_END'))
   const [previousCyclePeriod, setPreviousCyclePeriod] = useState<CyclePeriod | null>(null)
   const [bankBalanceHistoryCycles, setBankBalanceHistoryCycles] = useState<BankBalanceHistoryCycle[]>([])
   const [pendingTimelineTypeSwitch, setPendingTimelineTypeSwitch] = useState<TimelineType | null>(null)
@@ -1434,8 +1434,8 @@ export default function App() {
         setSharedViewerUsers([])
         setSelectedSharedViewerUserSub('')
         setSelectedCycle('current')
-        setTimelineType('MID_TO_MID')
-        setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
+        setTimelineType('START_TO_END')
+        setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'START_TO_END'))
         setPreviousCyclePeriod(null)
         setPendingCloseCycleReset(null)
         setAuthState('error')
@@ -1791,9 +1791,9 @@ export default function App() {
         title: getNewBankSubsectionTitle(newBankCount),
         biMonthlySalaryLabel: 'Bi-monthly salary',
         biMonthlySalary: 0,
-        midMonthSalaryLabel: 'First Paycheck',
+        midMonthSalaryLabel: 'First Paycheck Arrived?',
         midMonthSalaryArrived: false,
-        monthEndSalaryLabel: 'Second Paycheck',
+        monthEndSalaryLabel: 'Second Paycheck Arrived?',
         monthEndSalaryArrived: false,
         checkingBalanceLabel: 'Account Balance',
         checkingBalance: 0,
@@ -3370,8 +3370,8 @@ export default function App() {
       setHasSavedPersonalPlan(false)
       setShowSamplePrompt(false)
       setSelectedCycle('current')
-      setTimelineType('MID_TO_MID')
-      setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
+      setTimelineType('START_TO_END')
+      setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'START_TO_END'))
       setPreviousCyclePeriod(null)
       setBankBalanceHistoryCycles([])
       setLastCycleSavedAt(null)
@@ -3987,8 +3987,8 @@ export default function App() {
     setShowSamplePrompt(false)
     setSelectedCycle('current')
     setPendingCycleSelection(null)
-    setTimelineType('MID_TO_MID')
-    setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'MID_TO_MID'))
+    setTimelineType('START_TO_END')
+    setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'START_TO_END'))
     setPreviousCyclePeriod(null)
     setBankBalanceHistoryCycles([])
     setLastCycleSavedAt(null)

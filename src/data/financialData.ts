@@ -218,13 +218,13 @@ export const incomeItems: IncomeItem[] = [
   },
   {
     id: 'first-paycheck',
-    label: 'First Paycheck',
+    label: 'First Paycheck Arrived?',
     amount: 0,
     month: '',
   },
   {
     id: 'second-paycheck',
-    label: 'Second Paycheck',
+    label: 'Second Paycheck Arrived?',
     amount: 0,
     month: '',
   },
@@ -289,5 +289,5 @@ export const defaultSectionTitles: FinancialPlanSectionTitles = {
   creditAccounts: 'Credit Card Accounts',
   debitExpenses: 'Debit Card Expenses',
   incomeSchedule: 'Bank Accounts',
-  defaultBank: 'Chase',
+  defaultBank: 'Default Bank',
 }
