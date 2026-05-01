@@ -765,20 +765,34 @@ const applyOrderedIds = <T,>(items: T[], orderedIds: string[], getId: (item: T) 
   return [...orderedItems, ...remainingItems]
 }
 
-const getCreditMetrics = (account: CreditAccount) => {
+const getCreditMetrics = (account: CreditAccount, cycleStartDate = '') => {
   const totalDueForCard = account.creditLimit - account.availableCredit
   const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
-  const statementBeforePayment = account.lastStatementDate <= account.nextPaymentDate
-  const nextMonthStatementBalance = account.paidThisMonth
-    ? statementBeforePayment
-      ? totalDueForCard
-      : account.statementCycledAfterPayment
-        ? account.lastStatementBalance
+
+  let nextMonthStatementBalance: number
+  let displayedLastStatementBalance: number
+
+  if (account.paidThisMonth) {
+    if (account.nextPaymentDate < account.lastStatementDate) {
+      // payment is before statement in this cycle
+      nextMonthStatementBalance = account.statementCycledAfterPayment
+        ? totalDueForCard - account.lastStatementBalance
         : totalDueForCard
-    : totalDueForCard - account.lastStatementBalance
-  const displayedLastStatementBalance = account.paidThisMonth && statementBeforePayment
-    ? totalDueForCard
-    : account.lastStatementBalance
+      displayedLastStatementBalance = account.lastStatementBalance
+    } else if (account.lastStatementDate < account.nextPaymentDate && account.lastStatementDate >= cycleStartDate) {
+      // statement is before payment AND statement is within the current cycle
+      nextMonthStatementBalance = totalDueForCard
+      displayedLastStatementBalance = totalDueForCard
+    } else {
+      // statement is before payment AND statement is from a prior cycle
+      nextMonthStatementBalance = totalDueForCard
+      displayedLastStatementBalance = account.lastStatementBalance
+    }
+  } else {
+    nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
+    displayedLastStatementBalance = account.lastStatementBalance
+  }
+
   const utilizationPercent = account.creditLimit > 0 ? (totalDueForCard / account.creditLimit) * 100 : 0
 
   return {
@@ -1975,14 +1989,18 @@ export default function App() {
 
   const creditCardNextMonthBalance = creditAccounts.reduce((sum, account) => {
     const totalDueForCard = account.creditLimit - account.availableCredit
-    const statementBeforePayment = account.lastStatementDate <= account.nextPaymentDate
-    const nextMonthBalance = account.paidThisMonth
-      ? statementBeforePayment
-        ? totalDueForCard
-        : account.statementCycledAfterPayment
-          ? account.lastStatementBalance
+    let nextMonthBalance: number
+    if (account.paidThisMonth) {
+      if (account.nextPaymentDate < account.lastStatementDate) {
+        nextMonthBalance = account.statementCycledAfterPayment
+          ? totalDueForCard - account.lastStatementBalance
           : totalDueForCard
-      : totalDueForCard - account.lastStatementBalance
+      } else {
+        nextMonthBalance = totalDueForCard
+      }
+    } else {
+      nextMonthBalance = totalDueForCard - account.lastStatementBalance
+    }
     return sum + nextMonthBalance
   }, 0)
 
@@ -2969,7 +2987,7 @@ export default function App() {
         </thead>
         <tbody>
           {displayedCreditAccounts.map((account) => {
-            const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account)
+            const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account, activeCyclePeriod.startDate)
             const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
             const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
 
@@ -5156,7 +5174,7 @@ export default function App() {
 
               {activeDisplayedCreditAccount ? (() => {
                 const account = activeDisplayedCreditAccount
-                const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account)
+                const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account, activeCyclePeriod.startDate)
                 const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
                 const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
 
