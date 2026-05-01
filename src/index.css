@@ -2629,10 +2629,18 @@ tbody tr:hover {
 
 .bank-section-header {
   width: 100%;
+  flex-wrap: wrap;
 }
 
 .bank-section-header h2 {
   flex: 0 1 auto;
+}
+
+.bank-accounts-section .section-header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  margin-left: auto;
 }
 
 .income-subsection-grid {

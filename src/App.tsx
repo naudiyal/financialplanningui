@@ -768,17 +768,24 @@ const applyOrderedIds = <T,>(items: T[], orderedIds: string[], getId: (item: T) 
 const getCreditMetrics = (account: CreditAccount) => {
   const totalDueForCard = account.creditLimit - account.availableCredit
   const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
+  const statementBeforePayment = account.lastStatementDate <= account.nextPaymentDate
   const nextMonthStatementBalance = account.paidThisMonth
-    ? account.statementCycledAfterPayment
-      ? account.lastStatementBalance
-      : totalDueForCard
+    ? statementBeforePayment
+      ? totalDueForCard
+      : account.statementCycledAfterPayment
+        ? account.lastStatementBalance
+        : totalDueForCard
     : totalDueForCard - account.lastStatementBalance
+  const displayedLastStatementBalance = account.paidThisMonth && statementBeforePayment
+    ? totalDueForCard
+    : account.lastStatementBalance
   const utilizationPercent = account.creditLimit > 0 ? (totalDueForCard / account.creditLimit) * 100 : 0
 
   return {
     totalDueForCard,
     currentMonthPayment,
     nextMonthStatementBalance,
+    displayedLastStatementBalance,
     utilizationPercent,
   }
 }
@@ -1968,10 +1975,13 @@ export default function App() {
 
   const creditCardNextMonthBalance = creditAccounts.reduce((sum, account) => {
     const totalDueForCard = account.creditLimit - account.availableCredit
+    const statementBeforePayment = account.lastStatementDate <= account.nextPaymentDate
     const nextMonthBalance = account.paidThisMonth
-      ? account.statementCycledAfterPayment
-        ? account.lastStatementBalance
-        : totalDueForCard
+      ? statementBeforePayment
+        ? totalDueForCard
+        : account.statementCycledAfterPayment
+          ? account.lastStatementBalance
+          : totalDueForCard
       : totalDueForCard - account.lastStatementBalance
     return sum + nextMonthBalance
   }, 0)
@@ -2959,7 +2969,7 @@ export default function App() {
         </thead>
         <tbody>
           {displayedCreditAccounts.map((account) => {
-            const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, utilizationPercent } = getCreditMetrics(account)
+            const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account)
             const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
             const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
 
@@ -3015,7 +3025,7 @@ export default function App() {
                 </td>
                 <td>
                   <CurrencyInput
-                    value={account.lastStatementBalance}
+                    value={displayedLastStatementBalance}
                     onValueChange={(value) => updateAccountById(account.id, 'lastStatementBalance', value)}
                   />
                 </td>
@@ -5146,7 +5156,7 @@ export default function App() {
 
               {activeDisplayedCreditAccount ? (() => {
                 const account = activeDisplayedCreditAccount
-                const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, utilizationPercent } = getCreditMetrics(account)
+                const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account)
                 const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
                 const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
 
@@ -5234,7 +5244,7 @@ export default function App() {
                         <label className="credit-account-field">
                           <span>{columnLabels.creditAccounts[6]?.label ?? 'Latest Stmt Balance'}</span>
                           <CurrencyInput
-                            value={account.lastStatementBalance}
+                            value={displayedLastStatementBalance}
                             onValueChange={(value) => updateAccountById(account.id, 'lastStatementBalance', value)}
                           />
                         </label>
