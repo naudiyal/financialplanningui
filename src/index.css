@@ -511,8 +511,17 @@ html, body, #root {
   border: 1px solid var(--border, #334155);
   background: var(--input-bg, #1e293b);
   color: var(--text, #e2e8f0);
-  font-size: 0.9rem;
+  font-size: 16px;
   cursor: pointer;
+}
+
+.pin-input {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  font-size: 16px;
 }
 
 .modal-card {

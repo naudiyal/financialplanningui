@@ -587,6 +587,8 @@ const formatViewerUserLabel = (user: SharedViewerUserSummary) => {
 const formatEncryptedViewerUserLabel = (user: SharedViewerUserSummary) =>
   user.encryptionExempt ? formatViewerUserLabel(user) : `🔒 ${formatViewerUserLabel(user)}`
 
+const normalizePinValue = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 4)
+
 type CurrencyInputProps = {
   value: number
   onValueChange: (value: number) => void
@@ -4216,7 +4218,10 @@ export default function App() {
     }
   }
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
+    await handleLogout()
+    setAuthState('checking')
+    setAuthMessage('Redirecting to Google sign-in...')
     window.location.href = LOGIN_URL
   }
 
@@ -4651,7 +4656,7 @@ export default function App() {
     try {
       if (pinModalMode === 'new') {
         if (pinInput.length !== 4) {
-          setPinModalError('PIN must be exactly 4 digits.')
+          setPinModalError('PIN must be exactly 4 letters and numbers.')
           return
         }
         if (pinInput !== pinConfirmInput) {
@@ -4676,7 +4681,7 @@ export default function App() {
         setPinConfirmInput('')
       } else if (pinModalMode === 'verify') {
         if (pinInput.length !== 4) {
-          setPinModalError('PIN must be exactly 4 digits.')
+          setPinModalError('PIN must be exactly 4 letters and numbers.')
           return
         }
         if (!pendingEncryptedPlanResponse) {
@@ -4710,7 +4715,7 @@ export default function App() {
         setPinInput('')
       } else if (pinModalMode === 'migrate') {
         if (pinInput.length !== 4) {
-          setPinModalError('PIN must be exactly 4 digits.')
+          setPinModalError('PIN must be exactly 4 letters and numbers.')
           return
         }
         if (!pendingEncryptedPlanResponse) {
@@ -4743,7 +4748,7 @@ export default function App() {
         void persistFinancialPlan(decryptedData, 'Data migrated to unencrypted storage.')
       } else if (pinModalMode === 'change') {
         if (pinCurrentInput.length !== 4 || pinNewInput.length !== 4 || pinNewConfirmInput.length !== 4) {
-          setPinModalError('All PIN fields must be exactly 4 digits.')
+          setPinModalError('All PIN fields must be exactly 4 letters and numbers.')
           return
         }
         if (pinNewInput !== pinNewConfirmInput) {
@@ -4966,7 +4971,7 @@ export default function App() {
           <p className="auth-copy">
             Sign in with Google to access the shared financial planning dashboard.
           </p>
-          <button type="button" className="toolbar-button auth-button" onClick={handleLogin} disabled={authState === 'checking'}>
+          <button type="button" className="toolbar-button auth-button" onClick={() => void handleLogin()} disabled={authState === 'checking'}>
             {authState === 'checking' ? 'Checking...' : 'Sign in with Google'}
           </button>
           <p className={`auth-message auth-${authState}`}>{authMessage}</p>
@@ -5051,29 +5056,35 @@ export default function App() {
                 <p className="eyebrow">Welcome — One-Time Setup</p>
                 <h2 id="pin-modal-title">Protect Your Financial Data</h2>
                 <p>🔒 <strong>Your financial data is private to you.</strong></p>
-                <p>Set a 4-digit PIN to enable end-to-end encryption. Your data is encrypted with AES-256-GCM directly in your browser — we have no way to see it. Your PIN never leaves your device and is never stored anywhere.</p>
+                <p>Set a 4-character PIN using letters and numbers to enable end-to-end encryption. Your data is encrypted with AES-256-GCM directly in your browser — we have no way to see it. Your PIN never leaves your device and is never stored anywhere.</p>
                 <p className="danger-copy-subtle">⚠️ Your PIN cannot be recovered. If forgotten, your data will be permanently deleted.</p>
                 <div className="pin-fields">
                   <input
                     type="password"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={4}
-                    placeholder="Enter 4-digit PIN"
+                    placeholder="Enter 4-character PIN"
                     value={pinInput}
-                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
                     className="pin-input"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                     autoFocus
                   />
                   <input
                     type="password"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={4}
                     placeholder="Confirm PIN"
                     value={pinConfirmInput}
-                    onChange={(e) => setPinConfirmInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onChange={(e) => setPinConfirmInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
                     className="pin-input"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                 </div>
                 <div className="pin-currency-select">
@@ -5104,17 +5115,20 @@ export default function App() {
                   <p className="pin-modal-user-email">{authenticatedUser.email}</p>
                 ) : null}
                 <p>🔒 <strong>Your data is end-to-end encrypted.</strong></p>
-                <p>Enter your 4-digit PIN to decrypt your financial data. Your data is protected with AES-256-GCM — only your PIN can unlock it. We have no way to access it.</p>
+                <p>Enter your 4-character PIN to decrypt your financial data. Your data is protected with AES-256-GCM — only your PIN can unlock it. We have no way to access it.</p>
                 <div className="pin-fields">
                   <input
                     type="password"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={4}
                     placeholder="Enter your PIN"
                     value={pinInput}
-                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
                     className="pin-input"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                     autoFocus
                   />
                 </div>
@@ -5136,13 +5150,16 @@ export default function App() {
                 <div className="pin-fields">
                   <input
                     type="password"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={4}
                     placeholder="Enter your PIN"
                     value={pinInput}
-                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
                     className="pin-input"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                     autoFocus
                   />
                 </div>
@@ -5897,31 +5914,37 @@ export default function App() {
                 <p className="eyebrow">Security</p>
                 <h2 id="pin-modal-title">Protect Your Financial Data</h2>
                 <p>🔒 <strong>Your financial data is private to you.</strong></p>
-                <p>Set a 4-digit PIN to enable end-to-end encryption for your data.</p>
+                <p>Set a 4-character PIN using letters and numbers to enable end-to-end encryption for your data.</p>
                 <p><strong>How it works:</strong> Your PIN generates a unique encryption key using PBKDF2 (100,000 iterations). Your data is then encrypted with AES-256-GCM directly in your browser before it reaches our servers.</p>
                 <p><strong>We cannot see your data.</strong> Your PIN never leaves your device and is never stored anywhere.</p>
                 <p className="danger-copy-subtle">⚠️ Your PIN cannot be recovered. If forgotten, your data will be permanently deleted.</p>
                 <div className="pin-fields">
                   <input
                     type="password"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={4}
-                    placeholder="Enter 4-digit PIN"
+                    placeholder="Enter 4-character PIN"
                     value={pinInput}
-                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
                     className="pin-input"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                     autoFocus
                   />
                   <input
                     type="password"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={4}
                     placeholder="Confirm PIN"
                     value={pinConfirmInput}
-                    onChange={(e) => setPinConfirmInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onChange={(e) => setPinConfirmInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
                     className="pin-input"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                 </div>
                 {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
@@ -5939,17 +5962,20 @@ export default function App() {
                   <p className="pin-modal-user-email">{authenticatedUser.email}</p>
                 ) : null}
                 <p>🔒 <strong>Your data is end-to-end encrypted.</strong></p>
-                <p>Enter your 4-digit PIN to decrypt your financial data. Your data is protected with AES-256-GCM — only your PIN can unlock it. We have no way to access it.</p>
+                <p>Enter your 4-character PIN to decrypt your financial data. Your data is protected with AES-256-GCM — only your PIN can unlock it. We have no way to access it.</p>
                 <div className="pin-fields">
                   <input
                     type="password"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={4}
                     placeholder="Enter your PIN"
                     value={pinInput}
-                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
                     className="pin-input"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                     autoFocus
                   />
                 </div>
@@ -5971,13 +5997,16 @@ export default function App() {
                 <div className="pin-fields">
                   <input
                     type="password"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={4}
                     placeholder="Enter your PIN"
                     value={pinInput}
-                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
                     className="pin-input"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                     autoFocus
                   />
                 </div>
@@ -5992,38 +6021,47 @@ export default function App() {
               <>
                 <p className="eyebrow">Security</p>
                 <h2 id="pin-modal-title">Change Your PIN</h2>
-                <p>Enter your current PIN to verify, then set a new 4-digit PIN. Both your current and previous cycles will be re-encrypted with the new PIN.</p>
+                <p>Enter your current PIN to verify, then set a new 4-character PIN. Both your current and previous cycles will be re-encrypted with the new PIN.</p>
                 <div className="pin-fields">
                   <input
                     type="password"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={4}
                     placeholder="Current PIN"
                     value={pinCurrentInput}
-                    onChange={(e) => setPinCurrentInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onChange={(e) => setPinCurrentInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
                     className="pin-input"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                     autoFocus
                   />
                   <input
                     type="password"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={4}
                     placeholder="New PIN"
                     value={pinNewInput}
-                    onChange={(e) => setPinNewInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onChange={(e) => setPinNewInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
                     className="pin-input"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                   <input
                     type="password"
-                    inputMode="numeric"
+                    inputMode="text"
                     maxLength={4}
                     placeholder="Confirm New PIN"
                     value={pinNewConfirmInput}
-                    onChange={(e) => setPinNewConfirmInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onChange={(e) => setPinNewConfirmInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
                     className="pin-input"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                 </div>
                 {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
