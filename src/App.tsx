@@ -1435,10 +1435,12 @@ export default function App() {
   const [pinNewConfirmInput, setPinNewConfirmInput] = useState('')
   const [resetConfirmText, setResetConfirmText] = useState('')
   const [pinModalSubmitting, setPinModalSubmitting] = useState(false)
+  const [pinModalExiting, setPinModalExiting] = useState(false)
   const [planReady, setPlanReady] = useState(false)
   const [adminDeleteConfirmUserSub, setAdminDeleteConfirmUserSub] = useState<string | null>(null)
   const [isDeletingViewerTracker, setIsDeletingViewerTracker] = useState(false)
   const [pinModalCurrency, setPinModalCurrency] = useState<string>(() => _activeCurrency.code)
+  const [pinModalTimelineType, setPinModalTimelineType] = useState<TimelineType>('START_TO_END')
   const [currencyCode, setCurrencyCode] = useState<string>(() => _activeCurrency.code)
   const [pendingEncryptedPlanResponse, setPendingEncryptedPlanResponse] = useState<FinancialPlanCycleResponse | null>(null)
   const [storedPinVerify, setStoredPinVerify] = useState<string | null>(null)
@@ -2634,7 +2636,7 @@ export default function App() {
         {isCheckboxIncome ? (
           <input
             type="checkbox"
-            checked={item.amount === 0}
+            checked={biMonthlySalary > 0 && item.amount === 0}
             onChange={(e) => updateIncomeItemById(item.id, e.target.checked ? 0 : biMonthlySalary)}
             className="salary-toggle-checkbox"
           />
@@ -3584,6 +3586,7 @@ export default function App() {
       setAuthState('authenticated')
       if (!isEncryptionExempt && !pinKey && !pinSetupInitiatedRef.current) {
         pinSetupInitiatedRef.current = true
+        setPinModalTimelineType(cycleResponse.timelineType)
         setPinInput('')
         setPinConfirmInput('')
         setPinModalError('')
@@ -4302,6 +4305,43 @@ export default function App() {
     }
   }
 
+  const handleFirstTimeSetupExit = async () => {
+    if (pinModalMode !== 'new') {
+      return
+    }
+
+    setPinModalExiting(true)
+    setPinModalError('')
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/terms/reset`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setPinKey(null)
+        pinSetupInitiatedRef.current = false
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setIsPinModalOpen(false)
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to reset terms acceptance: ${response.status}`)
+      }
+
+      await handleLogout()
+      setAuthMessage('Setup exited. Sign in again and accept Terms and Conditions to continue.')
+    } catch {
+      setPinModalError('Unable to exit setup right now. Try again.')
+    } finally {
+      setPinModalExiting(false)
+    }
+  }
+
   const handleLogout = async () => {
     try {
       await fetch(`${API_BASE_URL}/api/auth/logout`, {
@@ -4321,6 +4361,8 @@ export default function App() {
     setTermsError('')
     setPlanReady(false)
     setPlanViewMode('personal')
+    setPinModalTimelineType('START_TO_END')
+    setPinModalExiting(false)
     setSharedViewerUsers([])
     setSelectedSharedViewerUserSub('')
     setPersonalPlanSnapshot(null)
@@ -4668,14 +4710,36 @@ export default function App() {
         const userSub = authenticatedUser?.email ?? 'unknown'
         const key = await deriveKey(pinInput, userSub)
         const currentCycleData = buildPayload()
-        await saveCycleEncrypted(currentCycleData, key, 'current')
-        const rawPrevious = await fetchRawCycleData('previous')
-        if (rawPrevious?.hasPreviousCycle && !rawPrevious.data.encryptedData) {
-          await saveCycleEncrypted(rawPrevious.data, key, 'previous')
+        if (pinModalTimelineType !== timelineType) {
+          const encryptedPayload = await buildEncryptedWrapper(currentCycleData, key)
+          const response = await fetch(`${API_BASE_URL}/api/financial-plan/switch-timeline`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              financialPlanData: encryptedPayload,
+              expectedCurrentCycle: currentCyclePeriod,
+              targetTimelineType: pinModalTimelineType,
+            }),
+          })
+          if (!response.ok) {
+            throw new Error(`Failed to switch timeline during PIN setup: ${response.status}`)
+          }
+          const cycleResponse: FinancialPlanCycleResponse = await response.json()
+          applyPersonalCycleResponse(cycleResponse, 'PIN created and data encrypted.', false, currentCycleData)
+          void refreshBankBalanceHistory()
+        } else {
+          await saveCycleEncrypted(currentCycleData, key, 'current')
+          const rawPrevious = await fetchRawCycleData('previous')
+          if (rawPrevious?.hasPreviousCycle && !rawPrevious.data.encryptedData) {
+            await saveCycleEncrypted(rawPrevious.data, key, 'previous')
+          }
+          setSaveState('saved')
+          setSaveMessage('PIN created and data encrypted.')
         }
         setPinKey(key)
-        setSaveState('saved')
-        setSaveMessage('PIN created and data encrypted.')
         setIsPinModalOpen(false)
         setPinInput('')
         setPinConfirmInput('')
@@ -5100,9 +5164,35 @@ export default function App() {
                     ))}
                   </select>
                 </div>
+                <fieldset className="pin-timeline-select">
+                  <legend className="pin-timeline-label">Cycle Type</legend>
+                  <label className="pin-timeline-option">
+                    <input
+                      type="radio"
+                      name="pin-timeline-type"
+                      value="START_TO_END"
+                      checked={pinModalTimelineType === 'START_TO_END'}
+                      onChange={() => setPinModalTimelineType('START_TO_END')}
+                    />
+                    <span>Start of Month to End of Month</span>
+                  </label>
+                  <label className="pin-timeline-option">
+                    <input
+                      type="radio"
+                      name="pin-timeline-type"
+                      value="MID_TO_MID"
+                      checked={pinModalTimelineType === 'MID_TO_MID'}
+                      onChange={() => setPinModalTimelineType('MID_TO_MID')}
+                    />
+                    <span>Mid Month to Mid Month</span>
+                  </label>
+                </fieldset>
                 {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
                 <div className="modal-actions">
-                  <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
+                  <button type="button" className="toolbar-button link-button" onClick={() => void handleFirstTimeSetupExit()} disabled={pinModalSubmitting || pinModalExiting}>
+                    {pinModalExiting ? 'Exiting...' : 'Exit'}
+                  </button>
+                  <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting || pinModalExiting}>
                     {pinModalSubmitting ? 'Setting up...' : 'Get Started'}
                   </button>
                 </div>
@@ -5947,9 +6037,35 @@ export default function App() {
                     spellCheck={false}
                   />
                 </div>
+                <fieldset className="pin-timeline-select">
+                  <legend className="pin-timeline-label">Cycle Type</legend>
+                  <label className="pin-timeline-option">
+                    <input
+                      type="radio"
+                      name="pin-timeline-type-inline"
+                      value="START_TO_END"
+                      checked={pinModalTimelineType === 'START_TO_END'}
+                      onChange={() => setPinModalTimelineType('START_TO_END')}
+                    />
+                    <span>Start of Month to End of Month</span>
+                  </label>
+                  <label className="pin-timeline-option">
+                    <input
+                      type="radio"
+                      name="pin-timeline-type-inline"
+                      value="MID_TO_MID"
+                      checked={pinModalTimelineType === 'MID_TO_MID'}
+                      onChange={() => setPinModalTimelineType('MID_TO_MID')}
+                    />
+                    <span>Mid Month to Mid Month</span>
+                  </label>
+                </fieldset>
                 {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
                 <div className="modal-actions">
-                  <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
+                  <button type="button" className="toolbar-button link-button" onClick={() => void handleFirstTimeSetupExit()} disabled={pinModalSubmitting || pinModalExiting}>
+                    {pinModalExiting ? 'Exiting...' : 'Exit'}
+                  </button>
+                  <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting || pinModalExiting}>
                     {pinModalSubmitting ? 'Setting up...' : 'Set PIN'}
                   </button>
                 </div>
