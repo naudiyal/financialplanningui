@@ -31,6 +31,7 @@ import {
   IncomeItem,
   incomeItems as initialIncomeItems,
 } from './data/financialData'
+import { createVerifyToken, decryptJson, deriveKey, encryptJson, verifyPin } from './utils/encryptionUtils'
 
 type ExpenseItem = {
   id: string
@@ -58,11 +59,20 @@ type FinancialPlanData = {
   viewModes?: FinancialPlanViewModes
   incomeSubsections?: IncomeSubsection[]
   summary?: Record<string, number>
+  encryptedData?: string
+  encryptionIv?: string
+  pinVerify?: string
+  pinVerifyIv?: string
 }
 
 type AuthStatusResponse = {
   authenticated: boolean
   admin: boolean
+  encryptionExempt: boolean
+  termsAccepted: boolean
+  requiredTermsVersion: string | null
+  acceptedTermsVersion: string | null
+  acceptedTermsAt: string | null
   email: string | null
   name: string | null
   pictureUrl: string | null
@@ -72,6 +82,8 @@ type SharedViewerUserSummary = {
   userSub: string
   email: string | null
   displayName: string | null
+  lastUpdatedAt: string | null
+  encryptionExempt: boolean
 }
 
 type TimelineType = 'MID_TO_MID' | 'START_TO_END'
@@ -80,6 +92,7 @@ type PlanViewMode = 'personal' | 'sample'
 
 const PERSONAL_ROUTE = '/'
 const TRACKERS_ROUTE = '/trackers'
+const TERMS_LAST_UPDATED_LABEL = 'May 2, 2026'
 
 type AppRoute = typeof PERSONAL_ROUTE | typeof TRACKERS_ROUTE
 
@@ -112,6 +125,8 @@ type BankBalanceHistoryPoint = {
 type BankBalanceHistoryCycle = {
   cycle: CyclePeriod
   banks: BankBalanceHistoryPoint[]
+  encryptedHistoryData?: string
+  encryptionIv?: string
 }
 
 type BankBalanceHistoryResponse = {
@@ -172,8 +187,76 @@ const convertToISODate = (dateStr: string) => {
   return `2026-${months[month]}-${day.padStart(2, '0')}`
 }
 
+type CurrencyConfig = { code: string; locale: string; symbol: string; label: string }
+
+const SUPPORTED_CURRENCIES: readonly CurrencyConfig[] = [
+  { code: 'USD', locale: 'en-US', symbol: '$', label: 'USD — US Dollar ($)' },
+  { code: 'CAD', locale: 'en-CA', symbol: 'CA$', label: 'CAD — Canadian Dollar (CA$)' },
+  { code: 'GBP', locale: 'en-GB', symbol: '£', label: 'GBP — British Pound (£)' },
+  { code: 'EUR', locale: 'en-IE', symbol: '€', label: 'EUR — Euro (€)' },
+  { code: 'AUD', locale: 'en-AU', symbol: 'A$', label: 'AUD — Australian Dollar (A$)' },
+  { code: 'NZD', locale: 'en-NZ', symbol: 'NZ$', label: 'NZD — New Zealand Dollar (NZ$)' },
+  { code: 'SGD', locale: 'en-SG', symbol: 'S$', label: 'SGD — Singapore Dollar (S$)' },
+  { code: 'HKD', locale: 'zh-HK', symbol: 'HK$', label: 'HKD — Hong Kong Dollar (HK$)' },
+  { code: 'CHF', locale: 'de-CH', symbol: 'CHF', label: 'CHF — Swiss Franc (CHF)' },
+  { code: 'SEK', locale: 'sv-SE', symbol: 'kr', label: 'SEK — Swedish Krona (kr)' },
+  { code: 'NOK', locale: 'nb-NO', symbol: 'kr', label: 'NOK — Norwegian Krone (kr)' },
+  { code: 'DKK', locale: 'da-DK', symbol: 'kr', label: 'DKK — Danish Krone (kr)' },
+  { code: 'INR', locale: 'en-IN', symbol: '₹', label: 'INR — Indian Rupee (₹)' },
+  { code: 'PKR', locale: 'en-PK', symbol: '₨', label: 'PKR — Pakistani Rupee (₨)' },
+  { code: 'BDT', locale: 'bn-BD', symbol: '৳', label: 'BDT — Bangladeshi Taka (৳)' },
+  { code: 'LKR', locale: 'si-LK', symbol: 'Rs', label: 'LKR — Sri Lankan Rupee (Rs)' },
+  { code: 'NPR', locale: 'ne-NP', symbol: 'Rs', label: 'NPR — Nepalese Rupee (Rs)' },
+  { code: 'JPY', locale: 'ja-JP', symbol: '¥', label: 'JPY — Japanese Yen (¥)' },
+  { code: 'CNY', locale: 'zh-CN', symbol: '¥', label: 'CNY — Chinese Yuan (¥)' },
+  { code: 'KRW', locale: 'ko-KR', symbol: '₩', label: 'KRW — South Korean Won (₩)' },
+  { code: 'TWD', locale: 'zh-TW', symbol: 'NT$', label: 'TWD — Taiwan Dollar (NT$)' },
+  { code: 'THB', locale: 'th-TH', symbol: '฿', label: 'THB — Thai Baht (฿)' },
+  { code: 'MYR', locale: 'ms-MY', symbol: 'RM', label: 'MYR — Malaysian Ringgit (RM)' },
+  { code: 'IDR', locale: 'id-ID', symbol: 'Rp', label: 'IDR — Indonesian Rupiah (Rp)' },
+  { code: 'PHP', locale: 'en-PH', symbol: '₱', label: 'PHP — Philippine Peso (₱)' },
+  { code: 'VND', locale: 'vi-VN', symbol: '₫', label: 'VND — Vietnamese Dong (₫)' },
+  { code: 'AED', locale: 'ar-AE', symbol: 'د.إ', label: 'AED — UAE Dirham (د.إ)' },
+  { code: 'SAR', locale: 'ar-SA', symbol: '﷼', label: 'SAR — Saudi Riyal (﷼)' },
+  { code: 'QAR', locale: 'ar-QA', symbol: '﷼', label: 'QAR — Qatari Riyal (﷼)' },
+  { code: 'KWD', locale: 'ar-KW', symbol: 'د.ك', label: 'KWD — Kuwaiti Dinar (د.ك)' },
+  { code: 'BHD', locale: 'ar-BH', symbol: '.د.ب', label: 'BHD — Bahraini Dinar (.د.ب)' },
+  { code: 'OMR', locale: 'ar-OM', symbol: '﷼', label: 'OMR — Omani Rial (﷼)' },
+  { code: 'JOD', locale: 'ar-JO', symbol: 'د.ا', label: 'JOD — Jordanian Dinar (د.ا)' },
+  { code: 'EGP', locale: 'ar-EG', symbol: '£', label: 'EGP — Egyptian Pound (£)' },
+  { code: 'TRY', locale: 'tr-TR', symbol: '₺', label: 'TRY — Turkish Lira (₺)' },
+  { code: 'ILS', locale: 'he-IL', symbol: '₪', label: 'ILS — Israeli Shekel (₪)' },
+  { code: 'ZAR', locale: 'en-ZA', symbol: 'R', label: 'ZAR — South African Rand (R)' },
+  { code: 'NGN', locale: 'en-NG', symbol: '₦', label: 'NGN — Nigerian Naira (₦)' },
+  { code: 'KES', locale: 'sw-KE', symbol: 'KSh', label: 'KES — Kenyan Shilling (KSh)' },
+  { code: 'GHS', locale: 'ak-GH', symbol: '₵', label: 'GHS — Ghanaian Cedi (₵)' },
+  { code: 'MXN', locale: 'es-MX', symbol: 'MX$', label: 'MXN — Mexican Peso (MX$)' },
+  { code: 'BRL', locale: 'pt-BR', symbol: 'R$', label: 'BRL — Brazilian Real (R$)' },
+  { code: 'ARS', locale: 'es-AR', symbol: '$', label: 'ARS — Argentine Peso ($)' },
+  { code: 'CLP', locale: 'es-CL', symbol: '$', label: 'CLP — Chilean Peso ($)' },
+  { code: 'COP', locale: 'es-CO', symbol: '$', label: 'COP — Colombian Peso ($)' },
+  { code: 'PEN', locale: 'es-PE', symbol: 'S/', label: 'PEN — Peruvian Sol (S/)' },
+  { code: 'UYU', locale: 'es-UY', symbol: '$U', label: 'UYU — Uruguayan Peso ($U)' },
+  { code: 'RON', locale: 'ro-RO', symbol: 'lei', label: 'RON — Romanian Leu (lei)' },
+  { code: 'PLN', locale: 'pl-PL', symbol: 'zł', label: 'PLN — Polish Złoty (zł)' },
+  { code: 'CZK', locale: 'cs-CZ', symbol: 'Kč', label: 'CZK — Czech Koruna (Kč)' },
+  { code: 'HUF', locale: 'hu-HU', symbol: 'Ft', label: 'HUF — Hungarian Forint (Ft)' },
+  { code: 'BGN', locale: 'bg-BG', symbol: 'лв', label: 'BGN — Bulgarian Lev (лв)' },
+  { code: 'HRK', locale: 'hr-HR', symbol: 'kn', label: 'HRK — Croatian Kuna (kn)' },
+  { code: 'RSD', locale: 'sr-RS', symbol: 'din', label: 'RSD — Serbian Dinar (din)' },
+  { code: 'UAH', locale: 'uk-UA', symbol: '₴', label: 'UAH — Ukrainian Hryvnia (₴)' },
+  { code: 'RUB', locale: 'ru-RU', symbol: '₽', label: 'RUB — Russian Ruble (₽)' },
+  { code: 'KZT', locale: 'kk-KZ', symbol: '₸', label: 'KZT — Kazakhstani Tenge (₸)' },
+]
+
+const CURRENCY_STORAGE_KEY = 'mbb_currency_code'
+
+let _activeCurrency: CurrencyConfig =
+  SUPPORTED_CURRENCIES.find(c => c.code === (localStorage.getItem(CURRENCY_STORAGE_KEY) ?? 'USD'))
+  ?? SUPPORTED_CURRENCIES[0]!
+
 const currency = (value: number) =>
-  value.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+  value.toLocaleString(_activeCurrency.locale, { style: 'currency', currency: _activeCurrency.code })
 
 const getIncomeSubsectionStartingBalance = (subsection: IncomeSubsection) => {
   const midMonthSalary = subsection.midMonthSalaryArrived ? 0 : subsection.biMonthlySalary
@@ -501,6 +584,9 @@ const formatViewerUserLabel = (user: SharedViewerUserSummary) => {
   return primaryLabel
 }
 
+const formatEncryptedViewerUserLabel = (user: SharedViewerUserSummary) =>
+  user.encryptionExempt ? formatViewerUserLabel(user) : `🔒 ${formatViewerUserLabel(user)}`
+
 type CurrencyInputProps = {
   value: number
   onValueChange: (value: number) => void
@@ -510,7 +596,7 @@ type CurrencyInputProps = {
 
 const CurrencyInput = ({ value, onValueChange, wrapClassName, inputClassName }: CurrencyInputProps) => (
   <div className={joinClassNames('currency-input-wrap', wrapClassName)}>
-    <span className="currency-prefix">$</span>
+    <span className="currency-prefix">{_activeCurrency.symbol}</span>
     <NumericFormat
       value={value}
       thousandSeparator
@@ -765,7 +851,7 @@ const applyOrderedIds = <T,>(items: T[], orderedIds: string[], getId: (item: T) 
   return [...orderedItems, ...remainingItems]
 }
 
-const getCreditMetrics = (account: CreditAccount, cycleStartDate = '') => {
+const getCreditMetrics = (account: CreditAccount) => {
   const totalDueForCard = account.creditLimit - account.availableCredit
   const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
 
@@ -779,12 +865,8 @@ const getCreditMetrics = (account: CreditAccount, cycleStartDate = '') => {
         ? totalDueForCard - account.lastStatementBalance
         : totalDueForCard
       displayedLastStatementBalance = account.lastStatementBalance
-    } else if (account.lastStatementDate < account.nextPaymentDate && account.lastStatementDate >= cycleStartDate) {
-      // statement is before payment AND statement is within the current cycle
-      nextMonthStatementBalance = totalDueForCard
-      displayedLastStatementBalance = totalDueForCard
     } else {
-      // statement is before payment AND statement is from a prior cycle
+      // statement is before payment
       nextMonthStatementBalance = totalDueForCard
       displayedLastStatementBalance = account.lastStatementBalance
     }
@@ -863,9 +945,9 @@ const getFinancialPlanSignature = (data: FinancialPlanData) =>
   }))
 
 const chartCurrency = (value: number) =>
-  new Intl.NumberFormat('en-US', {
+  new Intl.NumberFormat(_activeCurrency.locale, {
     style: 'currency',
-    currency: 'USD',
+    currency: _activeCurrency.code,
     notation: Math.abs(value) >= 1000 ? 'compact' : 'standard',
     maximumFractionDigits: 1,
   }).format(value)
@@ -969,11 +1051,13 @@ const getCyclePeriodKey = (cyclePeriod: CyclePeriod) => `${cyclePeriod.startDate
 
 const normalizeBankBalanceHistoryCycle = (cycle: BankBalanceHistoryCycle): BankBalanceHistoryCycle => ({
   cycle: cycle.cycle,
-  banks: cycle.banks.map((bank) => ({
+  banks: (cycle.banks ?? []).map((bank) => ({
     bankId: bank.bankId,
     bankName: bank.bankName,
     monthEndBalanceMinusDues: bank.monthEndBalanceMinusDues,
   })),
+  encryptedHistoryData: cycle.encryptedHistoryData,
+  encryptionIv: cycle.encryptionIv,
 })
 
 const getBudgetCycleTimeline = (cyclePeriod: CyclePeriod, today: Date) => {
@@ -1326,6 +1410,9 @@ export default function App() {
   const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking')
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthStatusResponse | null>(null)
   const [authMessage, setAuthMessage] = useState('Checking sign-in status...')
+  const [termsAcceptedChecked, setTermsAcceptedChecked] = useState(false)
+  const [termsSubmitting, setTermsSubmitting] = useState(false)
+  const [termsError, setTermsError] = useState('')
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [showSamplePrompt, setShowSamplePrompt] = useState(false)
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false)
@@ -1335,6 +1422,25 @@ export default function App() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isCloseCycleDialogOpen, setIsCloseCycleDialogOpen] = useState(false)
   const [isRevertCycleDialogOpen, setIsRevertCycleDialogOpen] = useState(false)
+  const [pinKey, setPinKey] = useState<CryptoKey | null>(null)
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false)
+  const [pinModalMode, setPinModalMode] = useState<'new' | 'verify' | 'migrate' | 'change' | 'reset-confirm'>('new')
+  const [pinModalError, setPinModalError] = useState('')
+  const [pinInput, setPinInput] = useState('')
+  const [pinConfirmInput, setPinConfirmInput] = useState('')
+  const [pinCurrentInput, setPinCurrentInput] = useState('')
+  const [pinNewInput, setPinNewInput] = useState('')
+  const [pinNewConfirmInput, setPinNewConfirmInput] = useState('')
+  const [resetConfirmText, setResetConfirmText] = useState('')
+  const [pinModalSubmitting, setPinModalSubmitting] = useState(false)
+  const [planReady, setPlanReady] = useState(false)
+  const [adminDeleteConfirmUserSub, setAdminDeleteConfirmUserSub] = useState<string | null>(null)
+  const [isDeletingViewerTracker, setIsDeletingViewerTracker] = useState(false)
+  const [pinModalCurrency, setPinModalCurrency] = useState<string>(() => _activeCurrency.code)
+  const [currencyCode, setCurrencyCode] = useState<string>(() => _activeCurrency.code)
+  const [pendingEncryptedPlanResponse, setPendingEncryptedPlanResponse] = useState<FinancialPlanCycleResponse | null>(null)
+  const [storedPinVerify, setStoredPinVerify] = useState<string | null>(null)
+  const [storedPinVerifyIv, setStoredPinVerifyIv] = useState<string | null>(null)
   const [deleteState, setDeleteState] = useState<'idle' | 'deleting' | 'error'>('idle')
   const [deleteMessage, setDeleteMessage] = useState('')
   const [selectedCycle, setSelectedCycle] = useState<CycleSelection>('current')
@@ -1363,6 +1469,7 @@ export default function App() {
   const dismissSamplePromptOnMenuCloseRef = useRef(false)
   const skipNextCarryoverResetRef = useRef(false)
   const bankBalanceHistoryRequestIdRef = useRef(0)
+  const pinSetupInitiatedRef = useRef(false)
 
   const expensePayFromOptions = useMemo<BankPayFromOption[]>(() => [
     { id: DEFAULT_BANK_EXPENSE_SOURCE_ID, label: sectionTitles.defaultBank },
@@ -1434,6 +1541,8 @@ export default function App() {
           setShowSamplePrompt(false)
           setSharedViewerUsers([])
           setSelectedSharedViewerUserSub('')
+          setTermsAcceptedChecked(false)
+          setTermsError('')
           setAuthState('unauthenticated')
           setAuthMessage(loginStatus === 'error' ? 'Google sign-in failed. Try again.' : 'Sign in with Google to continue.')
           setSaveState('idle')
@@ -1442,6 +1551,9 @@ export default function App() {
         }
 
         setAuthenticatedUser(authData)
+        setTermsAcceptedChecked(false)
+        setTermsError('')
+        setPlanReady(false)
         setAuthState('authenticated')
         setAuthMessage('')
       } catch {
@@ -1454,6 +1566,8 @@ export default function App() {
         setShowSamplePrompt(false)
         setSharedViewerUsers([])
         setSelectedSharedViewerUserSub('')
+        setTermsAcceptedChecked(false)
+        setTermsError('')
         setSelectedCycle('current')
         setTimelineType('START_TO_END')
         setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'START_TO_END'))
@@ -2987,7 +3101,7 @@ export default function App() {
         </thead>
         <tbody>
           {displayedCreditAccounts.map((account) => {
-            const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account, activeCyclePeriod.startDate)
+            const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account)
             const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
             const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
 
@@ -3238,19 +3352,39 @@ export default function App() {
 
   const refreshBankBalanceHistory = async (viewerUserSub?: string) => {
     const requestId = ++bankBalanceHistoryRequestIdRef.current
-    const historyCycles = planViewMode === 'sample'
+    const rawCycles = planViewMode === 'sample'
       ? await fetchSampleBankBalanceHistory(timelineType)
       : await fetchBankBalanceHistory(viewerUserSub)
 
-    if (requestId === bankBalanceHistoryRequestIdRef.current) {
-      setBankBalanceHistoryCycles(historyCycles)
+    let displayCycles = rawCycles
+    const isEncryptionActive = !!pinKey && !(authenticatedUser?.encryptionExempt ?? false) && planViewMode !== 'sample' && !viewerUserSub
+    if (isEncryptionActive && pinKey) {
+      const processed = await processHistoryCycles(rawCycles, pinKey)
+      displayCycles = processed.displayCycles
+      if (processed.cyclesToEncrypt.length > 0) {
+        void fetch(`${API_BASE_URL}/api/financial-plan/history/bulk-encrypt`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(processed.cyclesToEncrypt),
+        })
+      }
     }
 
-    return historyCycles
+    if (requestId === bankBalanceHistoryRequestIdRef.current) {
+      setBankBalanceHistoryCycles(displayCycles)
+    }
+
+    return displayCycles
   }
 
   useEffect(() => {
     if (authState !== 'authenticated') {
+      return
+    }
+
+    if (!(authenticatedUser?.termsAccepted ?? false)) {
+      setBankBalanceHistoryCycles([])
       return
     }
 
@@ -3270,14 +3404,19 @@ export default function App() {
     }
 
     void refreshBankBalanceHistory()
-  }, [appRoute, authState, planViewMode, selectedSharedViewerUserSub])
+  }, [appRoute, authState, authenticatedUser?.termsAccepted, planViewMode, selectedSharedViewerUserSub])
 
   const applyPersonalCycleResponse = (
     response: FinancialPlanCycleResponse,
     successMessage = '',
     preserveCloseCycleBankData = false,
+    decryptedData?: FinancialPlanData,
   ) => {
-    const normalizedData = normalizeFinancialPlanData(response.data)
+    if (response.data.pinVerify) {
+      setStoredPinVerify(response.data.pinVerify)
+      setStoredPinVerifyIv(response.data.pinVerifyIv ?? null)
+    }
+    const normalizedData = normalizeFinancialPlanData(decryptedData ?? response.data)
     if (preserveCloseCycleBankData) {
       skipNextCarryoverResetRef.current = true
       setCloseCycleCarryoverBankData({
@@ -3313,6 +3452,7 @@ export default function App() {
     if (!preserveCloseCycleBankData) {
       setSuppressCycleSwitchWarning(false)
     }
+    setPlanReady(true)
   }
 
   const applySampleCycleResponse = (
@@ -3354,6 +3494,7 @@ export default function App() {
     if (!preserveCloseCycleBankData) {
       setSuppressCycleSwitchWarning(false)
     }
+    setPlanReady(true)
   }
 
   const markCurrentCycleEdited = () => {
@@ -3376,6 +3517,7 @@ export default function App() {
 
       if (response.status === 401) {
         setAuthenticatedUser(null)
+        setPinKey(null)
         setAuthState('unauthenticated')
         setAuthMessage('Session expired. Sign in with Google to continue.')
         setSaveState('idle')
@@ -3388,9 +3530,64 @@ export default function App() {
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      const isEncryptionExempt = authenticatedUser?.encryptionExempt ?? false
+      const hasEncryptedData = !!cycleResponse.data.encryptedData
+      if (!isEncryptionExempt && hasEncryptedData) {
+        if (cycleResponse.data.pinVerify) {
+          setStoredPinVerify(cycleResponse.data.pinVerify)
+          setStoredPinVerifyIv(cycleResponse.data.pinVerifyIv ?? null)
+        }
+        if (pinKey) {
+          try {
+            const decryptedData = await decryptJson<FinancialPlanData>(pinKey, cycleResponse.data.encryptedData!, cycleResponse.data.encryptionIv!)
+            applyPersonalCycleResponse(cycleResponse, '', false, decryptedData)
+            void refreshBankBalanceHistory()
+          } catch {
+            applyFinancialPlan(defaultFinancialPlanData)
+            setPersonalPlanSnapshot(null)
+            setBankBalanceHistoryCycles([])
+            setPendingEncryptedPlanResponse(cycleResponse)
+            setPinInput('')
+            setPinModalError('')
+            setPinModalMode('verify')
+            setIsPinModalOpen(true)
+          }
+        } else {
+          applyFinancialPlan(defaultFinancialPlanData)
+          setPersonalPlanSnapshot(null)
+          setBankBalanceHistoryCycles([])
+          setPendingEncryptedPlanResponse(cycleResponse)
+          setPinInput('')
+          setPinModalError('')
+          setPinModalMode('verify')
+          setIsPinModalOpen(true)
+        }
+        setAuthState('authenticated')
+        return true
+      }
+      if (isEncryptionExempt && hasEncryptedData) {
+        applyFinancialPlan(defaultFinancialPlanData)
+        setPersonalPlanSnapshot(null)
+        setBankBalanceHistoryCycles([])
+        setPendingEncryptedPlanResponse(cycleResponse)
+        setPinInput('')
+        setPinModalError('')
+        setPinModalMode('migrate')
+        setIsPinModalOpen(true)
+        setAuthState('authenticated')
+        return true
+      }
       applyPersonalCycleResponse(cycleResponse)
       void refreshBankBalanceHistory()
       setAuthState('authenticated')
+      if (!isEncryptionExempt && !pinKey && !pinSetupInitiatedRef.current) {
+        pinSetupInitiatedRef.current = true
+        setPinInput('')
+        setPinConfirmInput('')
+        setPinModalError('')
+        setPinModalMode('new')
+        setIsPinModalOpen(true)
+      }
       return true
     } catch {
       setLoadedPlanSignature(getFinancialPlanSignature(defaultFinancialPlanData))
@@ -3500,6 +3697,7 @@ export default function App() {
         setSelectedSharedViewerUserSub('')
         setSaveState('idle')
         setSaveMessage('No other trackers are available.')
+        setPlanReady(true)
         return true
       }
 
@@ -3572,6 +3770,7 @@ export default function App() {
       setCloseCycleCarryoverBankData(null)
       setSaveState('idle')
       setSaveMessage('')
+      setPlanReady(true)
       return true
     } catch {
       setSaveState('error')
@@ -3644,17 +3843,20 @@ export default function App() {
     setSaveMessage('Saving...')
 
     try {
+      const isEncryptionActive = !!pinKey && !(authenticatedUser?.encryptionExempt ?? false)
+      const bodyPayload = isEncryptionActive ? await buildEncryptedWrapper(payload, pinKey) : payload
       const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=current`, {
         method: 'PUT',
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(bodyPayload),
       })
 
       if (response.status === 401) {
         setAuthenticatedUser(null)
+        setPinKey(null)
         setAuthState('unauthenticated')
         setAuthMessage('Session expired. Sign in with Google to continue.')
         setSaveState('idle')
@@ -3667,8 +3869,8 @@ export default function App() {
       }
 
       const savedResponse: FinancialPlanCycleResponse = await response.json()
-        applyPersonalCycleResponse(savedResponse, successMessage)
-        void refreshBankBalanceHistory()
+      applyPersonalCycleResponse(savedResponse, successMessage, false, isEncryptionActive ? payload : undefined)
+      void refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
       setSuppressCycleSwitchWarning(false)
       onSuccess?.()
@@ -3829,6 +4031,7 @@ export default function App() {
 
       if (response.status === 401) {
         setAuthenticatedUser(null)
+        setPinKey(null)
         setAuthState('unauthenticated')
         setAuthMessage('Session expired. Sign in with Google to continue.')
         setSaveState('idle')
@@ -3866,6 +4069,19 @@ export default function App() {
         })
       }
       setIsCloseCycleDialogOpen(false)
+      if (pinKey && !isSampleMode) {
+        const currentKey = pinKey
+        void (async () => {
+          try {
+            await saveCycleEncrypted(cycleResponse.data, currentKey, 'current')
+            if (cycleResponse.previousCycle) {
+              await saveCycleEncrypted(archivedCurrentData, currentKey, 'previous')
+            }
+          } catch {
+            // re-encryption failed silently
+          }
+        })()
+      }
     } catch {
       setSaveState('error')
       setSaveMessage('Close cycle failed. Reload and try again.')
@@ -3953,6 +4169,7 @@ export default function App() {
 
       if (response.status === 401) {
         setAuthenticatedUser(null)
+        setPinKey(null)
         setAuthState('unauthenticated')
         setAuthMessage('Session expired. Sign in with Google to continue.')
         setSaveState('idle')
@@ -3982,6 +4199,16 @@ export default function App() {
       setPendingCloseCycleReset(null)
       setSuppressCycleSwitchWarning(false)
       setIsRevertCycleDialogOpen(false)
+      if (pinKey && !isSampleMode) {
+        const currentKey = pinKey
+        void (async () => {
+          try {
+            await saveCycleEncrypted(cycleResponse.data, currentKey, 'current')
+          } catch {
+            // re-encryption failed silently
+          }
+        })()
+      }
     } catch {
       setSaveState('error')
       setSaveMessage('Revert cycle failed. Reload and try again.')
@@ -3991,6 +4218,83 @@ export default function App() {
 
   const handleLogin = () => {
     window.location.href = LOGIN_URL
+  }
+
+  const requireTermsReacceptanceAfterDelete = (message: string) => {
+    setAuthenticatedUser((currentUser) => currentUser ? {
+      ...currentUser,
+      termsAccepted: false,
+      acceptedTermsVersion: null,
+      acceptedTermsAt: null,
+    } : currentUser)
+    setTermsAcceptedChecked(false)
+    setTermsError('')
+    setPlanReady(false)
+    setPinKey(null)
+    setPendingEncryptedPlanResponse(null)
+    setStoredPinVerify(null)
+    setStoredPinVerifyIv(null)
+    setIsPinModalOpen(false)
+    setPinModalError('')
+    setResetConfirmText('')
+    pinSetupInitiatedRef.current = false
+    setPersonalPlanSnapshot(null)
+    setHasSavedPersonalPlan(false)
+    setShowSamplePrompt(false)
+    setBankBalanceHistoryCycles([])
+    setLastCycleSavedAt(null)
+    applyFinancialPlan(defaultFinancialPlanData)
+    setLoadedPlanSignature(getFinancialPlanSignature(defaultFinancialPlanData))
+    setSaveState('idle')
+    setSaveMessage(message)
+  }
+
+  const handleAcceptTerms = async () => {
+    const requiredTermsVersion = authenticatedUser?.requiredTermsVersion
+    if (!requiredTermsVersion) {
+      setTermsError('Terms version is unavailable. Reload and try again.')
+      return
+    }
+
+    if (!termsAcceptedChecked) {
+      setTermsError('You must confirm that you have read and agree to the Terms and Conditions.')
+      return
+    }
+
+    setTermsSubmitting(true)
+    setTermsError('')
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/terms/accept`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ termsVersion: requiredTermsVersion }),
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setTermsAcceptedChecked(false)
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to accept terms: ${response.status}`)
+      }
+
+      const authData: AuthStatusResponse = await response.json()
+      setAuthenticatedUser(authData)
+      setTermsAcceptedChecked(false)
+      setPlanReady(false)
+    } catch {
+      setTermsError('Terms acceptance failed. Reload and try again.')
+    } finally {
+      setTermsSubmitting(false)
+    }
   }
 
   const handleLogout = async () => {
@@ -4004,8 +4308,13 @@ export default function App() {
     }
 
     setAuthenticatedUser(null)
+    setPinKey(null)
+    pinSetupInitiatedRef.current = false
     setAuthState('unauthenticated')
     setAuthMessage('Signed out.')
+    setTermsAcceptedChecked(false)
+    setTermsError('')
+    setPlanReady(false)
     setPlanViewMode('personal')
     setSharedViewerUsers([])
     setSelectedSharedViewerUserSub('')
@@ -4107,6 +4416,26 @@ export default function App() {
     }
   }
 
+  const handleAdminDeleteViewerTracker = async (userSub: string) => {
+    setIsDeletingViewerTracker(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/users/${encodeURIComponent(userSub)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      if (!response.ok) {
+        throw new Error(`Delete failed: ${response.status}`)
+      }
+      setAdminDeleteConfirmUserSub(null)
+      await loadTrackersRoute()
+    } catch {
+      setSaveState('error')
+      setSaveMessage('Failed to delete tracker. Check the API server.')
+    } finally {
+      setIsDeletingViewerTracker(false)
+    }
+  }
+
   const handleDeleteTrackerClick = () => {
     if (isTrackersRoute || (isSampleMode && !canEditSamplePlan)) {
       return
@@ -4174,6 +4503,7 @@ export default function App() {
 
       if (response.status === 401) {
         setAuthenticatedUser(null)
+        setPinKey(null)
         setAuthState('unauthenticated')
         setAuthMessage('Session expired. Sign in with Google to continue.')
         setSaveState('idle')
@@ -4206,12 +4536,305 @@ export default function App() {
       setSelectedCycle('current')
       setPendingTimelineTypeSwitch(null)
       setIsTimelineSwitchDialogOpen(false)
+      if (pinKey && !isSampleMode) {
+        const currentKey = pinKey
+        void (async () => {
+          try {
+            await saveCycleEncrypted(cycleResponse.data, currentKey, 'current')
+          } catch {
+            // re-encryption failed silently
+          }
+        })()
+      }
     } catch {
       setSaveState('error')
       setSaveMessage('Timeline switch failed. Reload and try again.')
       setIsTimelineSwitchDialogOpen(false)
       setPendingTimelineTypeSwitch(null)
     }
+  }
+
+  const applyCurrencySelection = (code: string) => {
+    const config = SUPPORTED_CURRENCIES.find(c => c.code === code) ?? SUPPORTED_CURRENCIES[0]!
+    _activeCurrency = config
+    localStorage.setItem(CURRENCY_STORAGE_KEY, code)
+    setCurrencyCode(code)
+  }
+
+  const buildEncryptedWrapper = async (data: FinancialPlanData, key: CryptoKey): Promise<FinancialPlanData> => {
+    const { ciphertext, iv } = await encryptJson(key, data)
+    const verifyData = await createVerifyToken(key)
+    return {
+      creditAccounts: [],
+      incomeItems: [],
+      balanceItems: [],
+      planoExpenses: [],
+      sanfordExpenses: [],
+      otherExpenses: [],
+      incomeSubsections: [],
+      encryptedData: ciphertext,
+      encryptionIv: iv,
+      pinVerify: verifyData.ciphertext,
+      pinVerifyIv: verifyData.iv,
+    }
+  }
+
+  const saveCycleEncrypted = async (data: FinancialPlanData, key: CryptoKey, cycle: 'current' | 'previous'): Promise<void> => {
+    const wrapper = await buildEncryptedWrapper(data, key)
+    await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${cycle}`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(wrapper),
+    })
+  }
+
+  const fetchRawCycleData = async (cycle: 'current' | 'previous'): Promise<FinancialPlanCycleResponse | null> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${cycle}`, { credentials: 'include' })
+      if (!response.ok) return null
+      return response.json() as Promise<FinancialPlanCycleResponse>
+    } catch {
+      return null
+    }
+  }
+
+  type EncryptHistoryBulkItem = {
+    timelineType: string
+    cycleStartDate: string
+    cycleEndDate: string
+    encryptedHistoryData: string
+    encryptionIv: string
+  }
+
+  const processHistoryCycles = async (
+    cycles: BankBalanceHistoryCycle[],
+    key: CryptoKey,
+  ): Promise<{ displayCycles: BankBalanceHistoryCycle[]; cyclesToEncrypt: EncryptHistoryBulkItem[] }> => {
+    const displayCycles: BankBalanceHistoryCycle[] = []
+    const cyclesToEncrypt: EncryptHistoryBulkItem[] = []
+
+    for (const cycle of cycles) {
+      if (cycle.encryptedHistoryData && cycle.encryptionIv) {
+        try {
+          const decryptedBanks = await decryptJson<BankBalanceHistoryPoint[]>(key, cycle.encryptedHistoryData, cycle.encryptionIv)
+          displayCycles.push({ cycle: cycle.cycle, banks: decryptedBanks })
+        } catch {
+          displayCycles.push({ cycle: cycle.cycle, banks: [] })
+        }
+      } else if (cycle.banks.length > 0) {
+        displayCycles.push(cycle)
+        try {
+          const { ciphertext, iv } = await encryptJson(key, cycle.banks)
+          cyclesToEncrypt.push({
+            timelineType,
+            cycleStartDate: cycle.cycle.startDate,
+            cycleEndDate: cycle.cycle.endDate,
+            encryptedHistoryData: ciphertext,
+            encryptionIv: iv,
+          })
+        } catch {
+          // ignore encryption failure for this cycle
+        }
+      } else {
+        displayCycles.push(cycle)
+      }
+    }
+
+    return { displayCycles, cyclesToEncrypt }
+  }
+
+  const handlePinSubmit = async () => {
+    if (pinModalSubmitting) return
+    setPinModalSubmitting(true)
+    setPinModalError('')
+    try {
+      if (pinModalMode === 'new') {
+        if (pinInput.length !== 4) {
+          setPinModalError('PIN must be exactly 4 digits.')
+          return
+        }
+        if (pinInput !== pinConfirmInput) {
+          setPinModalError('PINs do not match. Please try again.')
+          setPinConfirmInput('')
+          return
+        }
+        applyCurrencySelection(pinModalCurrency)
+        const userSub = authenticatedUser?.email ?? 'unknown'
+        const key = await deriveKey(pinInput, userSub)
+        setPinKey(key)
+        setIsPinModalOpen(false)
+        setPinInput('')
+        setPinConfirmInput('')
+      } else if (pinModalMode === 'verify') {
+        if (pinInput.length !== 4) {
+          setPinModalError('PIN must be exactly 4 digits.')
+          return
+        }
+        if (!pendingEncryptedPlanResponse) {
+          setIsPinModalOpen(false)
+          return
+        }
+        const userSub = authenticatedUser?.email ?? 'unknown'
+        const key = await deriveKey(pinInput, userSub)
+        const pinVerifyVal = pendingEncryptedPlanResponse.data.pinVerify ?? storedPinVerify
+        const pinVerifyIvVal = pendingEncryptedPlanResponse.data.pinVerifyIv ?? storedPinVerifyIv
+        if (!pinVerifyVal || !pinVerifyIvVal) {
+          setPinModalError('Verification data missing. Please contact support.')
+          return
+        }
+        const isValid = await verifyPin(key, pinVerifyVal, pinVerifyIvVal)
+        if (!isValid) {
+          setPinModalError('Incorrect PIN. Your data remains encrypted and locked.')
+          setPinInput('')
+          return
+        }
+        const decryptedData = await decryptJson<FinancialPlanData>(
+          key,
+          pendingEncryptedPlanResponse.data.encryptedData!,
+          pendingEncryptedPlanResponse.data.encryptionIv!,
+        )
+        setPinKey(key)
+        applyPersonalCycleResponse(pendingEncryptedPlanResponse, '', false, decryptedData)
+        void refreshBankBalanceHistory()
+        setPendingEncryptedPlanResponse(null)
+        setIsPinModalOpen(false)
+        setPinInput('')
+      } else if (pinModalMode === 'migrate') {
+        if (pinInput.length !== 4) {
+          setPinModalError('PIN must be exactly 4 digits.')
+          return
+        }
+        if (!pendingEncryptedPlanResponse) {
+          setIsPinModalOpen(false)
+          return
+        }
+        const userSub = authenticatedUser?.email ?? 'unknown'
+        const key = await deriveKey(pinInput, userSub)
+        const pinVerifyVal = pendingEncryptedPlanResponse.data.pinVerify
+        const pinVerifyIvVal = pendingEncryptedPlanResponse.data.pinVerifyIv
+        if (!pinVerifyVal || !pinVerifyIvVal) {
+          setPinModalError('Verification data missing. Please contact support.')
+          return
+        }
+        const isValid = await verifyPin(key, pinVerifyVal, pinVerifyIvVal)
+        if (!isValid) {
+          setPinModalError('Incorrect PIN. Your data remains encrypted and locked.')
+          setPinInput('')
+          return
+        }
+        const decryptedData = await decryptJson<FinancialPlanData>(
+          key,
+          pendingEncryptedPlanResponse.data.encryptedData!,
+          pendingEncryptedPlanResponse.data.encryptionIv!,
+        )
+        applyPersonalCycleResponse(pendingEncryptedPlanResponse, '', false, decryptedData)
+        setPendingEncryptedPlanResponse(null)
+        setIsPinModalOpen(false)
+        setPinInput('')
+        void persistFinancialPlan(decryptedData, 'Data migrated to unencrypted storage.')
+      } else if (pinModalMode === 'change') {
+        if (pinCurrentInput.length !== 4 || pinNewInput.length !== 4 || pinNewConfirmInput.length !== 4) {
+          setPinModalError('All PIN fields must be exactly 4 digits.')
+          return
+        }
+        if (pinNewInput !== pinNewConfirmInput) {
+          setPinModalError('New PINs do not match. Please try again.')
+          setPinNewInput('')
+          setPinNewConfirmInput('')
+          return
+        }
+        if (!pendingEncryptedPlanResponse) {
+          setPinModalError('Could not load current plan data. Please reload and try again.')
+          return
+        }
+        const userSub = authenticatedUser?.email ?? 'unknown'
+        const currentKey = await deriveKey(pinCurrentInput, userSub)
+        const pinVerifyVal = pendingEncryptedPlanResponse.data.pinVerify
+        const pinVerifyIvVal = pendingEncryptedPlanResponse.data.pinVerifyIv
+        if (!pinVerifyVal || !pinVerifyIvVal) {
+          setPinModalError('Could not verify current PIN. Please reload and try again.')
+          return
+        }
+        const isValid = await verifyPin(currentKey, pinVerifyVal, pinVerifyIvVal)
+        if (!isValid) {
+          setPinModalError('Current PIN is incorrect.')
+          setPinCurrentInput('')
+          return
+        }
+        const newKey = await deriveKey(pinNewInput, userSub)
+        const currentCycleData = buildPayload()
+        await saveCycleEncrypted(currentCycleData, newKey, 'current')
+        const rawPrevious = await fetchRawCycleData('previous')
+        if (rawPrevious?.data.encryptedData && rawPrevious.data.encryptionIv) {
+          try {
+            const decryptedPrevious = await decryptJson<FinancialPlanData>(currentKey, rawPrevious.data.encryptedData, rawPrevious.data.encryptionIv)
+            await saveCycleEncrypted(decryptedPrevious, newKey, 'previous')
+          } catch {
+            // previous cycle re-encryption failed - skip
+          }
+        }
+        setPinKey(newKey)
+        setIsPinModalOpen(false)
+        setPinCurrentInput('')
+        setPinNewInput('')
+        setPinNewConfirmInput('')
+      }
+    } catch {
+      setPinModalError('An error occurred. Please try again.')
+    } finally {
+      setPinModalSubmitting(false)
+    }
+  }
+
+  const handleForgotPin = () => {
+    setResetConfirmText('')
+    setPinModalError('')
+    setPinModalMode('reset-confirm')
+  }
+
+  const handlePinResetConfirm = async () => {
+    if (resetConfirmText !== 'RESET') {
+      setPinModalError('Please type RESET to confirm.')
+      return
+    }
+    setPinModalSubmitting(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      if (!response.ok && response.status !== 404) {
+        setPinModalError('Failed to delete data. Please try again.')
+        return
+      }
+      setPinKey(null)
+      setPendingEncryptedPlanResponse(null)
+      setStoredPinVerify(null)
+      setStoredPinVerifyIv(null)
+      setIsPinModalOpen(false)
+      setResetConfirmText('')
+      requireTermsReacceptanceAfterDelete('Tracker deleted. Accept Terms and Conditions to continue.')
+    } catch {
+      setPinModalError('Failed to delete data. Please try again.')
+    } finally {
+      setPinModalSubmitting(false)
+    }
+  }
+
+  const handleChangePinClick = async () => {
+    setIsUserMenuOpen(false)
+    const rawPlan = await fetchRawCycleData('current')
+    if (!rawPlan?.data.pinVerify) {
+      return
+    }
+    setPendingEncryptedPlanResponse(rawPlan)
+    setPinCurrentInput('')
+    setPinNewInput('')
+    setPinNewConfirmInput('')
+    setPinModalError('')
+    setPinModalMode('change')
+    setIsPinModalOpen(true)
   }
 
   const handleDeleteTrackerCancel = () => {
@@ -4284,7 +4907,11 @@ export default function App() {
       if (isSampleMode) {
         applySampleCycleResponse(freshResponse, 'Sample tracker deleted. Started fresh with a new plan.')
       } else {
-        applyPersonalCycleResponse(freshResponse, 'Tracker deleted. Started fresh with a new plan.')
+        requireTermsReacceptanceAfterDelete('Tracker deleted. Accept Terms and Conditions to continue.')
+        setIsDeleteDialogOpen(false)
+        setDeleteState('idle')
+        setDeleteMessage('')
+        return
       }
       void refreshBankBalanceHistory()
       setIsDeleteDialogOpen(false)
@@ -4303,6 +4930,10 @@ export default function App() {
       return
     }
 
+    if (!(authenticatedUser?.termsAccepted ?? false)) {
+      return
+    }
+
     if (appRoute === TRACKERS_ROUTE && !canAccessTrackersRoute) {
       navigateToRoute(PERSONAL_ROUTE, { replace: true })
       setSaveState('error')
@@ -4316,7 +4947,7 @@ export default function App() {
     }
 
     void loadPersonalPlan('current', 'Loading saved plan...')
-  }, [appRoute, authState, canAccessTrackersRoute])
+  }, [appRoute, authState, authenticatedUser?.termsAccepted, canAccessTrackersRoute])
 
   if (authState !== 'authenticated') {
     return (
@@ -4331,6 +4962,245 @@ export default function App() {
             {authState === 'checking' ? 'Checking...' : 'Sign in with Google'}
           </button>
           <p className={`auth-message auth-${authState}`}>{authMessage}</p>
+        </section>
+      </div>
+    )
+  }
+
+  if (!(authenticatedUser?.termsAccepted ?? false)) {
+    return (
+      <div className="auth-shell">
+        <section className="auth-card terms-card">
+          <p className="eyebrow">Terms And Conditions</p>
+          <h1>Acceptance Required</h1>
+          <p className="auth-copy">
+            You must accept the current Terms and Conditions before using MyBetterBudget.com, including all personal, shared, and admin features.
+          </p>
+          {authenticatedUser?.email ? <p className="terms-email">Signed in as {authenticatedUser.email}</p> : null}
+          <p className="terms-meta">
+            Version: {authenticatedUser?.requiredTermsVersion ?? 'Unavailable'} | Last updated {TERMS_LAST_UPDATED_LABEL}
+          </p>
+          <div className="terms-panel">
+            <h2>Important Disclosures</h2>
+            <p>
+              MyBetterBudget.com is a personal budgeting and tracking tool provided for informational and convenience purposes only. It is not financial, investment, legal, tax, accounting, credit, or other professional advice.
+            </p>
+            <ul className="terms-list">
+              <li>You are solely responsible for verifying all balances, formulas, labels, projections, payment schedules, transfers, due dates, and any actions you take based on the website.</li>
+              <li>The website may contain formula errors, data-processing errors, display issues, omissions, outdated logic, or interpretations you disagree with or misunderstand.</li>
+              <li>You agree that you will independently confirm important information before making financial or personal decisions.</li>
+              <li>You understand that data may be lost, corrupted, overwritten, become unavailable, or become permanently inaccessible due to software bugs, hosting failures, browser issues, device issues, security incidents, deployment problems, migrations, user mistakes, third-party outages, or forgotten credentials.</li>
+              <li>If your data is encrypted, forgetting your PIN may permanently prevent recovery of that data.</li>
+              <li>The service is provided on an “as is” and “as available” basis, without warranties of availability, accuracy, fitness for a particular purpose, or uninterrupted operation.</li>
+              <li>To the maximum extent permitted by law, you agree that the website owner and administrators are not liable for losses, damages, costs, claims, or disputes arising from data loss, formula mistakes, inaccurate outputs, misinterpretation, reliance on the website, or service interruptions.</li>
+              <li>You are responsible for maintaining your own records, backups, and independent verification of any information you enter or rely on.</li>
+              <li>The service, formulas, features, security model, terms, and availability may change at any time.</li>
+              <li>By accepting, you acknowledge that these Terms and Conditions govern your use of the website and apply to you whether you are a normal user or an admin.</li>
+            </ul>
+          </div>
+          <label className="terms-checkbox-row">
+            <input
+              type="checkbox"
+              checked={termsAcceptedChecked}
+              onChange={(event) => setTermsAcceptedChecked(event.target.checked)}
+              disabled={termsSubmitting}
+            />
+            <span>I have read and agree to the Terms and Conditions, including the disclaimers and limitation of liability above.</span>
+          </label>
+          {termsError ? <p className="auth-message auth-error">{termsError}</p> : null}
+          <div className="modal-actions terms-actions">
+            <button type="button" className="toolbar-button" onClick={() => void handleLogout()} disabled={termsSubmitting}>
+              Sign Out
+            </button>
+            <button type="button" className="toolbar-button auth-button" onClick={() => void handleAcceptTerms()} disabled={termsSubmitting || !termsAcceptedChecked}>
+              {termsSubmitting ? 'Saving Acceptance...' : 'Accept Terms And Continue'}
+            </button>
+          </div>
+        </section>
+      </div>
+    )
+  }
+
+  if (isPinModalOpen && (pinModalMode === 'verify' || pinModalMode === 'migrate' || pinModalMode === 'new' || pinModalMode === 'reset-confirm')) {
+    return (
+      <div className="app app-pin-locked">
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className={`modal-card pin-modal${pinModalMode === 'reset-confirm' ? ' danger-modal' : ''}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pin-modal-title"
+          >
+            {pinModalMode === 'new' ? (
+              <>
+                <div className="pin-modal-brand">
+                  <p className="pin-modal-site-name">MyBetterBudget.com</p>
+                  <p className="pin-modal-app-title">Personal Finance Tracker</p>
+                </div>
+                {authenticatedUser?.email ? (
+                  <p className="pin-modal-user-email">{authenticatedUser.email}</p>
+                ) : null}
+                <p className="eyebrow">Welcome — One-Time Setup</p>
+                <h2 id="pin-modal-title">Protect Your Financial Data</h2>
+                <p>🔒 <strong>Your financial data is private to you.</strong></p>
+                <p>Set a 4-digit PIN to enable end-to-end encryption. Your data is encrypted with AES-256-GCM directly in your browser — we have no way to see it. Your PIN never leaves your device and is never stored anywhere.</p>
+                <p className="danger-copy-subtle">⚠️ Your PIN cannot be recovered. If forgotten, your data will be permanently deleted.</p>
+                <div className="pin-fields">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="Enter 4-digit PIN"
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
+                    className="pin-input"
+                    autoFocus
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="Confirm PIN"
+                    value={pinConfirmInput}
+                    onChange={(e) => setPinConfirmInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
+                    className="pin-input"
+                  />
+                </div>
+                <div className="pin-currency-select">
+                  <label htmlFor="pin-currency" className="pin-currency-label">Currency</label>
+                  <select
+                    id="pin-currency"
+                    value={pinModalCurrency}
+                    onChange={(e) => setPinModalCurrency(e.target.value)}
+                    className="pin-currency-dropdown"
+                  >
+                    {SUPPORTED_CURRENCIES.map(c => (
+                      <option key={c.code} value={c.code}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+                {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
+                <div className="modal-actions">
+                  <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
+                    {pinModalSubmitting ? 'Setting up...' : 'Get Started'}
+                  </button>
+                </div>
+              </>
+            ) : pinModalMode === 'verify' ? (
+              <>
+                <p className="eyebrow">Security</p>
+                <h2 id="pin-modal-title">Your Data Is Encrypted</h2>
+                {authenticatedUser?.email ? (
+                  <p className="pin-modal-user-email">{authenticatedUser.email}</p>
+                ) : null}
+                <p>🔒 <strong>Your data is end-to-end encrypted.</strong></p>
+                <p>Enter your 4-digit PIN to decrypt your financial data. Your data is protected with AES-256-GCM — only your PIN can unlock it. We have no way to access it.</p>
+                <div className="pin-fields">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="Enter your PIN"
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
+                    className="pin-input"
+                    autoFocus
+                  />
+                </div>
+                {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
+                <div className="modal-actions">
+                  <button type="button" className="toolbar-button link-button" onClick={handleForgotPin}>
+                    Forgot PIN?
+                  </button>
+                  <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
+                    {pinModalSubmitting ? 'Unlocking...' : 'Unlock'}
+                  </button>
+                </div>
+              </>
+            ) : pinModalMode === 'migrate' ? (
+              <>
+                <p className="eyebrow">Security</p>
+                <h2 id="pin-modal-title">One-Time PIN Required</h2>
+                <p>Your account has been moved to unencrypted mode. Enter your PIN once to migrate your data to plaintext storage.</p>
+                <div className="pin-fields">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="Enter your PIN"
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
+                    className="pin-input"
+                    autoFocus
+                  />
+                </div>
+                {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
+                <div className="modal-actions">
+                  <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
+                    {pinModalSubmitting ? 'Migrating...' : 'Migrate Data'}
+                  </button>
+                </div>
+              </>
+            ) : pinModalMode === 'reset-confirm' ? (
+              <>
+                <p className="eyebrow danger-eyebrow">Danger Zone</p>
+                <h2 id="pin-modal-title">Reset Account Data</h2>
+                {authenticatedUser?.email ? (
+                  <p className="pin-modal-user-email">{authenticatedUser.email}</p>
+                ) : null}
+                <p className="danger-copy">
+                  You forgot your PIN. The only option is to permanently delete all your saved financial data. This cannot be undone.
+                </p>
+                <p className="danger-copy-subtle">
+                  Type <strong>RESET</strong> below to confirm permanent data deletion.
+                </p>
+                <input
+                  type="text"
+                  placeholder="Type RESET to confirm"
+                  value={resetConfirmText}
+                  onChange={(e) => setResetConfirmText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handlePinResetConfirm() }}
+                  className="pin-input"
+                  autoFocus
+                />
+                {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => { setPinModalMode('verify'); setPinModalError(''); setPinInput(''); }}
+                    disabled={pinModalSubmitting}
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    className="toolbar-button destructive-button"
+                    onClick={() => void handlePinResetConfirm()}
+                    disabled={resetConfirmText !== 'RESET' || pinModalSubmitting}
+                  >
+                    {pinModalSubmitting ? 'Deleting...' : 'Delete All My Data'}
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </section>
+        </div>
+      </div>
+    )
+  }
+
+  if (!planReady) {
+    return (
+      <div className="auth-shell">
+        <section className="auth-card">
+          <p className="eyebrow">Financial Planning</p>
+          <h1>Personal Finance Tracker</h1>
+          <p className="auth-copy">Loading your plan...</p>
         </section>
       </div>
     )
@@ -4425,6 +5295,11 @@ export default function App() {
                       {isSampleMode ? 'Delete Sample Tracker' : 'Delete My Tracker'}
                     </button>
                   ) : null}
+                  {pinKey ? (
+                    <button type="button" className="user-menu-item" onClick={() => void handleChangePinClick()} role="menuitem">
+                      Change PIN
+                    </button>
+                  ) : null}
                   <button type="button" className="user-menu-item" onClick={handleHelpClick} role="menuitem">
                     Help
                   </button>
@@ -4469,6 +5344,11 @@ export default function App() {
                   ? 'Viewing another user tracker'
                   : 'No other trackers available'}
             </strong>
+            {authenticatedUser?.admin && selectedSharedViewerUser?.lastUpdatedAt ? (
+              <span className="shared-view-last-updated">
+                Last updated: {formatLocalDateTime(selectedSharedViewerUser.lastUpdatedAt)}
+              </span>
+            ) : null}
             <span>
               {hasSharedViewerUsers
                 ? 'Selected tracker is read only. Only the currently selected tracker data is loaded in the browser.'
@@ -4487,7 +5367,7 @@ export default function App() {
                 {hasSharedViewerUsers ? (
                   sharedViewerUsers.map((user) => (
                     <option key={user.userSub} value={user.userSub}>
-                      {formatViewerUserLabel(user)}
+                      {formatEncryptedViewerUserLabel(user)}
                     </option>
                   ))
                 ) : (
@@ -4498,6 +5378,16 @@ export default function App() {
             <button type="button" className="toolbar-button" onClick={handleReturnToMyPlan}>
               Back to My Plan
             </button>
+            {authenticatedUser?.admin && selectedSharedViewerUserSub ? (
+              <button
+                type="button"
+                className="toolbar-button destructive-button"
+                onClick={() => setAdminDeleteConfirmUserSub(selectedSharedViewerUserSub)}
+                disabled={isDeletingViewerTracker || saveState === 'loading'}
+              >
+                Delete Tracker
+              </button>
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -4986,6 +5876,202 @@ export default function App() {
         </div>
       ) : null}
 
+      {isPinModalOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className={`modal-card pin-modal${pinModalMode === 'reset-confirm' ? ' danger-modal' : ''}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pin-modal-title"
+          >
+            {pinModalMode === 'new' ? (
+              <>
+                <p className="eyebrow">Security</p>
+                <h2 id="pin-modal-title">Protect Your Financial Data</h2>
+                <p>🔒 <strong>Your financial data is private to you.</strong></p>
+                <p>Set a 4-digit PIN to enable end-to-end encryption for your data.</p>
+                <p><strong>How it works:</strong> Your PIN generates a unique encryption key using PBKDF2 (100,000 iterations). Your data is then encrypted with AES-256-GCM directly in your browser before it reaches our servers.</p>
+                <p><strong>We cannot see your data.</strong> Your PIN never leaves your device and is never stored anywhere.</p>
+                <p className="danger-copy-subtle">⚠️ Your PIN cannot be recovered. If forgotten, your data will be permanently deleted.</p>
+                <div className="pin-fields">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="Enter 4-digit PIN"
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
+                    className="pin-input"
+                    autoFocus
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="Confirm PIN"
+                    value={pinConfirmInput}
+                    onChange={(e) => setPinConfirmInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
+                    className="pin-input"
+                  />
+                </div>
+                {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
+                <div className="modal-actions">
+                  <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
+                    {pinModalSubmitting ? 'Setting up...' : 'Set PIN'}
+                  </button>
+                </div>
+              </>
+            ) : pinModalMode === 'verify' ? (
+              <>
+                <p className="eyebrow">Security</p>
+                <h2 id="pin-modal-title">Your Data Is Encrypted</h2>
+                {authenticatedUser?.email ? (
+                  <p className="pin-modal-user-email">{authenticatedUser.email}</p>
+                ) : null}
+                <p>🔒 <strong>Your data is end-to-end encrypted.</strong></p>
+                <p>Enter your 4-digit PIN to decrypt your financial data. Your data is protected with AES-256-GCM — only your PIN can unlock it. We have no way to access it.</p>
+                <div className="pin-fields">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="Enter your PIN"
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
+                    className="pin-input"
+                    autoFocus
+                  />
+                </div>
+                {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
+                <div className="modal-actions">
+                  <button type="button" className="toolbar-button link-button" onClick={handleForgotPin}>
+                    Forgot PIN?
+                  </button>
+                  <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
+                    {pinModalSubmitting ? 'Unlocking...' : 'Unlock'}
+                  </button>
+                </div>
+              </>
+            ) : pinModalMode === 'migrate' ? (
+              <>
+                <p className="eyebrow">Security</p>
+                <h2 id="pin-modal-title">One-Time PIN Required</h2>
+                <p>Your account has been moved to unencrypted mode. Enter your PIN once to migrate your data to plaintext storage.</p>
+                <div className="pin-fields">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="Enter your PIN"
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
+                    className="pin-input"
+                    autoFocus
+                  />
+                </div>
+                {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
+                <div className="modal-actions">
+                  <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
+                    {pinModalSubmitting ? 'Migrating...' : 'Migrate Data'}
+                  </button>
+                </div>
+              </>
+            ) : pinModalMode === 'change' ? (
+              <>
+                <p className="eyebrow">Security</p>
+                <h2 id="pin-modal-title">Change Your PIN</h2>
+                <p>Enter your current PIN to verify, then set a new 4-digit PIN. Both your current and previous cycles will be re-encrypted with the new PIN.</p>
+                <div className="pin-fields">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="Current PIN"
+                    value={pinCurrentInput}
+                    onChange={(e) => setPinCurrentInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
+                    className="pin-input"
+                    autoFocus
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="New PIN"
+                    value={pinNewInput}
+                    onChange={(e) => setPinNewInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
+                    className="pin-input"
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder="Confirm New PIN"
+                    value={pinNewConfirmInput}
+                    onChange={(e) => setPinNewConfirmInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
+                    className="pin-input"
+                  />
+                </div>
+                {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
+                <div className="modal-actions">
+                  <button type="button" className="toolbar-button" onClick={() => setIsPinModalOpen(false)} disabled={pinModalSubmitting}>
+                    Cancel
+                  </button>
+                  <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
+                    {pinModalSubmitting ? 'Changing...' : 'Change PIN'}
+                  </button>
+                </div>
+              </>
+            ) : pinModalMode === 'reset-confirm' ? (
+              <>
+                <p className="eyebrow danger-eyebrow">Danger Zone</p>
+                <h2 id="pin-modal-title">Reset Account Data</h2>
+                <p className="danger-copy">
+                  You forgot your PIN. The only option is to permanently delete all your saved financial data. This cannot be undone.
+                </p>
+                <p className="danger-copy-subtle">
+                  Type <strong>RESET</strong> below to confirm permanent data deletion.
+                </p>
+                <input
+                  type="text"
+                  placeholder="Type RESET to confirm"
+                  value={resetConfirmText}
+                  onChange={(e) => setResetConfirmText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handlePinResetConfirm() }}
+                  className="pin-input"
+                  autoFocus
+                />
+                {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="toolbar-button"
+                    onClick={() => { setPinModalMode('verify'); setPinModalError(''); setPinInput(''); }}
+                    disabled={pinModalSubmitting}
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    className="toolbar-button destructive-button"
+                    onClick={() => void handlePinResetConfirm()}
+                    disabled={resetConfirmText !== 'RESET' || pinModalSubmitting}
+                  >
+                    {pinModalSubmitting ? 'Deleting...' : 'Delete All My Data'}
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
+
       {isDeleteDialogOpen ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal-card danger-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-tracker-title">
@@ -5013,6 +6099,39 @@ export default function App() {
                 disabled={deleteState === 'deleting'}
               >
                 {deleteState === 'deleting' ? 'Deleting...' : isSampleMode ? 'Delete Sample Tracker' : 'Delete My Tracker'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {adminDeleteConfirmUserSub ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card danger-modal" role="alertdialog" aria-modal="true" aria-labelledby="admin-delete-tracker-title">
+            <p className="eyebrow danger-eyebrow">Admin Action</p>
+            <h2 id="admin-delete-tracker-title">Delete This Tracker?</h2>
+            <p className="danger-copy">
+              This will permanently delete all saved tracker data for this user from the database. This cannot be undone.
+            </p>
+            <p className="danger-copy-subtle">
+              User: <strong>{formatViewerUserLabel(sharedViewerUsers.find(u => u.userSub === adminDeleteConfirmUserSub) ?? { userSub: adminDeleteConfirmUserSub, email: null, displayName: null })}</strong>
+            </p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="toolbar-button"
+                onClick={() => setAdminDeleteConfirmUserSub(null)}
+                disabled={isDeletingViewerTracker}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="toolbar-button destructive-button"
+                onClick={() => void handleAdminDeleteViewerTracker(adminDeleteConfirmUserSub)}
+                disabled={isDeletingViewerTracker}
+              >
+                {isDeletingViewerTracker ? 'Deleting...' : 'Delete Tracker'}
               </button>
             </div>
           </section>
@@ -5174,7 +6293,7 @@ export default function App() {
 
               {activeDisplayedCreditAccount ? (() => {
                 const account = activeDisplayedCreditAccount
-                const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account, activeCyclePeriod.startDate)
+                const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account)
                 const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
                 const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
 

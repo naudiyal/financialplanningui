@@ -83,6 +83,74 @@ html, body, #root {
   line-height: 1.5;
 }
 
+.terms-card {
+  width: min(52rem, 100%);
+}
+
+.terms-email,
+.terms-meta {
+  margin: 0 0 0.75rem;
+  color: #475569;
+  font-size: 0.82rem;
+}
+
+.terms-meta {
+  color: #64748b;
+}
+
+.terms-panel {
+  max-height: min(56vh, 32rem);
+  overflow: auto;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid #dbe4f0;
+  border-radius: 0.85rem;
+  background: #fff;
+}
+
+.terms-panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: #0f172a;
+}
+
+.terms-panel p {
+  margin: 0 0 0.9rem;
+  color: #334155;
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.terms-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: #334155;
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.terms-list li + li {
+  margin-top: 0.45rem;
+}
+
+.terms-checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  margin-bottom: 0.9rem;
+  color: #0f172a;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.terms-checkbox-row input {
+  margin-top: 0.18rem;
+}
+
+.terms-actions {
+  justify-content: space-between;
+}
+
 .auth-button {
   min-width: 11rem;
 }
@@ -170,6 +238,12 @@ html, body, #root {
 
 .shared-view-banner strong {
   color: #4338ca;
+}
+
+.shared-view-last-updated {
+  font-size: 0.72rem;
+  color: #6366f1;
+  margin-top: 0.1rem;
 }
 
 .shared-view-banner-actions {
@@ -384,6 +458,61 @@ html, body, #root {
   padding: 1rem;
   background: rgba(15, 23, 42, 0.45);
   z-index: 40;
+}
+
+.app-pin-locked {
+  min-height: 100dvh;
+  background: var(--bg, #0f172a);
+}
+
+.app-pin-locked .modal-backdrop {
+  background: transparent;
+}
+
+.pin-modal-brand {
+  text-align: center;
+  margin-bottom: 0.75rem;
+}
+
+.pin-modal-site-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--accent, #38bdf8);
+  letter-spacing: 0.02em;
+  margin: 0 0 0.15rem;
+}
+
+.pin-modal-app-title {
+  font-size: 0.8rem;
+  color: var(--text-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0;
+}
+
+.pin-currency-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.pin-currency-label {
+  font-size: 0.8rem;
+  color: var(--text-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pin-currency-dropdown {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border, #334155);
+  background: var(--input-bg, #1e293b);
+  color: var(--text, #e2e8f0);
+  font-size: 0.9rem;
+  cursor: pointer;
 }
 
 .modal-card {
