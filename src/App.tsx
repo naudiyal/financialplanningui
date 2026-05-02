@@ -5060,19 +5060,20 @@ export default function App() {
           <div className="terms-panel">
             <h2>Important Disclosures</h2>
             <p>
-              MyBetterBudget.com is a personal budgeting and tracking tool provided for informational and convenience purposes only. It is not financial, investment, legal, tax, accounting, credit, or other professional advice.
+              MyBetterBudget.com is a personal budgeting and tracking tool provided for informational and convenience purposes only. It is not financial, investment, legal, tax, accounting, credit, debt-management, or other professional advice, and your use of the service does not create any fiduciary, advisory, agency, or professional-client relationship with the website owner or administrators.
             </p>
             <ul className="terms-list">
-              <li>You are solely responsible for verifying all balances, formulas, labels, projections, payment schedules, transfers, due dates, and any actions you take based on the website.</li>
-              <li>The website may contain formula errors, data-processing errors, display issues, omissions, outdated logic, or interpretations you disagree with or misunderstand.</li>
-              <li>You agree that you will independently confirm important information before making financial or personal decisions.</li>
-              <li>You understand that data may be lost, corrupted, overwritten, become unavailable, or become permanently inaccessible due to software bugs, hosting failures, browser issues, device issues, security incidents, deployment problems, migrations, user mistakes, third-party outages, or forgotten credentials.</li>
-              <li>If your data is encrypted, forgetting your PIN may permanently prevent recovery of that data.</li>
-              <li>The service is provided on an “as is” and “as available” basis, without warranties of availability, accuracy, fitness for a particular purpose, or uninterrupted operation.</li>
-              <li>To the maximum extent permitted by law, you agree that the website owner and administrators are not liable for losses, damages, costs, claims, or disputes arising from data loss, formula mistakes, inaccurate outputs, misinterpretation, reliance on the website, or service interruptions.</li>
-              <li>You are responsible for maintaining your own records, backups, and independent verification of any information you enter or rely on.</li>
-              <li>The service, formulas, features, security model, terms, and availability may change at any time.</li>
-              <li>By accepting, you acknowledge that these Terms and Conditions govern your use of the website and apply to you whether you are a normal user or an admin.</li>
+              <li>You are solely responsible for all information you enter, all balances, formulas, labels, projections, payment schedules, transfers, due dates, tax assumptions, and all financial or personal decisions you make based on the website.</li>
+              <li>The website may contain bugs, calculation mistakes, data-processing errors, display issues, omissions, outdated logic, incorrect assumptions, or results you misunderstand, disagree with, or rely on at your own risk.</li>
+              <li>You agree that you will independently verify important information before making financial, legal, tax, credit, budgeting, payment, lending, investment, employment, or personal decisions.</li>
+              <li>You understand and accept that data may be lost, corrupted, overwritten, duplicated, delayed, become unavailable, or become permanently inaccessible due to software bugs, hosting failures, browser issues, device issues, security incidents, deployments, migrations, synchronization issues, user error, third-party outages, or forgotten credentials.</li>
+              <li>If your data is encrypted, forgetting your PIN may permanently prevent recovery of that data, and neither the website owner nor the administrators are obligated or able to recover it for you.</li>
+              <li>The service is provided on an "as is," "as available," and "with all faults" basis, without warranties or representations of any kind, whether express or implied, including warranties of accuracy, completeness, merchantability, fitness for a particular purpose, non-infringement, availability, security, or uninterrupted operation.</li>
+              <li>To the maximum extent permitted by law, the website owner and administrators disclaim liability for any direct, indirect, incidental, consequential, special, exemplary, punitive, or other losses, damages, costs, liabilities, claims, disputes, taxes, penalties, interest, missed payments, credit impacts, lost profits, lost savings, or lost opportunities arising from or related to the website, your data, your use of the website, your inability to use the website, reliance on outputs, formula mistakes, security events, service interruptions, or data loss.</li>
+              <li>You are responsible for maintaining your own records, exports, backups, independent calculations, and independent verification of any information you enter, store, review, or rely on through the service.</li>
+              <li>You agree to indemnify, defend, and hold harmless the website owner and administrators from claims, losses, liabilities, damages, and expenses arising out of your use of the website, your data, your violation of these Terms and Conditions, or your misuse of any output generated by the website.</li>
+              <li>The website owner may modify, suspend, restrict, remove, reset, or terminate features, access, data visibility, encryption modes, user accounts, shared access, terms, formulas, and availability at any time, with or without notice.</li>
+              <li>By accepting, you acknowledge that these Terms and Conditions govern your use of the website whether you are a normal user or an admin, and that your continued access to the website is conditioned on accepting the current version.</li>
             </ul>
           </div>
           <label className="terms-checkbox-row">
@@ -5082,7 +5083,7 @@ export default function App() {
               onChange={(event) => setTermsAcceptedChecked(event.target.checked)}
               disabled={termsSubmitting}
             />
-            <span>I have read and agree to the Terms and Conditions, including the disclaimers and limitation of liability above.</span>
+            <span>I have read and agree to the Terms and Conditions, including the disclaimers, assumption of risk, limitation of liability, and indemnification obligations above.</span>
           </label>
           {termsError ? <p className="auth-message auth-error">{termsError}</p> : null}
           <div className="modal-actions terms-actions">
