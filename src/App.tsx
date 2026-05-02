@@ -4662,7 +4662,15 @@ export default function App() {
         applyCurrencySelection(pinModalCurrency)
         const userSub = authenticatedUser?.email ?? 'unknown'
         const key = await deriveKey(pinInput, userSub)
+        const currentCycleData = buildPayload()
+        await saveCycleEncrypted(currentCycleData, key, 'current')
+        const rawPrevious = await fetchRawCycleData('previous')
+        if (rawPrevious?.hasPreviousCycle && !rawPrevious.data.encryptedData) {
+          await saveCycleEncrypted(rawPrevious.data, key, 'previous')
+        }
         setPinKey(key)
+        setSaveState('saved')
+        setSaveMessage('PIN created and data encrypted.')
         setIsPinModalOpen(false)
         setPinInput('')
         setPinConfirmInput('')
