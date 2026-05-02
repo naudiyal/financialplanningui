@@ -1007,6 +1007,9 @@ const formatCycleRangeLabel = (cyclePeriod: CyclePeriod) =>
 const formatTimelineTypeLabel = (timelineType: TimelineType) =>
   timelineType === 'START_TO_END' ? 'Start to End' : 'Mid to Mid'
 
+const formatTimelineSwitchActionLabel = (timelineType: TimelineType) =>
+  timelineType === 'START_TO_END' ? 'Start-End of Month' : 'Mid-Mid of Month'
+
 const getAlternateTimelineType = (timelineType: TimelineType): TimelineType =>
   timelineType === 'START_TO_END' ? 'MID_TO_MID' : 'START_TO_END'
 
@@ -1412,6 +1415,7 @@ export default function App() {
   const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking')
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthStatusResponse | null>(null)
   const [authMessage, setAuthMessage] = useState('Checking sign-in status...')
+  const [authScreenMode, setAuthScreenMode] = useState<'default' | 'goodbye'>('default')
   const [termsAcceptedChecked, setTermsAcceptedChecked] = useState(false)
   const [termsSubmitting, setTermsSubmitting] = useState(false)
   const [termsError, setTermsError] = useState('')
@@ -1548,7 +1552,7 @@ export default function App() {
           setTermsAcceptedChecked(false)
           setTermsError('')
           setAuthState('unauthenticated')
-          setAuthMessage(loginStatus === 'error' ? 'Google sign-in failed. Try again.' : 'Sign in with Google to continue.')
+          setAuthMessage(loginStatus === 'error' ? 'Google sign-in failed. Try again.' : 'Register or Sign-in with Google to continue.')
           setSaveState('idle')
           setSaveMessage('')
           return
@@ -1632,7 +1636,7 @@ export default function App() {
   useEffect(() => {
     const wrapper = creditTableWrapperRef.current
 
-    if (!wrapper) {
+    if (!wrapper || !planReady) {
       return
     }
 
@@ -1661,6 +1665,9 @@ export default function App() {
     }
 
     updateCreditTableWidth()
+    const animationFrameId = window.requestAnimationFrame(() => {
+      updateCreditTableWidth()
+    })
 
     const resizeObserver = new ResizeObserver(() => {
       updateCreditTableWidth()
@@ -1669,9 +1676,10 @@ export default function App() {
     resizeObserver.observe(measurementTarget)
 
     return () => {
+      window.cancelAnimationFrame(animationFrameId)
       resizeObserver.disconnect()
     }
-  }, [columnLabels.creditAccounts, creditAccounts, creditViewMode])
+  }, [columnLabels.creditAccounts, creditAccounts, creditViewMode, isPinModalOpen, planReady])
 
   useEffect(() => {
     if (!closeCycleCarryoverBankData) {
@@ -3061,9 +3069,7 @@ export default function App() {
     ? { width: `min(100%, ${creditTableWidth}px)`, marginLeft: 'auto', marginRight: 'auto' }
     : undefined
   const creditWidthMaxStyle = creditTableWidth ? { maxWidth: `${creditTableWidth}px` } : undefined
-  const creditSectionStyle = creditViewMode === 'tab'
-    ? creditWidthCapStyle
-    : { marginLeft: 'auto', marginRight: 'auto' }
+  const creditSectionStyle = creditWidthCapStyle ?? { marginLeft: 'auto', marginRight: 'auto' }
   const renderCreditAccountsTable = (tableWrapperClassName: string) => (
     <div className={tableWrapperClassName} aria-hidden={tableWrapperClassName.includes('measurement') ? 'true' : undefined}>
       <table className="credit-accounts-table">
@@ -3523,7 +3529,7 @@ export default function App() {
         setAuthenticatedUser(null)
         setPinKey(null)
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setSaveState('idle')
         setSaveMessage('')
         return false
@@ -3625,7 +3631,7 @@ export default function App() {
       if (response.status === 401) {
         setAuthenticatedUser(null)
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setSaveState('idle')
         setSaveMessage('')
         return false
@@ -3679,7 +3685,7 @@ export default function App() {
       if (response.status === 401) {
         setAuthenticatedUser(null)
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setSaveState('idle')
         setSaveMessage('')
         return false
@@ -3737,7 +3743,7 @@ export default function App() {
       if (response.status === 401) {
         setAuthenticatedUser(null)
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setSharedViewerUsers([])
         setSelectedSharedViewerUserSub('')
         setSaveState('idle')
@@ -3812,7 +3818,7 @@ export default function App() {
         if (response.status === 401) {
           setAuthenticatedUser(null)
           setAuthState('unauthenticated')
-          setAuthMessage('Session expired. Sign in with Google to continue.')
+          setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
           setSaveState('idle')
           setSaveMessage('')
           return false
@@ -3863,7 +3869,7 @@ export default function App() {
         setAuthenticatedUser(null)
         setPinKey(null)
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setSaveState('idle')
         setSaveMessage('')
         return false
@@ -4038,7 +4044,7 @@ export default function App() {
         setAuthenticatedUser(null)
         setPinKey(null)
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setSaveState('idle')
         setSaveMessage('')
         setIsCloseCycleDialogOpen(false)
@@ -4176,7 +4182,7 @@ export default function App() {
         setAuthenticatedUser(null)
         setPinKey(null)
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setSaveState('idle')
         setSaveMessage('')
         setIsRevertCycleDialogOpen(false)
@@ -4222,39 +4228,11 @@ export default function App() {
   }
 
   const handleLogin = async () => {
+    setAuthScreenMode('default')
     await handleLogout()
     setAuthState('checking')
     setAuthMessage('Redirecting to Google sign-in...')
     window.location.href = LOGIN_URL
-  }
-
-  const requireTermsReacceptanceAfterDelete = (message: string) => {
-    setAuthenticatedUser((currentUser) => currentUser ? {
-      ...currentUser,
-      termsAccepted: false,
-      acceptedTermsVersion: null,
-      acceptedTermsAt: null,
-    } : currentUser)
-    setTermsAcceptedChecked(false)
-    setTermsError('')
-    setPlanReady(false)
-    setPinKey(null)
-    setPendingEncryptedPlanResponse(null)
-    setStoredPinVerify(null)
-    setStoredPinVerifyIv(null)
-    setIsPinModalOpen(false)
-    setPinModalError('')
-    setResetConfirmText('')
-    pinSetupInitiatedRef.current = false
-    setPersonalPlanSnapshot(null)
-    setHasSavedPersonalPlan(false)
-    setShowSamplePrompt(false)
-    setBankBalanceHistoryCycles([])
-    setLastCycleSavedAt(null)
-    applyFinancialPlan(defaultFinancialPlanData)
-    setLoadedPlanSignature(getFinancialPlanSignature(defaultFinancialPlanData))
-    setSaveState('idle')
-    setSaveMessage(message)
   }
 
   const handleAcceptTerms = async () => {
@@ -4285,7 +4263,7 @@ export default function App() {
       if (response.status === 401) {
         setAuthenticatedUser(null)
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setTermsAcceptedChecked(false)
         return
       }
@@ -4324,7 +4302,8 @@ export default function App() {
         setPinKey(null)
         pinSetupInitiatedRef.current = false
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthScreenMode('default')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setIsPinModalOpen(false)
         return
       }
@@ -4356,6 +4335,7 @@ export default function App() {
     setPinKey(null)
     pinSetupInitiatedRef.current = false
     setAuthState('unauthenticated')
+    setAuthScreenMode('default')
     setAuthMessage('Signed out.')
     setTermsAcceptedChecked(false)
     setTermsError('')
@@ -4552,7 +4532,7 @@ export default function App() {
         setAuthenticatedUser(null)
         setPinKey(null)
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setSaveState('idle')
         setSaveMessage('')
         setIsTimelineSwitchDialogOpen(false)
@@ -4891,7 +4871,9 @@ export default function App() {
       setStoredPinVerifyIv(null)
       setIsPinModalOpen(false)
       setResetConfirmText('')
-      requireTermsReacceptanceAfterDelete('Tracker deleted. Accept Terms and Conditions to continue.')
+      await handleLogout()
+      setAuthScreenMode('goodbye')
+      setAuthMessage('Your tracker has been deleted. You can register or sign in again at any time.')
     } catch {
       setPinModalError('Failed to delete data. Please try again.')
     } finally {
@@ -4943,7 +4925,8 @@ export default function App() {
       if (deleteResponse.status === 401) {
         setAuthenticatedUser(null)
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthScreenMode('default')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setIsDeleteDialogOpen(false)
         setDeleteState('idle')
         setDeleteMessage('')
@@ -4967,7 +4950,8 @@ export default function App() {
       if (reloadResponse.status === 401) {
         setAuthenticatedUser(null)
         setAuthState('unauthenticated')
-        setAuthMessage('Session expired. Sign in with Google to continue.')
+        setAuthScreenMode('default')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
         setIsDeleteDialogOpen(false)
         setDeleteState('idle')
         setDeleteMessage('')
@@ -4984,10 +4968,12 @@ export default function App() {
       if (isSampleMode) {
         applySampleCycleResponse(freshResponse, 'Sample tracker deleted. Started fresh with a new plan.')
       } else {
-        requireTermsReacceptanceAfterDelete('Tracker deleted. Accept Terms and Conditions to continue.')
         setIsDeleteDialogOpen(false)
         setDeleteState('idle')
         setDeleteMessage('')
+        await handleLogout()
+        setAuthScreenMode('goodbye')
+        setAuthMessage('Your tracker has been deleted. You can register or sign in again at any time.')
         return
       }
       void refreshBankBalanceHistory()
@@ -5030,14 +5016,29 @@ export default function App() {
     return (
       <div className="auth-shell">
         <section className="auth-card">
-          <p className="eyebrow">Financial Planning</p>
-          <h1>Personal Finance Tracker</h1>
-          <p className="auth-copy">
-            Sign in with Google to access the shared financial planning dashboard.
-          </p>
-          <button type="button" className="toolbar-button auth-button" onClick={() => void handleLogin()} disabled={authState === 'checking'}>
-            {authState === 'checking' ? 'Checking...' : 'Sign in with Google'}
-          </button>
+          {authScreenMode === 'goodbye' ? (
+            <>
+              <p className="eyebrow">Goodbye</p>
+              <h1>We Are Sad To See You Go</h1>
+              <p className="auth-copy">
+                Your tracker has been deleted. If you want to come back later, you can register or sign in again with Google and start fresh.
+              </p>
+              <button type="button" className="toolbar-button auth-button" onClick={() => void handleLogin()} disabled={authState === 'checking'}>
+                {authState === 'checking' ? 'Checking...' : 'Register Or Sign In Again'}
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="eyebrow">Financial Planning</p>
+              <h1>Personal Finance Tracker</h1>
+              <p className="auth-copy">
+                Register or sign-in with Google to access the shared financial planning dashboard.
+              </p>
+              <button type="button" className="toolbar-button auth-button" onClick={() => void handleLogin()} disabled={authState === 'checking'}>
+                {authState === 'checking' ? 'Checking...' : 'Register or Sign-in with Google'}
+              </button>
+            </>
+          )}
           <p className={`auth-message auth-${authState}`}>{authMessage}</p>
         </section>
       </div>
@@ -5402,7 +5403,7 @@ export default function App() {
                         role="menuitem"
                         disabled={isViewingPreviousCycle || saveState === 'loading' || saveState === 'saving'}
                       >
-                        Switch to {formatTimelineTypeLabel(getAlternateTimelineType(timelineType))}
+                          Switch cycle to {formatTimelineSwitchActionLabel(getAlternateTimelineType(timelineType))}
                       </button>
                     </>
                   ) : null}
@@ -5613,15 +5614,21 @@ export default function App() {
                 <article className="help-visual-card">
                   <div className="help-visual-frame" aria-hidden="true">
                     <div className="help-mock-toolbar help-mock-toolbar-tight">
-                      <span className="help-mock-chip">Current Cycle</span>
-                      <span className="help-mock-chip help-mock-chip-muted">Mid to Mid</span>
                       <span className="help-mock-button">Save Changes</span>
                       <span className="help-mock-button help-mock-button-muted">Reset</span>
-                      <span className="help-mock-button help-mock-button-accent">Sample Tracker</span>
+                      <span className="help-mock-status-pill">Saved</span>
                     </div>
-                    <div className="help-mock-banner-row">
-                      <div className="help-mock-banner">Viewing sample plan</div>
-                      <div className="help-mock-menu-dot" />
+                    <div className="help-mock-user-row">
+                      <div className="help-mock-userchip">
+                        <strong>User Menu</strong>
+                        <span>signed-in account</span>
+                      </div>
+                    </div>
+                    <div className="help-mock-menu-list">
+                      <span className="help-mock-menu-item">Sample Tracker</span>
+                      <span className="help-mock-menu-item help-mock-menu-item-muted">Timeline: Start to End</span>
+                      <span className="help-mock-menu-item">Switch cycle to Mid-Mid of Month</span>
+                      <span className="help-mock-menu-item">Help</span>
                     </div>
                     <div className="help-mock-progress">
                       <span>62% through cycle</span>
@@ -5636,16 +5643,16 @@ export default function App() {
                     </div>
                   </div>
                   <h4>Top Toolbar</h4>
-                  <p>Use this area to save, reset local edits, enter sample mode, switch timeline type, close the current cycle, or switch between current and previous cycles.</p>
+                  <p>Save and Reset stay at the top. Sample Tracker, the current timeline label, cycle switching, Help, and Sign Out are inside the signed-in user menu.</p>
                 </article>
 
                 <article className="help-visual-card">
                   <div className="help-visual-frame" aria-hidden="true">
                     <div className="help-mock-table">
                       <div className="help-mock-table-header">
-                        <span>Bank</span>
-                        <span>Due</span>
-                        <span>State</span>
+                        <span>Account</span>
+                        <span>Current</span>
+                        <span>Status</span>
                       </div>
                       <div className="help-mock-table-row">
                         <span>Chase Freedom</span>
@@ -5664,7 +5671,7 @@ export default function App() {
                         </span>
                       </div>
                       <div className="help-mock-table-total">
-                        <span>Credit Card Totals</span>
+                        <span>Cards Total</span>
                         <span>$465</span>
                         <span>Exposure</span>
                       </div>
@@ -5810,7 +5817,7 @@ export default function App() {
                 <li>Reset discards unsaved local edits in the current cycle and restores the tracker to the last loaded or saved version after you confirm the warning.</li>
                 <li>Sample Tracker opens a temporary sample plan view. Changes there stay only in the current browser session and are not written to your saved plan.</li>
                 <li>Go Back To My Plan leaves sample mode and reloads your personal tracker.</li>
-                <li>Switch to Start to End or Mid to Mid changes your tracker timeline type, deletes previous cycle history, and removes anything you could revert to from the old timeline. Start to End runs from the first day to the last day of the month. Mid to Mid runs from mid-month to mid-month.</li>
+                <li>Switch cycle to Start-End of Month or Mid-Mid of Month changes your tracker timeline type, deletes previous cycle history, and removes anything you could revert to from the old timeline. Start-End of Month runs from the first day to the last day of the month. Mid-Mid of Month runs from mid-month to mid-month.</li>
                 <li>Close Cycle archives the current cycle as previous, replaces any existing previous cycle, and applies rollover rules: all credit card paid flags reset to unchecked, all statement cycled flags reset to unchecked, and all next-month debit expenses move into the current month.</li>
                 <li>Revert Cycle undoes the most recent close-cycle action while it is still available in the current browser session. Do not confuse it with Reset, which discards unsaved edits but does not undo a cycle close.</li>
                 <li>When switching to sample mode or switching cycles with unsaved changes, a confirmation dialog asks whether to discard changes, save first, or cancel.</li>

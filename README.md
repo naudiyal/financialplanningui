@@ -26,6 +26,17 @@ Open http://localhost:5173 in your browser.
 - The first-time setup screen also allows exiting; that exit resets accepted terms and signs the user out so they must accept terms again on the next login.
 - The visible Terms and Conditions text is currently defined in `src/App.tsx`.
 
+## Auth And Delete Flow
+
+- The default unauthenticated card now uses `Register or Sign-in with Google` wording.
+- Session-expired messages use the same `Register or Sign-in with Google` wording for consistency.
+- When a user deletes their own tracker, they are signed out and shown a goodbye screen with an option to register or sign in again.
+
+## Cycle Switching And Help
+
+- The user menu now labels the timeline action as `Switch cycle to Start-End of Month` or `Switch cycle to Mid-Mid of Month`.
+- The in-app Help dialog mock visuals were updated to match the current layout more closely: save/reset stay in the top bar, while sample/timeline/help actions live in the signed-in user menu.
+
 ## Changing Terms And Conditions
 
 - Edit the displayed legal copy in `src/App.tsx`.

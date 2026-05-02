@@ -697,11 +697,76 @@ html, body, #root {
   color: #be123c;
 }
 
+.help-mock-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.45rem;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  background: #ecfccb;
+  color: #3f6212;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
 .help-mock-banner-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.45rem;
+}
+
+.help-mock-user-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.45rem;
+}
+
+.help-mock-userchip {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 8.5rem;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid #dbe4f0;
+  border-radius: 0.7rem;
+  background: rgba(255, 255, 255, 0.96);
+  color: #0f172a;
+}
+
+.help-mock-userchip strong {
+  font-size: 0.62rem;
+}
+
+.help-mock-userchip span {
+  font-size: 0.54rem;
+  color: #64748b;
+}
+
+.help-mock-menu-list {
+  display: grid;
+  gap: 0.22rem;
+  margin-top: 0.45rem;
+  padding: 0.3rem;
+  border: 1px solid #dbe4f0;
+  border-radius: 0.7rem;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.help-mock-menu-item {
+  display: flex;
+  align-items: center;
+  min-height: 1.4rem;
+  padding: 0 0.4rem;
+  border-radius: 0.45rem;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.58rem;
+  font-weight: 700;
+}
+
+.help-mock-menu-item-muted {
+  color: #64748b;
 }
 
 .help-mock-banner {
