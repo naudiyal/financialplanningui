@@ -776,8 +776,8 @@ const sortItems = <T,>(items: T[], getValue: (item: T) => string | number | bool
   return [...items].sort((left, right) => multiplier * compareValues(getValue(left), getValue(right)))
 }
 
-const getCreditSortValue = (account: CreditAccount, key: CreditSortKey) => {
-  const metrics = getCreditMetrics(account)
+const getCreditSortValue = (account: CreditAccount, key: CreditSortKey, cycleStartDate: string) => {
+  const metrics = getCreditMetrics(account, cycleStartDate)
 
   switch (key) {
     case 'name':
@@ -853,28 +853,55 @@ const applyOrderedIds = <T,>(items: T[], orderedIds: string[], getId: (item: T) 
   return [...orderedItems, ...remainingItems]
 }
 
-const getCreditMetrics = (account: CreditAccount) => {
+const getCreditMetrics = (account: CreditAccount, cycleStartDate: string) => {
   const totalDueForCard = account.creditLimit - account.availableCredit
   const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
+  const statementDateInCurrentCycle = account.lastStatementDate >= cycleStartDate
+  const paymentDateBeforeStatementDate = account.nextPaymentDate < account.lastStatementDate
+  const statementDateBeforePaymentDate = account.lastStatementDate < account.nextPaymentDate
 
   let nextMonthStatementBalance: number
-  let displayedLastStatementBalance: number
+  const displayedLastStatementBalance = account.lastStatementBalance
 
-  if (account.paidThisMonth) {
-    if (account.nextPaymentDate < account.lastStatementDate) {
-      // payment is before statement in this cycle
-      nextMonthStatementBalance = account.statementCycledAfterPayment
-        ? totalDueForCard - account.lastStatementBalance
-        : totalDueForCard
-      displayedLastStatementBalance = account.lastStatementBalance
-    } else {
-      // statement is before payment
+  if (statementDateInCurrentCycle) {
+    if (paymentDateBeforeStatementDate) {
+      if (account.paidThisMonth && account.statementCycledAfterPayment) {
+        nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
+      } else if (!account.paidThisMonth && account.statementCycledAfterPayment) {
+        // Keep contradictory user input numeric instead of exposing an invalid state.
+        nextMonthStatementBalance = totalDueForCard
+      } else {
+        nextMonthStatementBalance = totalDueForCard
+      }
+    } else if (statementDateBeforePaymentDate) {
+      if (account.statementCycledAfterPayment && !account.paidThisMonth) {
+        nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
+      } else if (account.statementCycledAfterPayment && account.paidThisMonth) {
+        nextMonthStatementBalance = totalDueForCard
+      } else if (!account.statementCycledAfterPayment && !account.paidThisMonth) {
+        nextMonthStatementBalance = 0
+      } else {
+        nextMonthStatementBalance = totalDueForCard
+      }
+    } else if (account.statementCycledAfterPayment) {
       nextMonthStatementBalance = totalDueForCard
-      displayedLastStatementBalance = account.lastStatementBalance
+    } else {
+      nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
+    }
+  } else if (statementDateBeforePaymentDate) {
+    if (!account.statementCycledAfterPayment && !account.paidThisMonth) {
+      nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
+    } else if (!account.statementCycledAfterPayment && account.paidThisMonth) {
+      nextMonthStatementBalance = totalDueForCard
+    } else if (account.statementCycledAfterPayment && account.paidThisMonth) {
+      nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
+    } else if (account.statementCycledAfterPayment && !account.paidThisMonth) {
+      nextMonthStatementBalance = totalDueForCard
+    } else {
+      nextMonthStatementBalance = totalDueForCard
     }
   } else {
-    nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
-    displayedLastStatementBalance = account.lastStatementBalance
+    nextMonthStatementBalance = totalDueForCard
   }
 
   const utilizationPercent = account.creditLimit > 0 ? (totalDueForCard / account.creditLimit) * 100 : 0
@@ -1389,7 +1416,14 @@ export default function App() {
   const [creditSort, setCreditSort] = useState<SortState<CreditSortKey>>(DEFAULT_CREDIT_SORT)
   const [expenseSort, setExpenseSort] = useState<SortState<ExpenseSortKey>>(DEFAULT_EXPENSE_SORT)
   const [creditAccountOrder, setCreditAccountOrder] = useState<string[]>(() =>
-    buildOrderedIds(sortItems(initialCreditAccounts, (account) => getCreditSortValue(account, DEFAULT_CREDIT_SORT.key), DEFAULT_CREDIT_SORT.direction), (account) => account.id),
+    buildOrderedIds(
+      sortItems(
+        initialCreditAccounts,
+        (account) => getCreditSortValue(account, DEFAULT_CREDIT_SORT.key, buildCurrentCycleForTimeline(new Date(), 'START_TO_END').startDate),
+        DEFAULT_CREDIT_SORT.direction,
+      ),
+      (account) => account.id,
+    ),
   )
   const [expenseRowOrder, setExpenseRowOrder] = useState<string[]>(() => {
     const initialExpenseRows: ExpenseRow[] = [
@@ -1816,7 +1850,7 @@ export default function App() {
 
       setCreditAccountOrder(
         buildOrderedIds(
-          sortItems(creditAccounts, (account) => getCreditSortValue(account, nextSort.key), nextSort.direction),
+          sortItems(creditAccounts, (account) => getCreditSortValue(account, nextSort.key, activeCyclePeriod.startDate), nextSort.direction),
           (account) => account.id,
         ),
       )
@@ -2112,22 +2146,12 @@ export default function App() {
     const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
     return sum + currentMonthPayment
   }, 0)
+  const activeCyclePeriod = selectedCycle === 'previous' && previousCyclePeriod ? previousCyclePeriod : currentCyclePeriod
+  const activeCycleStartDate = activeCyclePeriod.startDate
 
   const creditCardNextMonthBalance = creditAccounts.reduce((sum, account) => {
-    const totalDueForCard = account.creditLimit - account.availableCredit
-    let nextMonthBalance: number
-    if (account.paidThisMonth) {
-      if (account.nextPaymentDate < account.lastStatementDate) {
-        nextMonthBalance = account.statementCycledAfterPayment
-          ? totalDueForCard - account.lastStatementBalance
-          : totalDueForCard
-      } else {
-        nextMonthBalance = totalDueForCard
-      }
-    } else {
-      nextMonthBalance = totalDueForCard - account.lastStatementBalance
-    }
-    return sum + nextMonthBalance
+    const { nextMonthStatementBalance } = getCreditMetrics(account, activeCycleStartDate)
+    return sum + nextMonthStatementBalance
   }, 0)
 
   const debitCardExpenseItems = [...planoExpenses, ...sanfordExpenses, ...otherExpenses].map((item) => ({
@@ -2284,7 +2308,7 @@ export default function App() {
 
   const paymentTimelineData = [...creditAccounts]
     .map((account) => {
-      const metrics = getCreditMetrics(account)
+      const metrics = getCreditMetrics(account, activeCycleStartDate)
       return {
         name: shortenLabel(account.name, 16, 7),
         payDate: account.nextPaymentDate,
@@ -2298,7 +2322,7 @@ export default function App() {
 
   const creditTotalDueData = [...creditAccounts]
     .map((account) => {
-      const metrics = getCreditMetrics(account)
+      const metrics = getCreditMetrics(account, activeCycleStartDate)
       return {
         fullName: account.name,
         totalDue: Number(metrics.totalDueForCard.toFixed(2)),
@@ -2315,8 +2339,6 @@ export default function App() {
     )
 
   const totalDueByCardChartHeight = Math.max(200, creditTotalDueData.length * 28)
-
-  const activeCyclePeriod = selectedCycle === 'previous' && previousCyclePeriod ? previousCyclePeriod : currentCyclePeriod
   const budgetCycleTimeline = useMemo(() => getBudgetCycleTimeline(activeCyclePeriod, new Date()), [activeCyclePeriod])
   const budgetCycleTitle = formatCycleRangeLabel(activeCyclePeriod)
   const budgetCycleProgressLabel =
@@ -3111,7 +3133,7 @@ export default function App() {
         </thead>
         <tbody>
           {displayedCreditAccounts.map((account) => {
-            const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account)
+            const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account, activeCycleStartDate)
             const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
             const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
 
@@ -3222,7 +3244,7 @@ export default function App() {
     const normalizedViewModes = normalizeViewModes(normalizedData.viewModes)
     const nextCreditAccounts = sortItems(
       normalizedData.creditAccounts,
-      (account) => getCreditSortValue(account, DEFAULT_CREDIT_SORT.key),
+      (account) => getCreditSortValue(account, DEFAULT_CREDIT_SORT.key, currentCyclePeriod.startDate),
       DEFAULT_CREDIT_SORT.direction,
     )
     const nextExpenseRows: ExpenseRow[] = [
@@ -6434,7 +6456,7 @@ export default function App() {
             <div className="credit-tab-shell">
               <div className="credit-tab-strip" role="tablist" aria-label="Credit card account tabs">
                 {displayedCreditAccounts.map((account) => {
-                  const { currentMonthPayment } = getCreditMetrics(account)
+                  const { currentMonthPayment } = getCreditMetrics(account, activeCycleStartDate)
                   const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
                   const isActive = activeDisplayedCreditAccount?.id === account.id
 
@@ -6463,7 +6485,7 @@ export default function App() {
 
               {activeDisplayedCreditAccount ? (() => {
                 const account = activeDisplayedCreditAccount
-                const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account)
+                const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account, activeCycleStartDate)
                 const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
                 const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
 

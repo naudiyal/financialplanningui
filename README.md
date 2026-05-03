@@ -32,6 +32,20 @@ Open http://localhost:5173 in your browser.
 - Session-expired messages use the same `Register or Sign-in with Google` wording for consistency.
 - When a user deletes their own tracker, they are signed out and shown a goodbye screen with an option to register or sign in again.
 
+## Recent UI Updates
+
+- Authenticated users no longer briefly see the app behind a blocking PIN flow; blocking PIN states render a locked shell and the app waits for plan readiness before showing finance content.
+- First-time setup and PIN flows show the signed-in email address, and the first-time setup flow includes both the currency selector and cycle-type selection.
+- Supported currencies were expanded beyond the original short list so the app can be used with many more global currencies.
+- Shared tracker administration was expanded: admins can see tracker-owner email addresses, review each shared tracker's latest update timestamp, and delete any shared tracker when necessary.
+- The user menu, help copy, and goodbye/delete experience were updated to match the current navigation and sign-in wording.
+
+## Credit Logic
+
+- Credit-card `Next Balance` is owned in `src/App.tsx` by `getCreditMetrics(...)`.
+- Sorting, totals, charts, the credit table, and the credit tab all reuse that same helper path so the displayed values stay aligned.
+- The current rules are documented in `docs/credit-next-balance-logic.md`.
+
 ## Cycle Switching And Help
 
 - The user menu now labels the timeline action as `Switch cycle to Start-End of Month` or `Switch cycle to Mid-Mid of Month`.
