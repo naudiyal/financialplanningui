@@ -2736,6 +2736,10 @@ export default function App() {
       }]
     }
 
+    const maxCycleEndDate = (selectedCycle === 'previous' && previousCyclePeriod)
+      ? previousCyclePeriod.endDate
+      : currentCyclePeriod.endDate
+
     const cyclesByPeriod = new Map<string, BankBalanceHistoryCycle>()
 
     bankBalanceHistoryCycles.forEach((cycle) => {
@@ -2754,7 +2758,8 @@ export default function App() {
 
     return Array.from(cyclesByPeriod.values())
       .sort((left, right) => left.cycle.startDate.localeCompare(right.cycle.startDate))
-  }, [appRoute, bankBalanceHistoryCycles, currentCyclePeriod, liveBankComparisonData, liveCurrentBankHistoryCycle, localBankBalanceHistoryVersion, planViewMode])
+      .filter((cycle) => cycle.cycle.endDate <= maxCycleEndDate)
+  }, [appRoute, bankBalanceHistoryCycles, currentCyclePeriod, liveBankComparisonData, liveCurrentBankHistoryCycle, localBankBalanceHistoryVersion, planViewMode, previousCyclePeriod, selectedCycle])
 
   const bankComparisonSeries: BankComparisonSeriesEntry[] = Array.from(
     new Set(bankBalanceChartCycles.flatMap((cycle) => cycle.banks.map((bank) => bank.bankId))),
