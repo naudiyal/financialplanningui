@@ -296,13 +296,13 @@ type BankBalanceComparisonPoint = {
 type BankBalanceHistoryChartRow = {
   cycleLabel: string
   cycleKey: string
-  [bankId: string]: string | number
+  [bankId: string]: string | number | null
 }
 
 type BankComparisonSeriesEntry = {
   bankKey: string
   bankName: string
-  values: number[]
+  values: Array<number | null>
   stroke?: string
   strokeDasharray?: string
 }
@@ -2771,7 +2771,7 @@ export default function App() {
         .find((bank) => bank.bankId === bankId)
       const values = bankBalanceChartCycles.map((cycle) => {
         const matchingBank = cycle.banks.find((bank) => bank.bankId === bankId)
-        return matchingBank?.monthEndBalanceMinusDues ?? 0
+        return matchingBank ? matchingBank.monthEndBalanceMinusDues : null
       })
 
       return {
@@ -2780,7 +2780,7 @@ export default function App() {
         values,
       }
     })
-    .filter((bank) => bank.values.some((value) => Math.abs(value) > 0.004))
+    .filter((bank) => bank.values.some((value) => value != null && Math.abs(value) > 0.004))
 
   const totalBankBalanceSeries: BankComparisonSeriesEntry | null = bankBalanceChartCycles.length === 0
     ? null
@@ -2815,7 +2815,7 @@ export default function App() {
         }
 
         const matchingBank = cycle.banks.find((point) => point.bankId === bank.bankKey)
-        return [bank.bankKey, matchingBank?.monthEndBalanceMinusDues ?? 0]
+        return [bank.bankKey, matchingBank ? matchingBank.monthEndBalanceMinusDues : null]
       }),
     ),
   }))
@@ -7888,7 +7888,12 @@ export default function App() {
                     width={76}
                   />
                   <Tooltip
-                    formatter={(value: number, name: string) => [currency(value), name]}
+                    formatter={(value: unknown, name: string) => {
+                      if (typeof value !== 'number' || Number.isNaN(value)) {
+                        return ['—', name]
+                      }
+                      return [currency(value), name]
+                    }}
                     labelFormatter={(_label, payload) => {
                       const firstPoint = payload?.[0]?.payload as BankBalanceHistoryChartRow | undefined
                       const matchingCycle = bankBalanceChartCycles.find((cycle) => getCyclePeriodKey(cycle.cycle) === firstPoint?.cycleKey)
