@@ -4670,6 +4670,15 @@ export default function App() {
     setIsHelpDialogOpen(true)
   }
 
+  const handleTrackersClick = () => {
+    if (!canAccessTrackersRoute || isTrackersRoute) {
+      return
+    }
+
+    setIsUserMenuOpen(false)
+    navigateToRoute(TRACKERS_ROUTE)
+  }
+
   const handleExportDecryptedBackup = () => {
     if (isTrackersRoute || isSampleMode) {
       return
@@ -5739,6 +5748,11 @@ export default function App() {
                       Sample Tracker
                     </button>
                   )}
+                  {canAccessTrackersRoute && !isTrackersRoute ? (
+                    <button type="button" className="user-menu-item" onClick={handleTrackersClick} role="menuitem">
+                      Trackers
+                    </button>
+                  ) : null}
                   {!isTrackersRoute ? (
                     <>
                       <button type="button" className="user-menu-item" disabled role="menuitem" aria-disabled="true">
@@ -5768,10 +5782,10 @@ export default function App() {
                   {!isTrackersRoute && !isSampleMode ? (
                     <>
                       <button type="button" className="user-menu-item" onClick={handleExportDecryptedBackup} role="menuitem">
-                        Export - Backup
+                        Download Tracker
                       </button>
                       <button type="button" className="user-menu-item" onClick={handleImportBackupClick} role="menuitem">
-                        Import - Backup
+                        Upload Tracker
                       </button>
                     </>
                   ) : null}
