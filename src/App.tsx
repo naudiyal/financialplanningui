@@ -5179,6 +5179,11 @@ export default function App() {
     setSaveMessage('Switching timeline...')
 
     try {
+      const encryptionExempt = authenticatedUser?.encryptionExempt ?? false
+      const isEncryptionActive = !!pinKey && !encryptionExempt && !isSampleMode
+      const currentCycleData = buildPayload()
+      const requestPlanData = isEncryptionActive && pinKey ? await buildEncryptedWrapper(currentCycleData, pinKey) : currentCycleData
+
       const endpoint = isSampleMode
         ? `${API_BASE_URL}/api/financial-plan/sample/switch-timeline?timelineType=${timelineType}`
         : `${API_BASE_URL}/api/financial-plan/switch-timeline`
@@ -5190,7 +5195,7 @@ export default function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          financialPlanData: buildPayload(),
+          financialPlanData: requestPlanData,
           expectedCurrentCycle: currentCyclePeriod,
           targetTimelineType: pendingTimelineTypeSwitch,
         }),
@@ -5222,31 +5227,15 @@ export default function App() {
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
 
-      if (pinKey && !isSampleMode) {
-        setSaveMessage('Securing your data...')
-        try {
-          await saveCycleEncrypted(cycleResponse.data, pinKey, 'current')
-        } catch (error) {
-          if ((error as any)?.status === 401) {
-            setAuthenticatedUser(null)
-            setPinKey(null)
-            setAuthState('unauthenticated')
-            setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
-            setSaveState('idle')
-            setSaveMessage('')
-            setIsTimelineSwitchDialogOpen(false)
-            setPendingTimelineTypeSwitch(null)
-            return
-          }
-          setSaveState('error')
-          setSaveMessage('Timeline switched, but encryption sync failed. Reload and try again to re-secure your data.')
-        }
-      }
-
       if (isSampleMode) {
         applySampleCycleResponse(cycleResponse, `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`)
       } else {
-        applyPersonalCycleResponse(cycleResponse, `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`)
+        applyPersonalCycleResponse(
+          cycleResponse,
+          `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`,
+          false,
+          isEncryptionActive ? currentCycleData : undefined,
+        )
       }
       void refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
@@ -6246,40 +6235,46 @@ export default function App() {
         </section>
       ) : null}
 
-      {!isTrackersRoute ? (
-        <div className="budget-cycle-toolbar-row" style={creditWidthCapStyle}>
-          <span className="toolbar-button-wrap" title={budgetCycleButtonTooltip}>
+      <div className="budget-cycle-toolbar-row" style={creditWidthCapStyle}>
+        {!isTrackersRoute ? (
+          <>
+            <span className="toolbar-button-wrap" title={budgetCycleButtonTooltip}>
+              <button
+                type="button"
+                className="toolbar-button budget-cycle-button"
+                onClick={handleCloseCycleClick}
+                disabled={isPlanReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle}
+              >
+                Close Cycle
+              </button>
+            </span>
             <button
               type="button"
-              className="toolbar-button budget-cycle-button"
-              onClick={handleCloseCycleClick}
-              disabled={isPlanReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle}
+              className="toolbar-button"
+              onClick={handleRevertCycleClick}
+              disabled={!canRevertClosedCycle || saveState === 'loading' || saveState === 'saving'}
             >
-              Close Cycle
+              Revert Cycle
             </button>
-          </span>
-          <button
-            type="button"
-            className="toolbar-button"
-            onClick={handleRevertCycleClick}
-            disabled={isTrackersRoute || !canRevertClosedCycle || saveState === 'loading' || saveState === 'saving'}
+          </>
+        ) : null}
+        <label className="budget-cycle-select-wrap">
+          <span>Cycle</span>
+          <select
+            className="budget-cycle-select"
+            value={selectedCycle}
+            onChange={(event) => void handleCycleSelectionChange(event.target.value as CycleSelection)}
+            disabled={
+              saveState === 'loading' ||
+              saveState === 'saving' ||
+              (isTrackersRoute && !selectedSharedViewerUserSub)
+            }
           >
-            Revert Cycle
-          </button>
-          <label className="budget-cycle-select-wrap">
-            <span>Cycle</span>
-            <select
-              className="budget-cycle-select"
-              value={selectedCycle}
-              onChange={(event) => void handleCycleSelectionChange(event.target.value as CycleSelection)}
-              disabled={saveState === 'loading' || saveState === 'saving'}
-            >
-              <option value="current">{formatCycleRangeLabel(currentCyclePeriod)}</option>
-              {previousCyclePeriod ? <option value="previous">{formatCycleRangeLabel(previousCyclePeriod)}</option> : null}
-            </select>
-          </label>
-        </div>
-      ) : null}
+            <option value="current">{formatCycleRangeLabel(currentCyclePeriod)}</option>
+            {previousCyclePeriod ? <option value="previous">{formatCycleRangeLabel(previousCyclePeriod)}</option> : null}
+          </select>
+        </label>
+      </div>
 
       <section className="budget-cycle-panel" aria-label="Current budget cycle timeline" style={creditWidthCapStyle}>
         <div className="budget-cycle-header">
