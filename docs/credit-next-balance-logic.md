@@ -62,6 +62,7 @@ else paymentDate = statementDate: Not possible as statement date is before cycle
 ## Current Implementation Notes
 
 - `totalDueForCard` is calculated as `creditLimit - availableCredit`.
-- `statementHasCycled` is represented in code as `statementCycledAfterPayment`.
+- `currentCycleStmtCycled` is the preferred domain term in this document; the current code field is still named `statementCycledAfterPayment`.
+- `paidThisCycle` is the preferred domain term in this document; the current code field is still named `paidThisMonth`.
 - The current UI keeps numeric fallbacks for impossible manual-input combinations so the app always renders safely.
-- The latest accepted change in this rule set is the current-cycle branch where `statementDate < paymentDate`, `statementHasCycled = false`, and `paidThisMonth = false`; that case now returns `0`.
+- The latest accepted change in this rule set is that the current-cycle `statementDate < paymentDate` branch now always returns `totalDueForCard - lastStatementBalance`, and the pre-cycle non-cycled paid case now returns `totalDueForCard`.

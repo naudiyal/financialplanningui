@@ -273,7 +273,7 @@ export const defaultColumnLabels: FinancialPlanColumnLabels = {
     { id: 'credit-limit', label: 'Credit Limit' },
     { id: 'due', label: 'Total Due' },
     { id: 'current-payment', label: 'Curr Payment' },
-    { id: 'next-balance', label: 'Next Balance' },
+    { id: 'next-balance', label: 'Next Stmt Balance' },
     { id: 'utilization', label: 'Util %' },
   ],
   debitExpenses: [

@@ -65,6 +65,14 @@ type FinancialPlanData = {
   pinVerifyIv?: string
 }
 
+type DecryptedDashboardBackup = {
+  schemaVersion: 1
+  exportedAt: string
+  buildVersion: string
+  timelineType: TimelineType
+  financialPlanData: FinancialPlanData
+}
+
 type AuthStatusResponse = {
   authenticated: boolean
   admin: boolean
@@ -162,6 +170,7 @@ type AnalyticsKpiCard = {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
 const LOGIN_URL = `${API_BASE_URL}/oauth2/authorization/google`
 const BUILD_VERSION_LABEL = `Build v${__APP_VERSION__}`
+const DECRYPTED_BACKUP_SCHEMA_VERSION = 1
 const HISTORY_REQUEST_TIMEOUT_MS = 10_000
 const FIRST_PAYCHECK_ID = 'first-paycheck'
 const SECOND_PAYCHECK_ID = 'second-paycheck'
@@ -486,6 +495,14 @@ const normalizeLegacyCreditAccountColumnLabel = (id: string, label: string) => {
     return 'Credit Limit'
   }
 
+  if (id === 'next-balance' && label === 'Next Balance') {
+    return 'Next Stmt Balance'
+  }
+
+  if (id === 'next-balance' && label === 'Next STMT Balance') {
+    return 'Next Stmt Balance'
+  }
+
   return label
 }
 
@@ -584,8 +601,10 @@ const formatViewerUserLabel = (user: SharedViewerUserSummary) => {
   return primaryLabel
 }
 
-const formatEncryptedViewerUserLabel = (user: SharedViewerUserSummary) =>
-  user.encryptionExempt ? formatViewerUserLabel(user) : `🔒 ${formatViewerUserLabel(user)}`
+const formatEncryptedViewerUserLabel = (user: SharedViewerUserSummary) => {
+  const isEncrypted = user.encryptionExempt === false
+  return isEncrypted ? `🔒️ ${formatViewerUserLabel(user)}` : formatViewerUserLabel(user)
+}
 
 const normalizePinValue = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 4)
 
@@ -874,15 +893,7 @@ const getCreditMetrics = (account: CreditAccount, cycleStartDate: string) => {
         nextMonthStatementBalance = totalDueForCard
       }
     } else if (statementDateBeforePaymentDate) {
-      if (account.statementCycledAfterPayment && !account.paidThisMonth) {
-        nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
-      } else if (account.statementCycledAfterPayment && account.paidThisMonth) {
-        nextMonthStatementBalance = totalDueForCard
-      } else if (!account.statementCycledAfterPayment && !account.paidThisMonth) {
-        nextMonthStatementBalance = 0
-      } else {
-        nextMonthStatementBalance = totalDueForCard
-      }
+      nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
     } else if (account.statementCycledAfterPayment) {
       nextMonthStatementBalance = totalDueForCard
     } else {
@@ -896,7 +907,7 @@ const getCreditMetrics = (account: CreditAccount, cycleStartDate: string) => {
     } else if (account.statementCycledAfterPayment && account.paidThisMonth) {
       nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
     } else if (account.statementCycledAfterPayment && !account.paidThisMonth) {
-      nextMonthStatementBalance = totalDueForCard
+      nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
     } else {
       nextMonthStatementBalance = totalDueForCard
     }
@@ -930,10 +941,10 @@ const serializeSectionTitles = (
   incomeScheduleChase: sectionTitles.defaultBank,
 })
 
-const normalizeViewMode = <T extends 'table' | 'tab'>(
+const normalizeViewMode = (
   viewMode: string | undefined,
-  fallback: T,
-): T => (viewMode === 'tab' ? 'tab' : fallback)
+  fallback: 'table' | 'tab',
+): 'table' | 'tab' => (viewMode === 'tab' ? 'tab' : fallback)
 
 const normalizeViewModes = (
   viewModes?: FinancialPlanData['viewModes'],
@@ -942,6 +953,35 @@ const normalizeViewModes = (
   debitExpenses: normalizeViewMode(viewModes?.debitExpenses, defaultViewModes.debitExpenses),
   bankAccounts: normalizeViewMode(viewModes?.bankAccounts, defaultViewModes.bankAccounts),
 })
+
+const isFinancialPlanData = (value: unknown): value is FinancialPlanData => {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<FinancialPlanData>
+  return Array.isArray(candidate.creditAccounts)
+    && Array.isArray(candidate.incomeItems)
+    && Array.isArray(candidate.balanceItems)
+    && Array.isArray(candidate.planoExpenses)
+    && Array.isArray(candidate.sanfordExpenses)
+    && Array.isArray(candidate.otherExpenses)
+}
+
+const isTimelineType = (value: unknown): value is TimelineType => value === 'MID_TO_MID' || value === 'START_TO_END'
+
+const isDecryptedDashboardBackup = (value: unknown): value is DecryptedDashboardBackup => {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<DecryptedDashboardBackup>
+  return candidate.schemaVersion === DECRYPTED_BACKUP_SCHEMA_VERSION
+    && typeof candidate.exportedAt === 'string'
+    && typeof candidate.buildVersion === 'string'
+    && isTimelineType(candidate.timelineType)
+    && isFinancialPlanData(candidate.financialPlanData)
+}
 
 const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData => {
   const normalizedSectionTitles = normalizeSectionTitles(data.sectionTitles)
@@ -982,24 +1022,26 @@ const chartCurrency = (value: number) =>
   }).format(value)
 
 const renderCompactBarValueLabel = (props: {
-  x?: number
-  y?: number
-  width?: number
-  height?: number
+  x?: number | string
+  y?: number | string
+  width?: number | string
+  height?: number | string
   value?: number | string
 }) => {
-  const width = props.width ?? 0
-  const height = props.height ?? 0
+  const x = Number(props.x ?? 0)
+  const y = Number(props.y ?? 0)
+  const width = Number(props.width ?? 0)
+  const height = Number(props.height ?? 0)
   const numericValue = Number(props.value ?? 0)
 
-  if (!Number.isFinite(numericValue) || numericValue <= 0 || width < 34 || height < 10) {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(numericValue) || numericValue <= 0 || width < 34 || height < 10) {
     return null
   }
 
   return (
     <text
-      x={(props.x ?? 0) + width / 2}
-      y={(props.y ?? 0) + height / 2 + 3}
+      x={x + width / 2}
+      y={y + height / 2 + 3}
       textAnchor="middle"
       fill="#ffffff"
       fontSize={9}
@@ -1481,8 +1523,11 @@ export default function App() {
   const [pinModalTimelineType, setPinModalTimelineType] = useState<TimelineType>('START_TO_END')
   const [currencyCode, setCurrencyCode] = useState<string>(() => _activeCurrency.code)
   const [pendingEncryptedPlanResponse, setPendingEncryptedPlanResponse] = useState<FinancialPlanCycleResponse | null>(null)
+  const [pendingEncryptedViewerPlanResponse, setPendingEncryptedViewerPlanResponse] = useState<FinancialPlanCycleResponse | null>(null)
+  const [pendingEncryptedViewerUserSub, setPendingEncryptedViewerUserSub] = useState<string | null>(null)
   const [storedPinVerify, setStoredPinVerify] = useState<string | null>(null)
   const [storedPinVerifyIv, setStoredPinVerifyIv] = useState<string | null>(null)
+  const [viewerEncryptionKey, setViewerEncryptionKey] = useState<CryptoKey | null>(null)
   const [deleteState, setDeleteState] = useState<'idle' | 'deleting' | 'error'>('idle')
   const [deleteMessage, setDeleteMessage] = useState('')
   const [selectedCycle, setSelectedCycle] = useState<CycleSelection>('current')
@@ -1507,6 +1552,7 @@ export default function App() {
   const [bankViewMode, setBankViewMode] = useState<BankViewMode>(defaultViewModes.bankAccounts)
   const [expandedBankSectionId, setExpandedBankSectionId] = useState(DEFAULT_BANK_EXPENSE_SOURCE_ID)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
+  const backupImportInputRef = useRef<HTMLInputElement | null>(null)
   const creditTableWrapperRef = useRef<HTMLElement | null>(null)
   const dismissSamplePromptOnMenuCloseRef = useRef(false)
   const skipNextCarryoverResetRef = useRef(false)
@@ -1532,6 +1578,27 @@ export default function App() {
   )
 
   const getExpensePayFromLabel = (payFromBankId: string) => expensePayFromLabels.get(payFromBankId) ?? sectionTitles.defaultBank
+  const getViewerEncryptionKeySaltCandidates = (userSub: string) => {
+    const email = sharedViewerUsers.find((user) => user.userSub === userSub)?.email?.trim() ?? ''
+    const candidates = [email, email.toLowerCase(), userSub]
+    return candidates.filter((candidate, index) => candidate && candidates.indexOf(candidate) === index)
+  }
+
+  const deriveVerifiedViewerEncryptionKey = async (
+    rawEncryptionKey: string,
+    userSub: string,
+    pinVerifyVal: string,
+    pinVerifyIvVal: string,
+  ) => {
+    for (const salt of getViewerEncryptionKeySaltCandidates(userSub)) {
+      const key = await deriveKey(rawEncryptionKey, salt)
+      if (await verifyPin(key, pinVerifyVal, pinVerifyIvVal)) {
+        return key
+      }
+    }
+
+    return null
+  }
 
   const navigateToRoute = (nextRoute: AppRoute, options?: { replace?: boolean }) => {
     const normalizedRoute = normalizeAppRoute(nextRoute)
@@ -2153,6 +2220,20 @@ export default function App() {
     const { nextMonthStatementBalance } = getCreditMetrics(account, activeCycleStartDate)
     return sum + nextMonthStatementBalance
   }, 0)
+  const nextCycleExposureCreditCardTotal = creditAccounts.reduce((sum, account) => {
+    const { totalDueForCard, nextMonthStatementBalance, displayedLastStatementBalance } = getCreditMetrics(account, activeCycleStartDate)
+    return sum + (account.statementCycledAfterPayment && !account.paidThisMonth
+      ? nextMonthStatementBalance
+      : account.statementCycledAfterPayment
+        ? displayedLastStatementBalance
+        : account.paidThisMonth
+          ? totalDueForCard
+          : nextMonthStatementBalance)
+  }, 0)
+  const savingsNextMonthCreditCardTotal = creditAccounts.reduce((sum, account) => {
+    const { totalDueForCard, displayedLastStatementBalance } = getCreditMetrics(account, activeCycleStartDate)
+    return sum + (account.statementCycledAfterPayment ? displayedLastStatementBalance : totalDueForCard)
+  }, 0)
 
   const debitCardExpenseItems = [...planoExpenses, ...sanfordExpenses, ...otherExpenses].map((item) => ({
     ...item,
@@ -2180,11 +2261,16 @@ export default function App() {
   const getBankMonthEndBalance = (bankId: string, totalBalance: number, additionalIncome: number) => (
     totalBalance + additionalIncome - getCurrentDuesForBank(bankId)
   )
-  const monthAfterNextMonthExpense = totalCardDue - creditCardCurrentMonthPayments - creditCardNextMonthBalance + debitCardExpensesTotalNext
+  const monthAfterNextMonthExpense = debitCardExpensesTotalNext + creditAccounts.reduce((sum, account) => {
+    const { nextMonthStatementBalance } = getCreditMetrics(account, activeCycleStartDate)
+    return sum + (account.statementCycledAfterPayment && account.paidThisMonth ? nextMonthStatementBalance : 0)
+  }, 0)
   const j15 = creditCardCurrentMonthPayments
   const k15 = creditCardNextMonthBalance
   const j36 = j15 + debitCardExpensesTotalCurrent
   const k36 = k15 + debitCardExpensesTotalNext
+  const nextCycleExposure = nextCycleExposureCreditCardTotal + debitCardExpensesTotalNext
+  const savingsNextMonthExpenseTotal = savingsNextMonthCreditCardTotal + debitCardExpensesTotalNext
   const currentCycleExposure = j36 + additionalPaymentsChase
 
   const checkingAccountBalanceMonthEndChase = getBankMonthEndBalance(
@@ -2206,7 +2292,7 @@ export default function App() {
     const totalBalance = getIncomeSubsectionTotalBalance(subsection)
     return sum + totalBalance + subsection.additionalIncome
   }, biMonthlySalary > 0 ? totalBalanceChase + additionalIncomeChase : 0)
-  const savingsNextMonth = totalNextCycleSalaryFunding - k36
+  const savingsNextMonth = totalNextCycleSalaryFunding - nextCycleExposure
 
   const adjustedIncomeItems = incomeItemsState.map((item) => {
     switch (item.id) {
@@ -2258,7 +2344,7 @@ export default function App() {
   const overdueCardsStyles = getCountRiskCardStyles(overdueCreditAccounts.length, 4)
   const overdueExpensesStyles = getCountRiskCardStyles(overdueExpenses.length, 6)
   const currentMonthExposureStyles = getExposureCardStyles(currentCycleExposure, currentCycleExposureCapacity)
-  const nextMonthExposureStyles = getExposureCardStyles(k36, totalNextCycleSalaryFunding)
+  const nextMonthExposureStyles = getExposureCardStyles(nextCycleExposure, totalNextCycleSalaryFunding)
   const monthAfterNextMonthStyles = getExposureCardStyles(monthAfterNextMonthExpense, totalNextCycleSalaryFunding)
 
   const overdueAlertData: AnalyticsKpiCard[] = [
@@ -2286,21 +2372,21 @@ export default function App() {
     {
       label: 'Current Cycle Exposure',
       value: currency(currentCycleExposure),
-      detail: 'Compared against Total Balance plus Additional Income of salary checking accounts',
+      detail: 'Unpaid credit card statement balances + current month debit expenses + additional payments',
       ratio: Math.min(100, currentCycleExposureCapacity <= 0 ? 0 : Math.max(0, (currentCycleExposure / currentCycleExposureCapacity) * 100)),
       ...currentMonthExposureStyles,
     },
     {
       label: 'Next Cycle Exposure',
-      value: currency(k36),
-      detail: 'Projected next statement pressure',
-      ratio: Math.min(100, totalLimits === 0 ? 0 : (k36 / totalLimits) * 100),
+      value: currency(nextCycleExposure),
+      detail: 'Upcoming debit expenses plus credit exposure that is Next Stmt Balance unless a card is Paid—then it uses Latest Stmt Balance (cycled) or Total Due (not cycled)',
+      ratio: Math.min(100, totalLimits === 0 ? 0 : (nextCycleExposure / totalLimits) * 100),
       ...nextMonthExposureStyles,
     },
     {
       label: 'Cycle After Next Cycle Exposure',
       value: currency(monthAfterNextMonthExpense),
-      detail: 'Projected carry beyond next month',
+      detail: 'Next debit expenses plus Next Stmt Balance only for cards that are both cycled and paid',
       ratio: Math.min(100, totalLimits === 0 ? 0 : (monthAfterNextMonthExpense / totalLimits) * 100),
       ...monthAfterNextMonthStyles,
     },
@@ -2434,8 +2520,8 @@ export default function App() {
   const savingsNextMonthPieData = savingsNextMonth >= 0
     ? [
         {
-          name: 'Expenses Next Cycle',
-          value: Number(Math.max(0, k36).toFixed(2)),
+          name: 'Next Cycle Exposure',
+          value: Number(Math.max(0, nextCycleExposure).toFixed(2)),
           color: CHART_COLORS.next,
         },
         {
@@ -3046,6 +3132,10 @@ export default function App() {
   const isPlanReadOnly = isTrackerReadOnly || isSampleReadOnly
   const hasSharedViewerUsers = sharedViewerUsers.length > 0
   const selectedSharedViewerUser = sharedViewerUsers.find((user) => user.userSub === selectedSharedViewerUserSub) ?? null
+  const pendingEncryptedViewerUser = pendingEncryptedViewerUserSub
+    ? sharedViewerUsers.find((user) => user.userSub === pendingEncryptedViewerUserSub) ?? null
+    : null
+  const isViewerEncryptionVerification = pinModalMode === 'verify' && !!pendingEncryptedViewerPlanResponse && !!pendingEncryptedViewerUserSub
   const sampleHasLocalChanges = isSampleMode && loadedPlanSignature !== null && currentPlanSignature !== loadedPlanSignature
 
   const hasUnsavedChanges =
@@ -3063,7 +3153,7 @@ export default function App() {
       ? selectedSharedViewerUser
         ? `Viewing ${formatViewerUserLabel(selectedSharedViewerUser)}`
         : hasSharedViewerUsers
-          ? 'Viewing selected tracker'
+          ? 'Select a user to view tracker'
           : 'No other trackers available'
       : isSampleMode
       ? sampleHasLocalChanges
@@ -3382,24 +3472,31 @@ export default function App() {
     }
   }
 
-  const refreshBankBalanceHistory = async (viewerUserSub?: string) => {
+  const refreshBankBalanceHistory = async (viewerUserSub?: string, decryptionKey?: CryptoKey | null) => {
     const requestId = ++bankBalanceHistoryRequestIdRef.current
     const rawCycles = planViewMode === 'sample'
       ? await fetchSampleBankBalanceHistory(timelineType)
       : await fetchBankBalanceHistory(viewerUserSub)
 
     let displayCycles = rawCycles
-    const isEncryptionActive = !!pinKey && !(authenticatedUser?.encryptionExempt ?? false) && planViewMode !== 'sample' && !viewerUserSub
-    if (isEncryptionActive && pinKey) {
-      const processed = await processHistoryCycles(rawCycles, pinKey)
-      displayCycles = processed.displayCycles
-      if (processed.cyclesToEncrypt.length > 0) {
-        void fetch(`${API_BASE_URL}/api/financial-plan/history/bulk-encrypt`, {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(processed.cyclesToEncrypt),
-        })
+    if (viewerUserSub) {
+      if (decryptionKey) {
+        const processed = await processHistoryCycles(rawCycles, decryptionKey)
+        displayCycles = processed.displayCycles
+      }
+    } else {
+      const isEncryptionActive = !!pinKey && !(authenticatedUser?.encryptionExempt ?? false) && planViewMode !== 'sample'
+      if (isEncryptionActive && pinKey) {
+        const processed = await processHistoryCycles(rawCycles, pinKey)
+        displayCycles = processed.displayCycles
+        if (processed.cyclesToEncrypt.length > 0) {
+          void fetch(`${API_BASE_URL}/api/financial-plan/history/bulk-encrypt`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(processed.cyclesToEncrypt),
+          })
+        }
       }
     }
 
@@ -3431,12 +3528,17 @@ export default function App() {
         return
       }
 
-      void refreshBankBalanceHistory(selectedSharedViewerUserSub)
+      if (selectedSharedViewerUser && !selectedSharedViewerUser.encryptionExempt && !viewerEncryptionKey) {
+        setBankBalanceHistoryCycles([])
+        return
+      }
+
+      void refreshBankBalanceHistory(selectedSharedViewerUserSub, viewerEncryptionKey)
       return
     }
 
     void refreshBankBalanceHistory()
-  }, [appRoute, authState, authenticatedUser?.termsAccepted, planViewMode, selectedSharedViewerUserSub])
+  }, [appRoute, authState, authenticatedUser?.termsAccepted, planViewMode, selectedSharedViewerUser, selectedSharedViewerUserSub, viewerEncryptionKey])
 
   const applyPersonalCycleResponse = (
     response: FinancialPlanCycleResponse,
@@ -3526,6 +3628,34 @@ export default function App() {
     if (!preserveCloseCycleBankData) {
       setSuppressCycleSwitchWarning(false)
     }
+    setPlanReady(true)
+  }
+
+  const applySharedViewerCycleResponse = (
+    response: FinancialPlanCycleResponse,
+    userSub: string,
+    successMessage = '',
+    decryptedData?: FinancialPlanData,
+  ) => {
+    const normalizedData = normalizeFinancialPlanData(decryptedData ?? response.data)
+
+    applyFinancialPlan(normalizedData)
+    setSelectedSharedViewerUserSub(userSub)
+    setSelectedCycle(response.selectedCycle)
+    setCurrentCyclePeriod(response.currentCycle)
+    setPreviousCyclePeriod(response.previousCycle)
+    setLastCycleSavedAt(response.lastCycleSavedAt)
+    setLoadedPlanSignature(getFinancialPlanSignature(normalizedData))
+    setPersonalPlanSnapshot(null)
+    setHasSavedPersonalPlan(false)
+    setShowSamplePrompt(false)
+    setHasCurrentCycleUserEdits(false)
+    setPendingCloseCycleReset(null)
+    setSuppressCycleSwitchWarning(false)
+    setNeedsPostCloseBaselineSync(false)
+    setCloseCycleCarryoverBankData(null)
+    setSaveState(successMessage ? 'saved' : 'idle')
+    setSaveMessage(successMessage)
     setPlanReady(true)
   }
 
@@ -3692,6 +3822,9 @@ export default function App() {
     setSuppressCycleSwitchWarning(false)
     setNeedsPostCloseBaselineSync(false)
     setCloseCycleCarryoverBankData(null)
+    setViewerEncryptionKey(null)
+    setPendingEncryptedViewerPlanResponse(null)
+    setPendingEncryptedViewerUserSub(null)
     setSelectedCycle('current')
     setPreviousCyclePeriod(null)
     setBankBalanceHistoryCycles([])
@@ -3734,12 +3867,12 @@ export default function App() {
         return true
       }
 
-      const nextUserSub = preferredUserSub && users.some((user) => user.userSub === preferredUserSub)
-        ? preferredUserSub
-        : users[0].userSub
-
       setSharedViewerUsers(users)
-      return await loadSharedViewerPlan(nextUserSub, 'current')
+      setSelectedSharedViewerUserSub(preferredUserSub && users.some((user) => user.userSub === preferredUserSub) ? preferredUserSub : '')
+      setSaveState('idle')
+      setSaveMessage('Select a user to view tracker.')
+      setPlanReady(true)
+      return true
     } catch {
       setSharedViewerUsers([])
       setSelectedSharedViewerUserSub('')
@@ -3785,25 +3918,37 @@ export default function App() {
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
-      applyFinancialPlan(cycleResponse.data)
-  void refreshBankBalanceHistory(userSub)
-      setSelectedSharedViewerUserSub(userSub)
-      setSelectedCycle(cycleResponse.selectedCycle)
-      setCurrentCyclePeriod(cycleResponse.currentCycle)
-      setPreviousCyclePeriod(cycleResponse.previousCycle)
-      setLastCycleSavedAt(cycleResponse.lastCycleSavedAt)
-      setLoadedPlanSignature(getFinancialPlanSignature(cycleResponse.data))
-      setPersonalPlanSnapshot(null)
-      setHasSavedPersonalPlan(false)
-      setShowSamplePrompt(false)
-      setHasCurrentCycleUserEdits(false)
-      setPendingCloseCycleReset(null)
-      setSuppressCycleSwitchWarning(false)
-      setNeedsPostCloseBaselineSync(false)
-      setCloseCycleCarryoverBankData(null)
-      setSaveState('idle')
-      setSaveMessage('')
-      setPlanReady(true)
+      if (cycleResponse.data.encryptedData && cycleResponse.data.encryptionIv) {
+        setSelectedSharedViewerUserSub(userSub)
+        setBankBalanceHistoryCycles([])
+        if (viewerEncryptionKey) {
+          try {
+            const decryptedData = await decryptJson<FinancialPlanData>(viewerEncryptionKey, cycleResponse.data.encryptedData, cycleResponse.data.encryptionIv)
+            applySharedViewerCycleResponse(cycleResponse, userSub, '', decryptedData)
+            void refreshBankBalanceHistory(userSub, viewerEncryptionKey)
+            return true
+          } catch {
+            setViewerEncryptionKey(null)
+          }
+        }
+
+        setPendingEncryptedViewerPlanResponse(cycleResponse)
+        setPendingEncryptedViewerUserSub(userSub)
+        setPinInput('')
+        setPinModalError('')
+        setPinModalMode('verify')
+        setIsPinModalOpen(true)
+        setSaveState('idle')
+        setSaveMessage('Enter the Encryption Key to unlock the selected tracker.')
+        setPlanReady(true)
+        return true
+      }
+
+      setViewerEncryptionKey(null)
+      setPendingEncryptedViewerPlanResponse(null)
+      setPendingEncryptedViewerUserSub(null)
+      applySharedViewerCycleResponse(cycleResponse, userSub)
+      void refreshBankBalanceHistory(userSub)
       return true
     } catch {
       setSaveState('error')
@@ -4355,6 +4500,7 @@ export default function App() {
 
     setAuthenticatedUser(null)
     setPinKey(null)
+    setViewerEncryptionKey(null)
     pinSetupInitiatedRef.current = false
     setAuthState('unauthenticated')
     setAuthScreenMode('default')
@@ -4365,6 +4511,8 @@ export default function App() {
     setPlanViewMode('personal')
     setPinModalTimelineType('START_TO_END')
     setPinModalExiting(false)
+    setPendingEncryptedViewerPlanResponse(null)
+    setPendingEncryptedViewerUserSub(null)
     setSharedViewerUsers([])
     setSelectedSharedViewerUserSub('')
     setPersonalPlanSnapshot(null)
@@ -4394,6 +4542,9 @@ export default function App() {
     setIsSampleConfirmDialogOpen(false)
     setSaveState('loading')
     setSaveMessage('Loading sample plan...')
+    setViewerEncryptionKey(null)
+    setPendingEncryptedViewerPlanResponse(null)
+    setPendingEncryptedViewerUserSub(null)
     setSharedViewerUsers([])
     setSelectedSharedViewerUserSub('')
     setPendingCloseCycleReset(null)
@@ -4404,7 +4555,22 @@ export default function App() {
   const shouldWarnBeforeSwitchingToSample = !isSampleMode && !isTrackersRoute && hasUnsavedChanges
 
   const handleSharedViewerSelectionChange = async (nextUserSub: string) => {
-    if (!nextUserSub || nextUserSub === selectedSharedViewerUserSub) {
+    if (nextUserSub === selectedSharedViewerUserSub) {
+      return
+    }
+
+    setViewerEncryptionKey(null)
+    setPendingEncryptedViewerPlanResponse(null)
+    setPendingEncryptedViewerUserSub(null)
+
+    if (!nextUserSub) {
+      setSelectedSharedViewerUserSub('')
+      setBankBalanceHistoryCycles([])
+      applyFinancialPlan(emptyFinancialPlanData)
+      setLoadedPlanSignature(getFinancialPlanSignature(emptyFinancialPlanData))
+      setSaveState('idle')
+      setSaveMessage('Select a user to view tracker.')
+      setPlanReady(true)
       return
     }
 
@@ -4444,6 +4610,9 @@ export default function App() {
 
   const handleReturnToMyPlan = async () => {
     setIsUserMenuOpen(false)
+    setViewerEncryptionKey(null)
+    setPendingEncryptedViewerPlanResponse(null)
+    setPendingEncryptedViewerUserSub(null)
 
     if (isTrackersRoute) {
       setSharedViewerUsers([])
@@ -4499,6 +4668,126 @@ export default function App() {
   const handleHelpClick = () => {
     setIsUserMenuOpen(false)
     setIsHelpDialogOpen(true)
+  }
+
+  const handleExportDecryptedBackup = () => {
+    if (isTrackersRoute || isSampleMode) {
+      return
+    }
+
+    setIsUserMenuOpen(false)
+    const shouldContinue = window.confirm(
+      'Download an unencrypted backup?\n\nThis file contains readable financial data and is NOT protected by your Encryption Key. Anyone with access to the file can read it.\n\nStore it securely.',
+    )
+    if (!shouldContinue) {
+      return
+    }
+
+    const backup: DecryptedDashboardBackup = {
+      schemaVersion: DECRYPTED_BACKUP_SCHEMA_VERSION,
+      exportedAt: new Date().toISOString(),
+      buildVersion: BUILD_VERSION_LABEL,
+      timelineType,
+      financialPlanData: buildPayload(),
+    }
+    const suggestedFileNameBase = (authenticatedUser?.email ?? 'dashboard')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'dashboard'
+    const backupFileName = `mybetterbudget-decrypted-backup-${suggestedFileNameBase}-${new Date().toISOString().slice(0, 10)}.json`
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+    const downloadUrl = window.URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = downloadUrl
+    anchor.download = backupFileName
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    window.URL.revokeObjectURL(downloadUrl)
+    setSaveState('saved')
+    setSaveMessage('Decrypted backup downloaded. Store it securely.')
+  }
+
+  const handleImportBackupClick = () => {
+    if (isTrackersRoute || isSampleMode) {
+      return
+    }
+
+    if (isViewingPreviousCycle) {
+      setIsUserMenuOpen(false)
+      setSaveState('error')
+      setSaveMessage('Switch to current cycle before importing a backup.')
+      return
+    }
+
+    setIsUserMenuOpen(false)
+    backupImportInputRef.current?.click()
+  }
+
+  const handleImportBackupSelection = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!selectedFile) {
+      return
+    }
+
+    const shouldContinue = window.confirm(
+      'Import a decrypted backup? This may replace your current dashboard data with readable financial data from a local file. Only import backup files you trust.',
+    )
+    if (!shouldContinue) {
+      return
+    }
+
+    setSaveState('loading')
+    setSaveMessage('Reading backup...')
+
+    try {
+      const fileText = await selectedFile.text()
+      const parsedBackup = JSON.parse(fileText) as unknown
+      const importedTimelineType = isDecryptedDashboardBackup(parsedBackup) ? parsedBackup.timelineType : null
+      const importedPlan = isDecryptedDashboardBackup(parsedBackup)
+        ? parsedBackup.financialPlanData
+        : isFinancialPlanData(parsedBackup)
+          ? parsedBackup
+          : null
+
+      if (!importedPlan) {
+        setSaveState('error')
+        setSaveMessage('Backup import failed. Use a valid decrypted backup file.')
+        return
+      }
+
+      if (importedTimelineType && importedTimelineType !== timelineType) {
+        setSaveState('error')
+        setSaveMessage(`Backup uses ${formatTimelineTypeLabel(importedTimelineType)}. Switch cycle type before importing.`)
+        return
+      }
+
+      const shouldReplaceCurrentData = window.confirm(
+        'Importing this backup will replace your current dashboard data on the server. Continue?',
+      )
+      if (!shouldReplaceCurrentData) {
+        setSaveState('idle')
+        setSaveMessage('')
+        return
+      }
+
+      const normalizedImportedPlan = normalizeFinancialPlanData(importedPlan)
+      const restorePayload: FinancialPlanData = {
+        ...normalizedImportedPlan,
+        summary: undefined,
+        encryptedData: undefined,
+        encryptionIv: undefined,
+        pinVerify: undefined,
+        pinVerifyIv: undefined,
+      }
+      await persistFinancialPlan(restorePayload, 'Backup imported and saved.')
+    } catch {
+      setSaveState('error')
+      setSaveMessage('Backup import failed. Use a valid decrypted backup file.')
+    }
   }
 
   const handleHelpClose = () => {
@@ -4700,11 +4989,11 @@ export default function App() {
     try {
       if (pinModalMode === 'new') {
         if (pinInput.length !== 4) {
-          setPinModalError('PIN must be exactly 4 letters and numbers.')
+          setPinModalError('Encryption Key must be exactly 4 letters and numbers.')
           return
         }
         if (pinInput !== pinConfirmInput) {
-          setPinModalError('PINs do not match. Please try again.')
+          setPinModalError('Encryption Keys do not match. Please try again.')
           setPinConfirmInput('')
           return
         }
@@ -4730,7 +5019,7 @@ export default function App() {
             throw new Error(`Failed to switch timeline during PIN setup: ${response.status}`)
           }
           const cycleResponse: FinancialPlanCycleResponse = await response.json()
-          applyPersonalCycleResponse(cycleResponse, 'PIN created and data encrypted.', false, currentCycleData)
+          applyPersonalCycleResponse(cycleResponse, 'Encryption Key created and data encrypted.', false, currentCycleData)
           void refreshBankBalanceHistory()
         } else {
           await saveCycleEncrypted(currentCycleData, key, 'current')
@@ -4739,7 +5028,7 @@ export default function App() {
             await saveCycleEncrypted(rawPrevious.data, key, 'previous')
           }
           setSaveState('saved')
-          setSaveMessage('PIN created and data encrypted.')
+          setSaveMessage('Encryption Key created and data encrypted.')
         }
         setPinKey(key)
         setIsPinModalOpen(false)
@@ -4747,7 +5036,34 @@ export default function App() {
         setPinConfirmInput('')
       } else if (pinModalMode === 'verify') {
         if (pinInput.length !== 4) {
-          setPinModalError('PIN must be exactly 4 letters and numbers.')
+          setPinModalError('Encryption Key must be exactly 4 letters and numbers.')
+          return
+        }
+        if (pendingEncryptedViewerPlanResponse && pendingEncryptedViewerUserSub) {
+          const pinVerifyVal = pendingEncryptedViewerPlanResponse.data.pinVerify
+          const pinVerifyIvVal = pendingEncryptedViewerPlanResponse.data.pinVerifyIv
+          if (!pinVerifyVal || !pinVerifyIvVal) {
+            setPinModalError('Verification data missing. Please contact support.')
+            return
+          }
+          const key = await deriveVerifiedViewerEncryptionKey(pinInput, pendingEncryptedViewerUserSub, pinVerifyVal, pinVerifyIvVal)
+          if (!key) {
+            setPinModalError('Incorrect Encryption Key. The selected tracker remains encrypted and locked.')
+            setPinInput('')
+            return
+          }
+          const decryptedData = await decryptJson<FinancialPlanData>(
+            key,
+            pendingEncryptedViewerPlanResponse.data.encryptedData!,
+            pendingEncryptedViewerPlanResponse.data.encryptionIv!,
+          )
+          setViewerEncryptionKey(key)
+          applySharedViewerCycleResponse(pendingEncryptedViewerPlanResponse, pendingEncryptedViewerUserSub, '', decryptedData)
+          void refreshBankBalanceHistory(pendingEncryptedViewerUserSub, key)
+          setPendingEncryptedViewerPlanResponse(null)
+          setPendingEncryptedViewerUserSub(null)
+          setIsPinModalOpen(false)
+          setPinInput('')
           return
         }
         if (!pendingEncryptedPlanResponse) {
@@ -4764,7 +5080,7 @@ export default function App() {
         }
         const isValid = await verifyPin(key, pinVerifyVal, pinVerifyIvVal)
         if (!isValid) {
-          setPinModalError('Incorrect PIN. Your data remains encrypted and locked.')
+          setPinModalError('Incorrect Encryption Key. Your data remains encrypted and locked.')
           setPinInput('')
           return
         }
@@ -4781,7 +5097,7 @@ export default function App() {
         setPinInput('')
       } else if (pinModalMode === 'migrate') {
         if (pinInput.length !== 4) {
-          setPinModalError('PIN must be exactly 4 letters and numbers.')
+          setPinModalError('Encryption Key must be exactly 4 letters and numbers.')
           return
         }
         if (!pendingEncryptedPlanResponse) {
@@ -4798,7 +5114,7 @@ export default function App() {
         }
         const isValid = await verifyPin(key, pinVerifyVal, pinVerifyIvVal)
         if (!isValid) {
-          setPinModalError('Incorrect PIN. Your data remains encrypted and locked.')
+          setPinModalError('Incorrect Encryption Key. Your data remains encrypted and locked.')
           setPinInput('')
           return
         }
@@ -4814,11 +5130,11 @@ export default function App() {
         void persistFinancialPlan(decryptedData, 'Data migrated to unencrypted storage.')
       } else if (pinModalMode === 'change') {
         if (pinCurrentInput.length !== 4 || pinNewInput.length !== 4 || pinNewConfirmInput.length !== 4) {
-          setPinModalError('All PIN fields must be exactly 4 letters and numbers.')
+          setPinModalError('All Encryption Key fields must be exactly 4 letters and numbers.')
           return
         }
         if (pinNewInput !== pinNewConfirmInput) {
-          setPinModalError('New PINs do not match. Please try again.')
+          setPinModalError('New Encryption Keys do not match. Please try again.')
           setPinNewInput('')
           setPinNewConfirmInput('')
           return
@@ -4832,12 +5148,12 @@ export default function App() {
         const pinVerifyVal = pendingEncryptedPlanResponse.data.pinVerify
         const pinVerifyIvVal = pendingEncryptedPlanResponse.data.pinVerifyIv
         if (!pinVerifyVal || !pinVerifyIvVal) {
-          setPinModalError('Could not verify current PIN. Please reload and try again.')
+          setPinModalError('Could not verify the current Encryption Key. Please reload and try again.')
           return
         }
         const isValid = await verifyPin(currentKey, pinVerifyVal, pinVerifyIvVal)
         if (!isValid) {
-          setPinModalError('Current PIN is incorrect.')
+          setPinModalError('Current Encryption Key is incorrect.')
           setPinCurrentInput('')
           return
         }
@@ -5027,7 +5343,7 @@ export default function App() {
     }
 
     if (appRoute === TRACKERS_ROUTE) {
-      void loadTrackersRoute(selectedSharedViewerUserSub || undefined)
+      void loadTrackersRoute()
       return
     }
 
@@ -5090,7 +5406,7 @@ export default function App() {
               <li>The website may contain bugs, calculation mistakes, data-processing errors, display issues, omissions, outdated logic, incorrect assumptions, or results you misunderstand, disagree with, or rely on at your own risk.</li>
               <li>You agree that you will independently verify important information before making financial, legal, tax, credit, budgeting, payment, lending, investment, employment, or personal decisions.</li>
               <li>You understand and accept that data may be lost, corrupted, overwritten, duplicated, delayed, become unavailable, or become permanently inaccessible due to software bugs, hosting failures, browser issues, device issues, security incidents, deployments, migrations, synchronization issues, user error, third-party outages, or forgotten credentials.</li>
-              <li>If your data is encrypted, forgetting your PIN may permanently prevent recovery of that data, and neither the website owner nor the administrators are obligated or able to recover it for you.</li>
+              <li>If your data is encrypted, forgetting your Encryption Key may permanently prevent recovery of that data, and neither the website owner nor the administrators are obligated or able to recover it for you.</li>
               <li>The service is provided on an "as is," "as available," and "with all faults" basis, without warranties or representations of any kind, whether express or implied, including warranties of accuracy, completeness, merchantability, fitness for a particular purpose, non-infringement, availability, security, or uninterrupted operation.</li>
               <li>To the maximum extent permitted by law, the website owner and administrators disclaim liability for any direct, indirect, incidental, consequential, special, exemplary, punitive, or other losses, damages, costs, liabilities, claims, disputes, taxes, penalties, interest, missed payments, credit impacts, lost profits, lost savings, or lost opportunities arising from or related to the website, your data, your use of the website, your inability to use the website, reliance on outputs, formula mistakes, security events, service interruptions, or data loss.</li>
               <li>You are responsible for maintaining your own records, exports, backups, independent calculations, and independent verification of any information you enter, store, review, or rely on through the service.</li>
@@ -5144,14 +5460,14 @@ export default function App() {
                 <p className="eyebrow">Welcome — One-Time Setup</p>
                 <h2 id="pin-modal-title">Protect Your Financial Data</h2>
                 <p>🔒 <strong>Your financial data is private to you.</strong></p>
-                <p>Set a 4-character PIN using letters and numbers to enable end-to-end encryption. Your data is encrypted with AES-256-GCM directly in your browser — we have no way to see it. Your PIN never leaves your device and is never stored anywhere.</p>
-                <p className="danger-copy-subtle">⚠️ Your PIN cannot be recovered. If forgotten, your data will be permanently deleted.</p>
+                <p>Set a 4-character Encryption Key using letters and numbers to enable end-to-end encryption. Your data is encrypted with AES-256-GCM directly in your browser — we have no way to see it. Your Encryption Key never leaves your device and is never stored anywhere.</p>
+                <p className="danger-copy-subtle">⚠️ Your Encryption Key cannot be recovered. If forgotten, your data will be permanently deleted.</p>
                 <div className="pin-fields">
                   <input
                     type="password"
                     inputMode="text"
                     maxLength={4}
-                    placeholder="Enter 4-character PIN"
+                    placeholder="Enter 4-character Encryption Key"
                     value={pinInput}
                     onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
@@ -5165,7 +5481,7 @@ export default function App() {
                     type="password"
                     inputMode="text"
                     maxLength={4}
-                    placeholder="Confirm PIN"
+                    placeholder="Confirm Encryption Key"
                     value={pinConfirmInput}
                     onChange={(e) => setPinConfirmInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
@@ -5224,18 +5540,22 @@ export default function App() {
             ) : pinModalMode === 'verify' ? (
               <>
                 <p className="eyebrow">Security</p>
-                <h2 id="pin-modal-title">Your Data Is Encrypted</h2>
-                {authenticatedUser?.email ? (
-                  <p className="pin-modal-user-email">{authenticatedUser.email}</p>
+                <h2 id="pin-modal-title">{isViewerEncryptionVerification ? 'Selected Tracker Is Encrypted' : 'Your Data Is Encrypted'}</h2>
+                {(isViewerEncryptionVerification ? pendingEncryptedViewerUser?.email : authenticatedUser?.email) ? (
+                  <p className="pin-modal-user-email">{isViewerEncryptionVerification ? pendingEncryptedViewerUser?.email : authenticatedUser?.email}</p>
                 ) : null}
                 <p>🔒 <strong>Your data is end-to-end encrypted.</strong></p>
-                <p>Enter your 4-character PIN to decrypt your financial data. Your data is protected with AES-256-GCM — only your PIN can unlock it. We have no way to access it.</p>
+                <p>
+                  {isViewerEncryptionVerification
+                    ? 'Enter the 4-character Encryption Key for this tracker to decrypt the selected user\'s financial data. This tracker remains encrypted until the correct Encryption Key is provided.'
+                    : 'Enter your 4-character Encryption Key to decrypt your financial data. Your data is protected with AES-256-GCM — only your Encryption Key can unlock it. We have no way to access it.'}
+                </p>
                 <div className="pin-fields">
                   <input
                     type="password"
                     inputMode="text"
                     maxLength={4}
-                    placeholder="Enter your PIN"
+                    placeholder="Enter Encryption Key"
                     value={pinInput}
                     onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
@@ -5248,9 +5568,15 @@ export default function App() {
                 </div>
                 {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
                 <div className="modal-actions">
-                  <button type="button" className="toolbar-button link-button" onClick={handleForgotPin}>
-                    Forgot PIN?
-                  </button>
+                  {isViewerEncryptionVerification ? (
+                    <button type="button" className="toolbar-button" onClick={() => { setIsPinModalOpen(false); setPinInput(''); setPinModalError(''); setPendingEncryptedViewerPlanResponse(null); setPendingEncryptedViewerUserSub(null); setSelectedSharedViewerUserSub(''); applyFinancialPlan(emptyFinancialPlanData); setLoadedPlanSignature(getFinancialPlanSignature(emptyFinancialPlanData)); setSaveState('idle'); setSaveMessage('Select a user to view tracker.'); setPlanReady(true); }}>
+                      Cancel
+                    </button>
+                  ) : (
+                    <button type="button" className="toolbar-button link-button" onClick={handleForgotPin}>
+                      Forgot Encryption Key?
+                    </button>
+                  )}
                   <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
                     {pinModalSubmitting ? 'Unlocking...' : 'Unlock'}
                   </button>
@@ -5259,14 +5585,14 @@ export default function App() {
             ) : pinModalMode === 'migrate' ? (
               <>
                 <p className="eyebrow">Security</p>
-                <h2 id="pin-modal-title">One-Time PIN Required</h2>
-                <p>Your account has been moved to unencrypted mode. Enter your PIN once to migrate your data to plaintext storage.</p>
+                <h2 id="pin-modal-title">One-Time Encryption Key Required</h2>
+                <p>Your account has been moved to unencrypted mode. Enter your Encryption Key once to migrate your data to plaintext storage.</p>
                 <div className="pin-fields">
                   <input
                     type="password"
                     inputMode="text"
                     maxLength={4}
-                    placeholder="Enter your PIN"
+                    placeholder="Enter Encryption Key"
                     value={pinInput}
                     onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
@@ -5292,7 +5618,7 @@ export default function App() {
                   <p className="pin-modal-user-email">{authenticatedUser.email}</p>
                 ) : null}
                 <p className="danger-copy">
-                  You forgot your PIN. The only option is to permanently delete all your saved financial data. This cannot be undone.
+                  You forgot your Encryption Key. The only option is to permanently delete all your saved financial data. This cannot be undone.
                 </p>
                 <p className="danger-copy-subtle">
                   Type <strong>RESET</strong> below to confirm permanent data deletion.
@@ -5436,12 +5762,19 @@ export default function App() {
                   ) : null}
                   {pinKey ? (
                     <button type="button" className="user-menu-item" onClick={() => void handleChangePinClick()} role="menuitem">
-                      Change PIN
+                      Change Encryption Key
                     </button>
                   ) : null}
-                  <button type="button" className="user-menu-item" onClick={handleHelpClick} role="menuitem">
-                    Help
-                  </button>
+                  {!isTrackersRoute && !isSampleMode ? (
+                    <>
+                      <button type="button" className="user-menu-item" onClick={handleExportDecryptedBackup} role="menuitem">
+                        Export - Backup
+                      </button>
+                      <button type="button" className="user-menu-item" onClick={handleImportBackupClick} role="menuitem">
+                        Import - Backup
+                      </button>
+                    </>
+                  ) : null}
                   <button type="button" className="user-menu-item" onClick={handleLogout} role="menuitem">
                     Sign Out
                   </button>
@@ -5480,7 +5813,7 @@ export default function App() {
               {selectedSharedViewerUser
                 ? `Viewing ${formatViewerUserLabel(selectedSharedViewerUser)}`
                 : hasSharedViewerUsers
-                  ? 'Viewing another user tracker'
+                  ? 'Select a user to view tracker'
                   : 'No other trackers available'}
             </strong>
             {authenticatedUser?.admin && selectedSharedViewerUser?.lastUpdatedAt ? (
@@ -5490,7 +5823,9 @@ export default function App() {
             ) : null}
             <span>
               {hasSharedViewerUsers
-                ? 'Selected tracker is read only. Only the currently selected tracker data is loaded in the browser.'
+                ? selectedSharedViewerUser
+                  ? 'Selected tracker is read only. Only the currently selected tracker data is loaded in the browser.'
+                  : 'No tracker is loaded yet. Choose a user from the dropdown to load that tracker.'
                 : 'No additional tracker records are available for this account yet.'}
             </span>
           </div>
@@ -5504,11 +5839,14 @@ export default function App() {
                 disabled={!hasSharedViewerUsers || saveState === 'loading' || saveState === 'saving'}
               >
                 {hasSharedViewerUsers ? (
-                  sharedViewerUsers.map((user) => (
-                    <option key={user.userSub} value={user.userSub}>
-                      {formatEncryptedViewerUserLabel(user)}
-                    </option>
-                  ))
+                  <>
+                    <option value="">Select a user</option>
+                    {sharedViewerUsers.map((user) => (
+                      <option key={user.userSub} value={user.userSub}>
+                        {formatEncryptedViewerUserLabel(user)}
+                      </option>
+                    ))}
+                  </>
                 ) : (
                   <option value="">No other trackers available</option>
                 )}
@@ -5802,10 +6140,10 @@ export default function App() {
             <div className="help-section">
               <h3>What The Key Metrics Mean</h3>
               <ul className="help-list">
-                <li>Savings Next Cycle shows the projected amount left after next month expenses are covered from the combined bi-monthly salary funding across the default bank and other banks. When savings are positive the pie chart shows your savings vs. next month expenses. When negative (shortfall) the chart shows the funding amount vs. the shortfall amount.</li>
+                <li>Savings Next Cycle shows Total Next Cycle Salary Funding minus Next Cycle Exposure. When savings are positive the pie chart shows your savings versus Next Cycle Exposure. When negative (shortfall) the chart shows the funding amount versus the shortfall amount.</li>
                 <li>Current Cycle Exposure shows current month credit card payments, current month debit card expenses, and additional payments from the default bank. When exposure exceeds your total credit limit the metric turns red to highlight the risk.</li>
-                <li>Next Cycle Exposure shows projected next statement balances plus next month debit card expenses.</li>
-                <li>Cycle After Next Cycle Exposure shows projected carry-forward pressure beyond next month.</li>
+                <li>Next Cycle Exposure is upcoming debit expenses plus credit exposure that is Next Stmt Balance unless a card is Paid—then it uses Latest Stmt Balance (cycled) or Total Due (not cycled)</li>
+                <li>Cycle After Next Cycle Exposure shows next month debit card expenses plus Next Stmt Balance only for cards where Current Cycle Stmt Cycled? is checked and Paid is checked.</li>
                 <li>Overdue Cards and Overdue Expenses show how many items are already past due based on the dates in the tracker. Any payment date or expense due date in the past with the item still unmarked as paid counts as overdue.</li>
               </ul>
             </div>
@@ -5813,9 +6151,9 @@ export default function App() {
             <div className="help-section">
               <h3>How The Charts Should Be Interpreted</h3>
               <ul className="help-list">
-                <li>Savings Next Cycle compares expected next month expense load against projected leftover savings or shortfall. The chart switches between a savings view and a shortfall view depending on whether the projection is positive or negative.</li>
+                <li>Savings Next Cycle compares projected salary funding against Next Cycle Exposure. The chart switches between a savings view and a shortfall view depending on whether the projection is positive or negative.</li>
                 <li>Total Due by Card uses a stacked bar chart where each card&apos;s Payment Due this month is shown in one color and Next Statement Balance is shown in another, sorted by total due descending.</li>
-                <li>Payment Due Timeline shows when payment pressure is arriving by due date. Only accounts where payment due or next balance is greater than zero appear in this chart.</li>
+                <li>Payment Due Timeline shows when payment pressure is arriving by due date. Only accounts where payment due or next stmt balance is greater than zero appear in this chart.</li>
                 <li>Debit Card Expense Category groups debit expenses by the text before ` - ` in each expense label. There are two separate pie charts: one for current month expenses and one for next month expenses.</li>
                 <li>If an expense label does not include a prefix before ` - `, it is grouped under Other.</li>
                 <li>Change in Bank Balance is a history chart where each line represents one bank. It compares Month End Balance minus Dues across recent cycles, using the history window selected above the chart.</li>
@@ -5875,6 +6213,14 @@ export default function App() {
           </section>
         </div>
       ) : null}
+
+      <input
+        ref={backupImportInputRef}
+        type="file"
+        accept="application/json,.json"
+        style={{ display: 'none' }}
+        onChange={(event) => void handleImportBackupSelection(event)}
+      />
 
       {isSampleConfirmDialogOpen ? (
         <div className="modal-backdrop" role="presentation">
@@ -6034,16 +6380,16 @@ export default function App() {
                 <p className="eyebrow">Security</p>
                 <h2 id="pin-modal-title">Protect Your Financial Data</h2>
                 <p>🔒 <strong>Your financial data is private to you.</strong></p>
-                <p>Set a 4-character PIN using letters and numbers to enable end-to-end encryption for your data.</p>
-                <p><strong>How it works:</strong> Your PIN generates a unique encryption key using PBKDF2 (100,000 iterations). Your data is then encrypted with AES-256-GCM directly in your browser before it reaches our servers.</p>
-                <p><strong>We cannot see your data.</strong> Your PIN never leaves your device and is never stored anywhere.</p>
-                <p className="danger-copy-subtle">⚠️ Your PIN cannot be recovered. If forgotten, your data will be permanently deleted.</p>
+                <p>Set a 4-character Encryption Key using letters and numbers to enable end-to-end encryption for your data.</p>
+                <p><strong>How it works:</strong> Your Encryption Key generates a unique encryption key using PBKDF2 (100,000 iterations). Your data is then encrypted with AES-256-GCM directly in your browser before it reaches our servers.</p>
+                <p><strong>We cannot see your data.</strong> Your Encryption Key never leaves your device and is never stored anywhere.</p>
+                <p className="danger-copy-subtle">⚠️ Your Encryption Key cannot be recovered. If forgotten, your data will be permanently deleted.</p>
                 <div className="pin-fields">
                   <input
                     type="password"
                     inputMode="text"
                     maxLength={4}
-                    placeholder="Enter 4-character PIN"
+                    placeholder="Enter 4-character Encryption Key"
                     value={pinInput}
                     onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
@@ -6057,7 +6403,7 @@ export default function App() {
                     type="password"
                     inputMode="text"
                     maxLength={4}
-                    placeholder="Confirm PIN"
+                    placeholder="Confirm Encryption Key"
                     value={pinConfirmInput}
                     onChange={(e) => setPinConfirmInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
@@ -6096,25 +6442,29 @@ export default function App() {
                     {pinModalExiting ? 'Exiting...' : 'Exit'}
                   </button>
                   <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting || pinModalExiting}>
-                    {pinModalSubmitting ? 'Setting up...' : 'Set PIN'}
+                    {pinModalSubmitting ? 'Setting up...' : 'Set Encryption Key'}
                   </button>
                 </div>
               </>
             ) : pinModalMode === 'verify' ? (
               <>
                 <p className="eyebrow">Security</p>
-                <h2 id="pin-modal-title">Your Data Is Encrypted</h2>
-                {authenticatedUser?.email ? (
-                  <p className="pin-modal-user-email">{authenticatedUser.email}</p>
+                <h2 id="pin-modal-title">{isViewerEncryptionVerification ? 'Selected Tracker Is Encrypted' : 'Your Data Is Encrypted'}</h2>
+                {(isViewerEncryptionVerification ? pendingEncryptedViewerUser?.email : authenticatedUser?.email) ? (
+                  <p className="pin-modal-user-email">{isViewerEncryptionVerification ? pendingEncryptedViewerUser?.email : authenticatedUser?.email}</p>
                 ) : null}
                 <p>🔒 <strong>Your data is end-to-end encrypted.</strong></p>
-                <p>Enter your 4-character PIN to decrypt your financial data. Your data is protected with AES-256-GCM — only your PIN can unlock it. We have no way to access it.</p>
+                <p>
+                  {isViewerEncryptionVerification
+                    ? 'Enter the 4-character Encryption Key for this tracker to decrypt the selected user\'s financial data. This tracker remains encrypted until the correct Encryption Key is provided.'
+                    : 'Enter your 4-character Encryption Key to decrypt your financial data. Your data is protected with AES-256-GCM — only your Encryption Key can unlock it. We have no way to access it.'}
+                </p>
                 <div className="pin-fields">
                   <input
                     type="password"
                     inputMode="text"
                     maxLength={4}
-                    placeholder="Enter your PIN"
+                    placeholder="Enter Encryption Key"
                     value={pinInput}
                     onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
@@ -6127,9 +6477,15 @@ export default function App() {
                 </div>
                 {pinModalError ? <p className="auth-message auth-error">{pinModalError}</p> : null}
                 <div className="modal-actions">
-                  <button type="button" className="toolbar-button link-button" onClick={handleForgotPin}>
-                    Forgot PIN?
-                  </button>
+                  {isViewerEncryptionVerification ? (
+                    <button type="button" className="toolbar-button" onClick={() => { setIsPinModalOpen(false); setPinInput(''); setPinModalError(''); setPendingEncryptedViewerPlanResponse(null); setPendingEncryptedViewerUserSub(null); setSelectedSharedViewerUserSub(''); applyFinancialPlan(emptyFinancialPlanData); setLoadedPlanSignature(getFinancialPlanSignature(emptyFinancialPlanData)); setSaveState('idle'); setSaveMessage('Select a user to view tracker.'); setPlanReady(true); }}>
+                      Cancel
+                    </button>
+                  ) : (
+                    <button type="button" className="toolbar-button link-button" onClick={handleForgotPin}>
+                      Forgot Encryption Key?
+                    </button>
+                  )}
                   <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
                     {pinModalSubmitting ? 'Unlocking...' : 'Unlock'}
                   </button>
@@ -6138,14 +6494,14 @@ export default function App() {
             ) : pinModalMode === 'migrate' ? (
               <>
                 <p className="eyebrow">Security</p>
-                <h2 id="pin-modal-title">One-Time PIN Required</h2>
-                <p>Your account has been moved to unencrypted mode. Enter your PIN once to migrate your data to plaintext storage.</p>
+                <h2 id="pin-modal-title">One-Time Encryption Key Required</h2>
+                <p>Your account has been moved to unencrypted mode. Enter your Encryption Key once to migrate your data to plaintext storage.</p>
                 <div className="pin-fields">
                   <input
                     type="password"
                     inputMode="text"
                     maxLength={4}
-                    placeholder="Enter your PIN"
+                    placeholder="Enter Encryption Key"
                     value={pinInput}
                     onChange={(e) => setPinInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
@@ -6166,14 +6522,14 @@ export default function App() {
             ) : pinModalMode === 'change' ? (
               <>
                 <p className="eyebrow">Security</p>
-                <h2 id="pin-modal-title">Change Your PIN</h2>
-                <p>Enter your current PIN to verify, then set a new 4-character PIN. Both your current and previous cycles will be re-encrypted with the new PIN.</p>
+                <h2 id="pin-modal-title">Change Your Encryption Key</h2>
+                <p>Enter your current Encryption Key to verify, then set a new 4-character Encryption Key. Both your current and previous cycles will be re-encrypted with the new Encryption Key.</p>
                 <div className="pin-fields">
                   <input
                     type="password"
                     inputMode="text"
                     maxLength={4}
-                    placeholder="Current PIN"
+                    placeholder="Current Encryption Key"
                     value={pinCurrentInput}
                     onChange={(e) => setPinCurrentInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
@@ -6187,7 +6543,7 @@ export default function App() {
                     type="password"
                     inputMode="text"
                     maxLength={4}
-                    placeholder="New PIN"
+                    placeholder="New Encryption Key"
                     value={pinNewInput}
                     onChange={(e) => setPinNewInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
@@ -6200,7 +6556,7 @@ export default function App() {
                     type="password"
                     inputMode="text"
                     maxLength={4}
-                    placeholder="Confirm New PIN"
+                    placeholder="Confirm New Encryption Key"
                     value={pinNewConfirmInput}
                     onChange={(e) => setPinNewConfirmInput(normalizePinValue(e.target.value))}
                     onKeyDown={(e) => { if (e.key === 'Enter') void handlePinSubmit() }}
@@ -6216,7 +6572,7 @@ export default function App() {
                     Cancel
                   </button>
                   <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
-                    {pinModalSubmitting ? 'Changing...' : 'Change PIN'}
+                    {pinModalSubmitting ? 'Changing...' : 'Change Encryption Key'}
                   </button>
                 </div>
               </>
@@ -6225,7 +6581,7 @@ export default function App() {
                 <p className="eyebrow danger-eyebrow">Danger Zone</p>
                 <h2 id="pin-modal-title">Reset Account Data</h2>
                 <p className="danger-copy">
-                  You forgot your PIN. The only option is to permanently delete all your saved financial data. This cannot be undone.
+                  You forgot your Encryption Key. The only option is to permanently delete all your saved financial data. This cannot be undone.
                 </p>
                 <p className="danger-copy-subtle">
                   Type <strong>RESET</strong> below to confirm permanent data deletion.
@@ -6306,7 +6662,7 @@ export default function App() {
               This will permanently delete all saved tracker data for this user from the database. This cannot be undone.
             </p>
             <p className="danger-copy-subtle">
-              User: <strong>{formatViewerUserLabel(sharedViewerUsers.find(u => u.userSub === adminDeleteConfirmUserSub) ?? { userSub: adminDeleteConfirmUserSub, email: null, displayName: null })}</strong>
+              User: <strong>{formatViewerUserLabel(sharedViewerUsers.find(u => u.userSub === adminDeleteConfirmUserSub) ?? { userSub: adminDeleteConfirmUserSub, email: null, displayName: null, lastUpdatedAt: null, encryptionExempt: false })}</strong>
             </p>
             <div className="modal-actions">
               <button
@@ -6535,7 +6891,7 @@ export default function App() {
                           <strong>{currency(currentMonthPayment)}</strong>
                         </div>
                         <div className="credit-account-metric">
-                          <span>Next Balance</span>
+                          <span>Next Stmt Balance</span>
                           <strong>{currency(nextMonthStatementBalance)}</strong>
                         </div>
                         <div className="credit-account-metric">

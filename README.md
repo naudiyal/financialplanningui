@@ -42,9 +42,10 @@ Open http://localhost:5173 in your browser.
 
 ## Credit Logic
 
-- Credit-card `Next Balance` is owned in `src/App.tsx` by `getCreditMetrics(...)`.
+- Credit-card `Next Stmt Balance` is owned in `src/App.tsx` by `getCreditMetrics(...)`.
 - Sorting, totals, charts, the credit table, and the credit tab all reuse that same helper path so the displayed values stay aligned.
 - The current rules are documented in `docs/credit-next-balance-logic.md`.
+- Exposure metric formulas (Current/Next/Cycle After Next) are documented in `docs/exposure-metrics.md`.
 
 ## Cycle Switching And Help
 
