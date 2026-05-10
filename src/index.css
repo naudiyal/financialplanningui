@@ -188,6 +188,18 @@ html, body, #root {
   gap: 0.5rem;
 }
 
+.hero-actions .status-text {
+  min-width: 0;
+  max-width: min(18rem, 45vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hero-actions .user-menu {
+  margin-left: auto;
+}
+
 .build-stamp {
   margin: 0.18rem 0 0;
   font-size: 0.68rem;
@@ -2921,6 +2933,7 @@ input.section-title-input {
 
   .hero-actions {
     justify-self: start;
+    width: 100%;
   }
 
   .shared-view-banner {
@@ -3069,6 +3082,36 @@ input.section-title-input {
     font-size: 0.64rem;
   }
 
+}
+
+@media (max-width: 560px) {
+  .hero-actions {
+    flex-wrap: nowrap;
+    gap: 0.35rem;
+  }
+
+  .hero-actions .toolbar-button {
+    padding: 0.28rem 0.5rem;
+    font-size: 0.7rem;
+    white-space: nowrap;
+  }
+
+  .hero-actions .user-chip {
+    padding: 0.2rem 0.4rem;
+  }
+
+  .hero-actions .user-chip strong {
+    font-size: 0.66rem;
+  }
+
+  .hero-actions .user-chip span {
+    font-size: 0.58rem;
+  }
+
+  .hero-actions .status-text {
+    max-width: 40vw;
+    font-size: 0.66rem;
+  }
 }
   .budget-cycle-track-stage {
     padding-top: 0.85rem;
