@@ -70,7 +70,10 @@ type DecryptedDashboardBackup = {
   exportedAt: string
   buildVersion: string
   timelineType: TimelineType
+  currentCycle?: CyclePeriod
+  previousCycle?: CyclePeriod | null
   financialPlanData: FinancialPlanData
+  previousFinancialPlanData?: FinancialPlanData | null
 }
 
 type AuthStatusResponse = {
@@ -970,6 +973,15 @@ const isFinancialPlanData = (value: unknown): value is FinancialPlanData => {
 
 const isTimelineType = (value: unknown): value is TimelineType => value === 'MID_TO_MID' || value === 'START_TO_END'
 
+const isCyclePeriod = (value: unknown): value is CyclePeriod => {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<CyclePeriod>
+  return typeof candidate.startDate === 'string' && typeof candidate.endDate === 'string'
+}
+
 const isDecryptedDashboardBackup = (value: unknown): value is DecryptedDashboardBackup => {
   if (!value || typeof value !== 'object') {
     return false
@@ -981,6 +993,62 @@ const isDecryptedDashboardBackup = (value: unknown): value is DecryptedDashboard
     && typeof candidate.buildVersion === 'string'
     && isTimelineType(candidate.timelineType)
     && isFinancialPlanData(candidate.financialPlanData)
+    && (candidate.currentCycle === undefined || isCyclePeriod(candidate.currentCycle))
+    && (candidate.previousCycle === undefined || candidate.previousCycle === null || isCyclePeriod(candidate.previousCycle))
+    && (candidate.previousFinancialPlanData === undefined || candidate.previousFinancialPlanData === null || isFinancialPlanData(candidate.previousFinancialPlanData))
+}
+
+const looksLikeEncryptedWrapperOnly = (value: unknown): boolean => {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Record<string, unknown>
+  const encryptedData = typeof candidate.encryptedData === 'string' ? candidate.encryptedData : ''
+  const encryptionIv = typeof candidate.encryptionIv === 'string' ? candidate.encryptionIv : ''
+  return encryptedData.length > 0 && encryptionIv.length > 0
+}
+
+const readLegacyBackupPayload = (value: unknown): {
+  timelineType: TimelineType | null
+  currentCycle: CyclePeriod | null
+  previousCycle: CyclePeriod | null
+  financialPlanData: FinancialPlanData | null
+  previousFinancialPlanData: FinancialPlanData | null
+} => {
+  if (!value || typeof value !== 'object') {
+    return {
+      timelineType: null,
+      currentCycle: null,
+      previousCycle: null,
+      financialPlanData: null,
+      previousFinancialPlanData: null,
+    }
+  }
+
+  const candidate = value as Record<string, unknown>
+  const timelineType = isTimelineType(candidate.timelineType) ? candidate.timelineType : null
+  const currentCycle = isCyclePeriod(candidate.currentCycle) ? candidate.currentCycle : null
+  const previousCycle = candidate.previousCycle === null
+    ? null
+    : isCyclePeriod(candidate.previousCycle)
+      ? candidate.previousCycle
+      : null
+
+  const financialPlanData = isFinancialPlanData(candidate.financialPlanData) ? candidate.financialPlanData : null
+  const previousFinancialPlanData = candidate.previousFinancialPlanData === null
+    ? null
+    : isFinancialPlanData(candidate.previousFinancialPlanData)
+      ? candidate.previousFinancialPlanData
+      : null
+
+  return {
+    timelineType,
+    currentCycle,
+    previousCycle,
+    financialPlanData,
+    previousFinancialPlanData,
+  }
 }
 
 const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData => {
@@ -1537,6 +1605,10 @@ export default function App() {
   const [currentCyclePeriod, setCurrentCyclePeriod] = useState<CyclePeriod>(() => buildCurrentCycleForTimeline(new Date(), 'START_TO_END'))
   const [previousCyclePeriod, setPreviousCyclePeriod] = useState<CyclePeriod | null>(null)
   const [bankBalanceHistoryCycles, setBankBalanceHistoryCycles] = useState<BankBalanceHistoryCycle[]>([])
+  const localBankBalanceHistoryCyclesRef = useRef<Map<string, BankBalanceHistoryCycle>>(new Map())
+  const [localBankBalanceHistoryVersion, setLocalBankBalanceHistoryVersion] = useState(0)
+  const timelineTypeHydratedRef = useRef(false)
+  const previousCyclePrefetchKeyRef = useRef<string | null>(null)
   const [pendingTimelineTypeSwitch, setPendingTimelineTypeSwitch] = useState<TimelineType | null>(null)
   const [isTimelineSwitchDialogOpen, setIsTimelineSwitchDialogOpen] = useState(false)
   const [pendingCloseCycleReset, setPendingCloseCycleReset] = useState<PendingCloseCycleReset | null>(null)
@@ -1558,6 +1630,24 @@ export default function App() {
   const skipNextCarryoverResetRef = useRef(false)
   const bankBalanceHistoryRequestIdRef = useRef(0)
   const pinSetupInitiatedRef = useRef(false)
+
+  useEffect(() => {
+    localBankBalanceHistoryCyclesRef.current.clear()
+    setLocalBankBalanceHistoryVersion((version) => version + 1)
+    timelineTypeHydratedRef.current = false
+    previousCyclePrefetchKeyRef.current = null
+  }, [authenticatedUser?.email, planViewMode])
+
+  useEffect(() => {
+    if (!timelineTypeHydratedRef.current) {
+      timelineTypeHydratedRef.current = true
+      return
+    }
+
+    localBankBalanceHistoryCyclesRef.current.clear()
+    setLocalBankBalanceHistoryVersion((version) => version + 1)
+    previousCyclePrefetchKeyRef.current = null
+  }, [timelineType])
 
   const expensePayFromOptions = useMemo<BankPayFromOption[]>(() => [
     { id: DEFAULT_BANK_EXPENSE_SOURCE_ID, label: sectionTitles.defaultBank },
@@ -2652,13 +2742,19 @@ export default function App() {
       cyclesByPeriod.set(getCyclePeriodKey(cycle.cycle), cycle)
     })
 
+    if (appRoute !== TRACKERS_ROUTE) {
+      localBankBalanceHistoryCyclesRef.current.forEach((cycle, key) => {
+        cyclesByPeriod.set(key, cycle)
+      })
+    }
+
     if (liveCurrentBankHistoryCycle) {
       cyclesByPeriod.set(getCyclePeriodKey(liveCurrentBankHistoryCycle.cycle), liveCurrentBankHistoryCycle)
     }
 
     return Array.from(cyclesByPeriod.values())
       .sort((left, right) => left.cycle.startDate.localeCompare(right.cycle.startDate))
-  }, [bankBalanceHistoryCycles, currentCyclePeriod, liveBankComparisonData, liveCurrentBankHistoryCycle, planViewMode])
+  }, [appRoute, bankBalanceHistoryCycles, currentCyclePeriod, liveBankComparisonData, liveCurrentBankHistoryCycle, localBankBalanceHistoryVersion, planViewMode])
 
   const bankComparisonSeries: BankComparisonSeriesEntry[] = Array.from(
     new Set(bankBalanceChartCycles.flatMap((cycle) => cycle.banks.map((bank) => bank.bankId))),
@@ -3522,6 +3618,10 @@ export default function App() {
       return
     }
 
+    if (appRoute !== TRACKERS_ROUTE && !planReady) {
+      return
+    }
+
     if (appRoute === TRACKERS_ROUTE) {
       if (!selectedSharedViewerUserSub) {
         setBankBalanceHistoryCycles([])
@@ -3538,7 +3638,75 @@ export default function App() {
     }
 
     void refreshBankBalanceHistory()
-  }, [appRoute, authState, authenticatedUser?.termsAccepted, planViewMode, selectedSharedViewerUser, selectedSharedViewerUserSub, viewerEncryptionKey])
+  }, [appRoute, authState, authenticatedUser?.termsAccepted, planReady, planViewMode, selectedSharedViewerUser, selectedSharedViewerUserSub, timelineType, viewerEncryptionKey])
+
+  useEffect(() => {
+    if (authState !== 'authenticated') {
+      previousCyclePrefetchKeyRef.current = null
+      return
+    }
+
+    if (!(authenticatedUser?.termsAccepted ?? false)) {
+      return
+    }
+
+    if (planViewMode !== 'personal' || appRoute === TRACKERS_ROUTE || !planReady) {
+      return
+    }
+
+    if (!previousCyclePeriod) {
+      previousCyclePrefetchKeyRef.current = null
+      return
+    }
+
+    const previousKey = getCyclePeriodKey(previousCyclePeriod)
+    if (localBankBalanceHistoryCyclesRef.current.has(previousKey)) {
+      return
+    }
+
+    if (previousCyclePrefetchKeyRef.current === previousKey) {
+      return
+    }
+    previousCyclePrefetchKeyRef.current = previousKey
+
+    void (async () => {
+      const rawPrevious = await fetchRawCycleData('previous')
+      if (!rawPrevious?.hasPreviousCycle) {
+        return
+      }
+
+      const cyclePeriod = rawPrevious.previousCycle ?? previousCyclePeriod
+      const cycleKey = getCyclePeriodKey(cyclePeriod)
+      if (localBankBalanceHistoryCyclesRef.current.has(cycleKey)) {
+        return
+      }
+
+      const rawPreviousData = rawPrevious.data
+      let decodedPreviousData: FinancialPlanData | null = rawPreviousData
+      if (rawPreviousData.encryptedData && rawPreviousData.encryptionIv) {
+        if (!pinKey) {
+          return
+        }
+
+        try {
+          decodedPreviousData = await decryptJson<FinancialPlanData>(pinKey, rawPreviousData.encryptedData, rawPreviousData.encryptionIv)
+        } catch {
+          return
+        }
+      }
+
+      if (!decodedPreviousData) {
+        return
+      }
+
+      const normalized = normalizeFinancialPlanData(decodedPreviousData)
+      localBankBalanceHistoryCyclesRef.current.set(cycleKey, {
+        cycle: cyclePeriod,
+        banks: buildBankBalanceComparisonPoints(normalized),
+      })
+      setLocalBankBalanceHistoryVersion((version) => version + 1)
+    })()
+  }, [appRoute, authState, authenticatedUser?.termsAccepted, pinKey, planReady, planViewMode, previousCyclePeriod, timelineType])
 
   const applyPersonalCycleResponse = (
     response: FinancialPlanCycleResponse,
@@ -3551,6 +3719,17 @@ export default function App() {
       setStoredPinVerifyIv(response.data.pinVerifyIv ?? null)
     }
     const normalizedData = normalizeFinancialPlanData(decryptedData ?? response.data)
+
+    const isEncryptedWrapperOnly = !!response.data.encryptedData && !decryptedData
+    const selectedCyclePeriod = response.selectedCycle === 'previous' ? response.previousCycle : response.currentCycle
+    if (!isEncryptedWrapperOnly && selectedCyclePeriod && appRoute !== TRACKERS_ROUTE && planViewMode !== 'sample') {
+      const cycleKey = getCyclePeriodKey(selectedCyclePeriod)
+      localBankBalanceHistoryCyclesRef.current.set(cycleKey, {
+        cycle: selectedCyclePeriod,
+        banks: buildBankBalanceComparisonPoints(normalizedData),
+      })
+      setLocalBankBalanceHistoryVersion((version) => version + 1)
+    }
     if (preserveCloseCycleBankData) {
       skipNextCarryoverResetRef.current = true
       setCloseCycleCarryoverBankData({
@@ -4231,6 +4410,31 @@ export default function App() {
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
       const archivedCurrentData = buildPayload()
+
+      if (pinKey && !isSampleMode) {
+        setSaveMessage('Securing your data...')
+        try {
+          await saveCycleEncrypted(cycleResponse.data, pinKey, 'current')
+          if (cycleResponse.previousCycle) {
+            await saveCycleEncrypted(archivedCurrentData, pinKey, 'previous')
+          }
+        } catch (error) {
+          if ((error as any)?.status === 401) {
+            setAuthenticatedUser(null)
+            setPinKey(null)
+            setAuthState('unauthenticated')
+            setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
+            setSaveState('idle')
+            setSaveMessage('')
+            setIsCloseCycleDialogOpen(false)
+            return
+          }
+
+          setSaveState('error')
+          setSaveMessage('Cycle closed, but encryption sync failed. Reload and try again to re-secure your data.')
+        }
+      }
+
       if (isSampleMode) {
         applySampleCycleResponse(cycleResponse, 'Cycle closed. Started a new current cycle.', true)
       } else {
@@ -4247,19 +4451,6 @@ export default function App() {
         })
       }
       setIsCloseCycleDialogOpen(false)
-      if (pinKey && !isSampleMode) {
-        const currentKey = pinKey
-        void (async () => {
-          try {
-            await saveCycleEncrypted(cycleResponse.data, currentKey, 'current')
-            if (cycleResponse.previousCycle) {
-              await saveCycleEncrypted(archivedCurrentData, currentKey, 'previous')
-            }
-          } catch {
-            // re-encryption failed silently
-          }
-        })()
-      }
     } catch {
       setSaveState('error')
       setSaveMessage('Close cycle failed. Reload and try again.')
@@ -4368,6 +4559,27 @@ export default function App() {
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
+
+      if (pinKey && !isSampleMode) {
+        setSaveMessage('Securing your data...')
+        try {
+          await saveCycleEncrypted(cycleResponse.data, pinKey, 'current')
+        } catch (error) {
+          if ((error as any)?.status === 401) {
+            setAuthenticatedUser(null)
+            setPinKey(null)
+            setAuthState('unauthenticated')
+            setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
+            setSaveState('idle')
+            setSaveMessage('')
+            setIsRevertCycleDialogOpen(false)
+            return
+          }
+          setSaveState('error')
+          setSaveMessage('Cycle reverted, but encryption sync failed. Reload and try again to re-secure your data.')
+        }
+      }
+
       if (isSampleMode) {
         applySampleCycleResponse(cycleResponse, 'Reverted to previous cycle.')
       } else {
@@ -4377,16 +4589,6 @@ export default function App() {
       setPendingCloseCycleReset(null)
       setSuppressCycleSwitchWarning(false)
       setIsRevertCycleDialogOpen(false)
-      if (pinKey && !isSampleMode) {
-        const currentKey = pinKey
-        void (async () => {
-          try {
-            await saveCycleEncrypted(cycleResponse.data, currentKey, 'current')
-          } catch {
-            // re-encryption failed silently
-          }
-        })()
-      }
     } catch {
       setSaveState('error')
       setSaveMessage('Revert cycle failed. Reload and try again.')
@@ -4459,28 +4661,8 @@ export default function App() {
     setPinModalError('')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/terms/reset`, {
-        method: 'POST',
-        credentials: 'include',
-      })
-
-      if (response.status === 401) {
-        setAuthenticatedUser(null)
-        setPinKey(null)
-        pinSetupInitiatedRef.current = false
-        setAuthState('unauthenticated')
-        setAuthScreenMode('default')
-        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
-        setIsPinModalOpen(false)
-        return
-      }
-
-      if (!response.ok) {
-        throw new Error(`Failed to reset terms acceptance: ${response.status}`)
-      }
-
       await handleLogout()
-      setAuthMessage('Setup exited. Sign in again and accept Terms and Conditions to continue.')
+      setAuthMessage('Setup exited. Sign in again to continue.')
     } catch {
       setPinModalError('Unable to exit setup right now. Try again.')
     } finally {
@@ -4680,42 +4862,116 @@ export default function App() {
   }
 
   const handleExportDecryptedBackup = () => {
-    if (isTrackersRoute || isSampleMode) {
+    setIsUserMenuOpen(false)
+
+    if (isTrackersRoute) {
+      setSaveState('error')
+      setSaveMessage('Download Tracker is only available on your personal tracker (not the Trackers page).')
       return
     }
 
-    setIsUserMenuOpen(false)
+    if (isSampleMode) {
+      setSaveState('error')
+      setSaveMessage('Exit Sample Tracker mode before downloading a decrypted backup.')
+      return
+    }
+
+    const encryptionLocked = !(authenticatedUser?.encryptionExempt ?? false)
+      && !!pendingEncryptedPlanResponse?.data.encryptedData
+      && !!pendingEncryptedPlanResponse?.data.encryptionIv
+      && !pinKey
+
+    if (encryptionLocked) {
+      setSaveState('error')
+      setSaveMessage('Unlock your tracker with your Encryption Key before downloading a decrypted backup.')
+      return
+    }
+
     const shouldContinue = window.confirm(
       'Download an unencrypted backup?\n\nThis file contains readable financial data and is NOT protected by your Encryption Key. Anyone with access to the file can read it.\n\nStore it securely.',
     )
     if (!shouldContinue) {
+      setSaveState('saved')
+      setSaveMessage('Backup download cancelled.')
       return
     }
 
-    const backup: DecryptedDashboardBackup = {
-      schemaVersion: DECRYPTED_BACKUP_SCHEMA_VERSION,
-      exportedAt: new Date().toISOString(),
-      buildVersion: BUILD_VERSION_LABEL,
-      timelineType,
-      financialPlanData: buildPayload(),
-    }
-    const suggestedFileNameBase = (authenticatedUser?.email ?? 'dashboard')
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'dashboard'
-    const backupFileName = `mybetterbudget-decrypted-backup-${suggestedFileNameBase}-${new Date().toISOString().slice(0, 10)}.json`
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
-    const downloadUrl = window.URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = downloadUrl
-    anchor.download = backupFileName
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    window.URL.revokeObjectURL(downloadUrl)
-    setSaveState('saved')
-    setSaveMessage('Decrypted backup downloaded. Store it securely.')
+    void (async () => {
+      setSaveState('loading')
+      setSaveMessage('Preparing backup...')
+
+      const stripBackupData = (plan: FinancialPlanData): FinancialPlanData => ({
+        ...normalizeFinancialPlanData(plan),
+        summary: undefined,
+        encryptedData: undefined,
+        encryptionIv: undefined,
+        pinVerify: undefined,
+        pinVerifyIv: undefined,
+      })
+
+      let currentCycleForBackup: CyclePeriod = currentCyclePeriod ?? buildCurrentCycleForTimeline(new Date(), timelineType)
+      let previousCycleForBackup: CyclePeriod | null = previousCyclePeriod ?? null
+      let previousFinancialPlanData: FinancialPlanData | null = null
+
+      const rawCurrent = await fetchRawCycleData('current')
+      if (rawCurrent?.currentCycle) {
+        currentCycleForBackup = rawCurrent.currentCycle
+      }
+      if (rawCurrent?.previousCycle) {
+        previousCycleForBackup = rawCurrent.previousCycle
+      }
+
+      const rawPrevious = await fetchRawCycleData('previous')
+      if (rawPrevious?.hasPreviousCycle) {
+        if (rawPrevious.previousCycle) {
+          previousCycleForBackup = rawPrevious.previousCycle
+        }
+
+        const rawPreviousData = rawPrevious.data
+        if (rawPreviousData.encryptedData && rawPreviousData.encryptionIv) {
+          if (pinKey) {
+            try {
+              const decryptedPrevious = await decryptJson<FinancialPlanData>(pinKey, rawPreviousData.encryptedData, rawPreviousData.encryptionIv)
+              previousFinancialPlanData = stripBackupData(decryptedPrevious)
+            } catch {
+              previousFinancialPlanData = null
+            }
+          }
+        } else {
+          previousFinancialPlanData = stripBackupData(rawPreviousData)
+        }
+      }
+
+      const backup: DecryptedDashboardBackup = {
+        schemaVersion: DECRYPTED_BACKUP_SCHEMA_VERSION,
+        exportedAt: new Date().toISOString(),
+        buildVersion: BUILD_VERSION_LABEL,
+        timelineType,
+        currentCycle: currentCycleForBackup,
+        previousCycle: previousCycleForBackup,
+        financialPlanData: stripBackupData(buildPayload()),
+        previousFinancialPlanData,
+      }
+
+      const suggestedFileNameBase = (authenticatedUser?.email ?? 'dashboard')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'dashboard'
+      const backupFileName = `mybetterbudget-decrypted-backup-${suggestedFileNameBase}-${new Date().toISOString().slice(0, 10)}.json`
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+      const downloadUrl = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = downloadUrl
+      anchor.download = backupFileName
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(downloadUrl)
+
+      setSaveState('saved')
+      setSaveMessage('Decrypted backup downloaded. Store it securely.')
+    })()
   }
 
   const handleImportBackupClick = () => {
@@ -4755,16 +5011,37 @@ export default function App() {
     try {
       const fileText = await selectedFile.text()
       const parsedBackup = JSON.parse(fileText) as unknown
-      const importedTimelineType = isDecryptedDashboardBackup(parsedBackup) ? parsedBackup.timelineType : null
-      const importedPlan = isDecryptedDashboardBackup(parsedBackup)
-        ? parsedBackup.financialPlanData
+      const importedBackup = isDecryptedDashboardBackup(parsedBackup) ? parsedBackup : null
+      const legacyPayload = importedBackup ? null : readLegacyBackupPayload(parsedBackup)
+
+      const importedTimelineType = importedBackup
+        ? importedBackup.timelineType
+        : legacyPayload?.timelineType ?? null
+
+      const importedPlan = importedBackup
+        ? importedBackup.financialPlanData
         : isFinancialPlanData(parsedBackup)
           ? parsedBackup
-          : null
+          : legacyPayload?.financialPlanData ?? null
+
+      const importedCurrentCycle = importedBackup?.currentCycle ?? legacyPayload?.currentCycle ?? null
+      const importedPreviousCycle = importedBackup?.previousCycle ?? legacyPayload?.previousCycle ?? null
+      const importedPreviousPlan = importedBackup?.previousFinancialPlanData ?? legacyPayload?.previousFinancialPlanData ?? null
 
       if (!importedPlan) {
+        const legacyCandidate = parsedBackup && typeof parsedBackup === 'object'
+          ? (parsedBackup as Record<string, unknown>)
+          : null
+
+        const nestedPlan = legacyCandidate?.financialPlanData
+        if (looksLikeEncryptedWrapperOnly(parsedBackup) || looksLikeEncryptedWrapperOnly(nestedPlan)) {
+          setSaveState('error')
+          setSaveMessage('Backup import failed. This file looks encrypted-only. Unlock with your Encryption Key and download a decrypted backup before importing.')
+          return
+        }
+
         setSaveState('error')
-        setSaveMessage('Backup import failed. Use a valid decrypted backup file.')
+        setSaveMessage('Backup import failed. The selected file is not a recognized decrypted backup JSON (or it is missing financialPlanData fields).')
         return
       }
 
@@ -4792,10 +5069,76 @@ export default function App() {
         pinVerify: undefined,
         pinVerifyIv: undefined,
       }
-      await persistFinancialPlan(restorePayload, 'Backup imported and saved.')
-    } catch {
+
+      const normalizedImportedPreviousPlan = importedPreviousPlan ? normalizeFinancialPlanData(importedPreviousPlan) : null
+      const restorePreviousPayload: FinancialPlanData | null = normalizedImportedPreviousPlan
+        ? {
+          ...normalizedImportedPreviousPlan,
+          summary: undefined,
+          encryptedData: undefined,
+          encryptionIv: undefined,
+          pinVerify: undefined,
+          pinVerifyIv: undefined,
+        }
+        : null
+
+      const canRestorePrevious = !!restorePreviousPayload && !!importedPreviousCycle
+      if (!canRestorePrevious) {
+        await persistFinancialPlan(restorePayload, 'Backup imported and saved.')
+        return
+      }
+
+      setSaveState('saving')
+      setSaveMessage('Importing backup...')
+
+      const restoreCurrentCycle = importedCurrentCycle ?? buildCurrentCycleForTimeline(new Date(), timelineType)
+      const restorePreviousCycle = importedPreviousCycle
+
+      const isEncryptionActive = !!pinKey && !(authenticatedUser?.encryptionExempt ?? false)
+      const currentBody = isEncryptionActive && pinKey ? await buildEncryptedWrapper(restorePayload, pinKey) : restorePayload
+      const previousBody = isEncryptionActive && pinKey && restorePreviousPayload ? await buildEncryptedWrapper(restorePreviousPayload, pinKey) : restorePreviousPayload
+
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/restore-backup`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          timelineType,
+          currentCycle: restoreCurrentCycle,
+          financialPlanData: currentBody,
+          previousCycle: restorePreviousCycle,
+          previousFinancialPlanData: previousBody,
+        }),
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setPinKey(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
+        setSaveState('idle')
+        setSaveMessage('')
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to restore backup: ${response.status}`)
+      }
+
+      const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      applyPersonalCycleResponse(cycleResponse, 'Backup imported and saved.', false, isEncryptionActive ? restorePayload : undefined)
+      void refreshBankBalanceHistory()
+    } catch (error) {
       setSaveState('error')
-      setSaveMessage('Backup import failed. Use a valid decrypted backup file.')
+      if (error instanceof SyntaxError) {
+        setSaveMessage('Backup import failed. The selected file is not valid JSON.')
+        return
+      }
+
+      const message = error instanceof Error ? error.message : ''
+      setSaveMessage(message ? `Backup import failed. ${message}` : 'Backup import failed. Use a valid decrypted backup file.')
     }
   }
 
@@ -4873,6 +5216,28 @@ export default function App() {
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
+
+      if (pinKey && !isSampleMode) {
+        setSaveMessage('Securing your data...')
+        try {
+          await saveCycleEncrypted(cycleResponse.data, pinKey, 'current')
+        } catch (error) {
+          if ((error as any)?.status === 401) {
+            setAuthenticatedUser(null)
+            setPinKey(null)
+            setAuthState('unauthenticated')
+            setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
+            setSaveState('idle')
+            setSaveMessage('')
+            setIsTimelineSwitchDialogOpen(false)
+            setPendingTimelineTypeSwitch(null)
+            return
+          }
+          setSaveState('error')
+          setSaveMessage('Timeline switched, but encryption sync failed. Reload and try again to re-secure your data.')
+        }
+      }
+
       if (isSampleMode) {
         applySampleCycleResponse(cycleResponse, `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`)
       } else {
@@ -4883,16 +5248,6 @@ export default function App() {
       setSelectedCycle('current')
       setPendingTimelineTypeSwitch(null)
       setIsTimelineSwitchDialogOpen(false)
-      if (pinKey && !isSampleMode) {
-        const currentKey = pinKey
-        void (async () => {
-          try {
-            await saveCycleEncrypted(cycleResponse.data, currentKey, 'current')
-          } catch {
-            // re-encryption failed silently
-          }
-        })()
-      }
     } catch {
       setSaveState('error')
       setSaveMessage('Timeline switch failed. Reload and try again.')
@@ -4928,12 +5283,15 @@ export default function App() {
 
   const saveCycleEncrypted = async (data: FinancialPlanData, key: CryptoKey, cycle: 'current' | 'previous'): Promise<void> => {
     const wrapper = await buildEncryptedWrapper(data, key)
-    await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${cycle}`, {
+    const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${cycle}`, {
       method: 'PUT',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(wrapper),
     })
+    if (!response.ok) {
+      throw Object.assign(new Error(`Failed to save encrypted ${cycle} cycle: ${response.status}`), { status: response.status })
+    }
   }
 
   const fetchRawCycleData = async (cycle: 'current' | 'previous'): Promise<FinancialPlanCycleResponse | null> => {
