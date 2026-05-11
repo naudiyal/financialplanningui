@@ -2081,10 +2081,18 @@ th {
 
 .credit-accounts-table .table-header-label {
   min-height: calc(1.1em * 2);
+  font-size: 0.63rem;
+  line-height: 1.05;
+}
+
+.credit-accounts-table th:nth-child(7) .table-header-label {
+  max-width: 16ch;
 }
 
 .debit-expenses-table .table-header-label {
   min-height: calc(1.1em * 2);
+  font-size: 0.63rem;
+  line-height: 1.05;
 }
 
 .table-header-label-line {

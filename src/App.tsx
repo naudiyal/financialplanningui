@@ -444,6 +444,10 @@ const formatTableHeaderLabel = (label: string) => {
 const formatCreditTableHeaderLabel = (label: string) => {
   const trimmedLabel = label.trim()
 
+  if (trimmedLabel === 'Next Cycle Pymnt Stmt Cycled?') {
+    return ['Next Cycle Pymnt', 'Stmt Cycled?']
+  }
+
   if (!trimmedLabel.includes(' ')) {
     return [trimmedLabel, '']
   }
@@ -486,12 +490,12 @@ const normalizeLegacyCreditAccountColumnLabel = (id: string, label: string) => {
     return 'Payment Date'
   }
 
-  if (id === 'statement-date' && (label === 'Stmt Date' || label === 'Last Stmt Date' || label === 'Prev Cycle Stmt Date' || label === 'Current Payment Stmt Date' || label === 'Credit Card Statement Date')) {
-    return 'Current Payment Stmt Date'
+  if (id === 'statement-date' && (label === 'Stmt Date' || label === 'Last Stmt Date' || label === 'Prev Cycle Stmt Date' || label === 'Current Payment Stmt Date' || label === 'Current Pymnt Stmt Date' || label === 'Credit Card Statement Date')) {
+    return 'Current Pymnt Stmt Date'
   }
 
-  if (id === 'statement-cycled' && (label === 'Stmt Cycled' || label === 'Stmt Cycled?' || label === 'New Stmt Cycled?' || label === 'Current Cycle Stmt Cycled?')) {
-    return 'Current Cycle Stmt Cycled?'
+  if (id === 'statement-cycled' && (label === 'Stmt Cycled' || label === 'Stmt Cycled?' || label === 'New Stmt Cycled?' || label === 'Current Cycle Stmt Cycled?' || label === 'Next Payment Stmt Cycled?' || label === 'Next Cycle Payment Stmt Cycled?' || label === 'Next Cycle Pymnt Stmt Cycled?')) {
+    return 'Next Cycle Pymnt Stmt Cycled?'
   }
 
   if (id === 'credit-limit' && label === 'Limit') {
@@ -523,7 +527,7 @@ const getCreditColumnHeaderTooltip = (columnId: string) => {
   }
 
   if (columnId === 'statement-cycled') {
-    return 'Current cycle stmt cycled?'
+    return 'Next Cycle Payment Stmt Cycled?'
   }
 
   if (columnId === 'statement-balance') {
@@ -4525,6 +4529,25 @@ export default function App() {
     setSaveMessage('Reverting cycle...')
 
     try {
+      let restoredCurrentData: FinancialPlanData | undefined = pendingCloseCycleReset?.previousData
+
+      if (pinKey && !isSampleMode && !restoredCurrentData) {
+        const rawPrevious = await fetchRawCycleData('previous')
+        if (!rawPrevious?.hasPreviousCycle) {
+          throw new Error('Previous cycle data is unavailable for encrypted revert.')
+        }
+
+        if (rawPrevious.data.encryptedData && rawPrevious.data.encryptionIv) {
+          restoredCurrentData = await decryptJson<FinancialPlanData>(
+            pinKey,
+            rawPrevious.data.encryptedData,
+            rawPrevious.data.encryptionIv,
+          )
+        } else {
+          restoredCurrentData = rawPrevious.data
+        }
+      }
+
       const endpoint = isSampleMode
         ? `${API_BASE_URL}/api/financial-plan/sample/revert-close-cycle?timelineType=${timelineType}`
         : `${API_BASE_URL}/api/financial-plan/revert-close-cycle`
@@ -4568,7 +4591,10 @@ export default function App() {
       if (pinKey && !isSampleMode) {
         setSaveMessage('Securing your data...')
         try {
-          await saveCycleEncrypted(cycleResponse.data, pinKey, 'current')
+          if (!restoredCurrentData) {
+            throw new Error('Previous cycle data is unavailable for encrypted revert.')
+          }
+          await saveCycleEncrypted(restoredCurrentData, pinKey, 'current')
         } catch (error) {
           if ((error as any)?.status === 401) {
             setAuthenticatedUser(null)
@@ -4588,7 +4614,7 @@ export default function App() {
       if (isSampleMode) {
         applySampleCycleResponse(cycleResponse, 'Reverted to previous cycle.')
       } else {
-        applyPersonalCycleResponse(cycleResponse, 'Reverted to previous cycle.')
+        applyPersonalCycleResponse(cycleResponse, 'Reverted to previous cycle.', false, restoredCurrentData)
       }
       void refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
@@ -6515,7 +6541,7 @@ export default function App() {
                 <li>Savings Next Cycle shows Total Next Cycle Salary Funding minus Next Cycle Exposure. When savings are positive the pie chart shows your savings versus Next Cycle Exposure. When negative (shortfall) the chart shows the funding amount versus the shortfall amount.</li>
                 <li>Current Cycle Exposure shows current month credit card payments, current month debit card expenses, and additional payments from the default bank. When exposure exceeds your total credit limit the metric turns red to highlight the risk.</li>
                 <li>Next Cycle Exposure is upcoming debit expenses plus credit exposure that is Next Stmt Balance unless a card is Paid—then it uses Latest Stmt Balance (cycled) or Total Due (not cycled)</li>
-                <li>Cycle After Next Cycle Exposure shows next month debit card expenses plus Next Stmt Balance only for cards where Current Cycle Stmt Cycled? is checked and Paid is checked.</li>
+                <li>Cycle After Next Cycle Exposure shows next month debit card expenses plus Next Stmt Balance only for cards where Next Cycle Payment Stmt Cycled? is checked and Paid is checked.</li>
                 <li>Overdue Cards and Overdue Expenses show how many items are already past due based on the dates in the tracker. Any payment date or expense due date in the past with the item still unmarked as paid counts as overdue.</li>
               </ul>
             </div>
@@ -7281,7 +7307,7 @@ export default function App() {
                           />
                         </label>
                         <label className="credit-account-field">
-                          <span>{columnLabels.creditAccounts[2]?.label ?? 'Current Payment Stmt Date'}</span>
+                          <span>{columnLabels.creditAccounts[2]?.label ?? 'Current Pymnt Stmt Date'}</span>
                           <input
                             type="date"
                             value={account.lastStatementDate}
@@ -7325,7 +7351,7 @@ export default function App() {
                           />
                         </label>
                         <label className="credit-account-toggle">
-                          <span>{columnLabels.creditAccounts[5]?.label ?? 'Current Cycle Stmt Cycled?'}</span>
+                          <span>{columnLabels.creditAccounts[5]?.label ?? 'Next Cycle Pymnt Stmt Cycled?'}</span>
                           <input
                             type="checkbox"
                             checked={account.statementCycledAfterPayment}
