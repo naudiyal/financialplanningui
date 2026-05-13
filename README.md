@@ -39,6 +39,7 @@ Open http://localhost:5173 in your browser.
 - First-time setup and PIN flows show the signed-in email address, and the first-time setup flow includes both the currency selector and cycle-type selection.
 - Supported currencies were expanded beyond the original short list so the app can be used with many more global currencies.
 - Shared tracker administration was expanded: admins can see tracker-owner email addresses, review each shared tracker's latest update timestamp, and delete any shared tracker when necessary.
+- In the Trackers view, selecting a user now immediately attempts to open that tracker's data. If that tracker is encrypted, the admin is prompted for that tracker's 4-character Encryption Key before any data is shown.
 - Cycle visibility is now tiered by user type: regular users see the active cycle plus the latest closed cycle, while premium users can view up to 12 closed cycles in addition to the current cycle.
 - Admins can change any user's type between `Regular` and `Premium` from the signed-in user menu via `Change User Type`; the same search flow also allows an admin to update their own account.
 - Debit Card Expenses now include a `Paid` checkbox. Checking it forces that row's `Current Month Payment` to `0`. Unchecking restores `Current Month Payment` from that row's `Next Month Payment`. When older saved data does not have an explicit `Paid` flag yet, the UI infers it from whether `Current Month Payment` is `0`.

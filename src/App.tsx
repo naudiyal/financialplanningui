@@ -5012,7 +5012,7 @@ export default function App() {
 
   const shouldWarnBeforeSwitchingToSample = !isSampleMode && !isTrackersRoute && hasUnsavedChanges
 
-  const handleSharedViewerSelectionChange = (nextUserSub: string) => {
+  const handleSharedViewerSelectionChange = async (nextUserSub: string) => {
     if (nextUserSub === selectedSharedViewerUserSub) {
       return
     }
@@ -5035,27 +5035,7 @@ export default function App() {
       return
     }
 
-    setSelectedSharedViewerUserSub(nextUserSub)
-    setLoadedSharedViewerUserSub('')
-    setSelectedCycle('current')
-    setPreviousCyclePeriod(null)
-    setClosedCyclePeriods([])
-    setSelectedClosedCyclePeriod(null)
-    setBankBalanceHistoryCycles([])
-    setLastCycleSavedAt(null)
-    applyFinancialPlan(emptyFinancialPlanData)
-    setLoadedPlanSignature(getFinancialPlanSignature(emptyFinancialPlanData))
-    setSaveState('idle')
-    setSaveMessage('User selected. Change User Type or click View Tracker to open that tracker.')
-    setPlanReady(true)
-  }
-
-  const handleViewSelectedTracker = async () => {
-    if (!selectedSharedViewerUserSub) {
-      return
-    }
-
-    await loadSharedViewerPlan(selectedSharedViewerUserSub, 'current')
+    await loadSharedViewerPlan(nextUserSub, 'current')
   }
 
   const handleSampleClick = async () => {
@@ -6491,7 +6471,7 @@ export default function App() {
                 ? selectedSharedViewerUser
                   ? loadedSharedViewerUserSub === selectedSharedViewerUser.userSub
                     ? 'Selected tracker is read only. Only the currently selected tracker data is loaded in the browser.'
-                    : 'User selected. Click View Tracker if you want to try opening that tracker.'
+                    : 'Loading the selected tracker may require that user\'s 4-character Encryption Key.'
                   : 'No tracker is loaded yet. Choose a user from the dropdown to manage that user or load that tracker.'
                 : 'No additional tracker records are available for this account yet.'}
             </span>
@@ -6521,14 +6501,6 @@ export default function App() {
             </label>
             <button type="button" className="toolbar-button" onClick={handleReturnToMyPlan}>
               Back to My Plan
-            </button>
-            <button
-              type="button"
-              className="toolbar-button"
-              onClick={() => void handleViewSelectedTracker()}
-              disabled={!selectedSharedViewerUserSub || saveState === 'loading' || saveState === 'saving'}
-            >
-              View Tracker
             </button>
             {authenticatedUser?.admin && selectedSharedViewerUserSub ? (
               <button
