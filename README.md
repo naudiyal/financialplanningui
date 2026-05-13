@@ -39,9 +39,11 @@ Open http://localhost:5173 in your browser.
 - First-time setup and PIN flows show the signed-in email address, and the first-time setup flow includes both the currency selector and cycle-type selection.
 - Supported currencies were expanded beyond the original short list so the app can be used with many more global currencies.
 - Shared tracker administration was expanded: admins can see tracker-owner email addresses, review each shared tracker's latest update timestamp, and delete any shared tracker when necessary.
-- In the Trackers view, selecting a user now immediately attempts to open that tracker's data. If that tracker is encrypted, the admin is prompted for that tracker's 4-character Encryption Key before any data is shown.
+- In the Trackers view, selecting a user immediately attempts to open that tracker. If that tracker is encrypted, the admin is prompted for that tracker's 4-character Encryption Key before any data is shown.
 - Cycle visibility is now tiered by user type: regular users see the active cycle plus the latest closed cycle, while premium users can view up to 12 closed cycles in addition to the current cycle.
 - Admins can change any user's type between `Regular` and `Premium` from the signed-in user menu via `Change User Type`; the same search flow also allows an admin to update their own account.
+- `Change User Type` and `Delete User Tracker` both use the same debounced email-search flow, and each dialog now shows at most 10 matching email suggestions after the user pauses typing.
+- Admins can also open `Delete User Tracker` from the signed-in user menu, search by email, confirm first and last name, and permanently delete a user's saved tracker data from the same admin search flow. Deleting another user's tracker from the personal view does not clear the admin's own loaded tracker data.
 - Debit Card Expenses now include a `Paid` checkbox. Checking it forces that row's `Current Month Payment` to `0`. Unchecking restores `Current Month Payment` from that row's `Next Month Payment`. When older saved data does not have an explicit `Paid` flag yet, the UI infers it from whether `Current Month Payment` is `0`.
 - The user menu, help copy, and goodbye/delete experience were updated to match the current navigation and sign-in wording.
 

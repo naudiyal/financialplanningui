@@ -1603,6 +1603,7 @@ export default function App() {
   const [isSampleConfirmDialogOpen, setIsSampleConfirmDialogOpen] = useState(false)
   const [isCycleSwitchDialogOpen, setIsCycleSwitchDialogOpen] = useState(false)
   const [isUserTypeDialogOpen, setIsUserTypeDialogOpen] = useState(false)
+  const [adminDialogMode, setAdminDialogMode] = useState<'user-type' | 'delete-tracker'>('user-type')
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isCloseCycleDialogOpen, setIsCloseCycleDialogOpen] = useState(false)
@@ -1620,7 +1621,6 @@ export default function App() {
   const [pinModalSubmitting, setPinModalSubmitting] = useState(false)
   const [pinModalExiting, setPinModalExiting] = useState(false)
   const [planReady, setPlanReady] = useState(false)
-  const [adminDeleteConfirmUserSub, setAdminDeleteConfirmUserSub] = useState<string | null>(null)
   const [isDeletingViewerTracker, setIsDeletingViewerTracker] = useState(false)
   const [isUpdatingViewerPremium, setIsUpdatingViewerPremium] = useState(false)
   const [userTypeDialogUsers, setUserTypeDialogUsers] = useState<SharedViewerUserSummary[]>([])
@@ -3308,11 +3308,14 @@ export default function App() {
   const selectedSharedViewerUser = sharedViewerUsers.find((user) => user.userSub === selectedSharedViewerUserSub) ?? null
   const selectedUserTypeDialogUser = userTypeDialogUsers.find((user) => user.userSub === selectedUserTypeUserSub) ?? null
   const userTypeSearchMatches = debouncedUserTypeSearchInput.trim()
-    ? userTypeDialogUsers.filter((user) => (user.email ?? '').toLowerCase().includes(debouncedUserTypeSearchInput.trim().toLowerCase()))
+    ? userTypeDialogUsers
+      .filter((user) => (user.email ?? '').toLowerCase().includes(debouncedUserTypeSearchInput.trim().toLowerCase()))
+      .slice(0, 10)
     : []
   const selectedUserTypeNameParts = (selectedUserTypeDialogUser?.displayName ?? '').trim().split(/\s+/).filter(Boolean)
   const selectedUserTypeFirstName = selectedUserTypeNameParts[0] ?? ''
   const selectedUserTypeLastName = selectedUserTypeNameParts.length > 1 ? selectedUserTypeNameParts.slice(1).join(' ') : ''
+  const isDeleteUserTrackerDialog = adminDialogMode === 'delete-tracker'
   const pendingEncryptedViewerUser = pendingEncryptedViewerUserSub
     ? sharedViewerUsers.find((user) => user.userSub === pendingEncryptedViewerUserSub) ?? null
     : null
@@ -4280,7 +4283,7 @@ export default function App() {
 
   const loadUserTypeDialogUsers = async () => {
     setUserTypeDialogState('loading')
-    setUserTypeDialogMessage('Loading users...')
+    setUserTypeDialogMessage(adminDialogMode === 'delete-tracker' ? 'Loading users to delete...' : 'Loading users...')
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/financial-plan/users`, {
@@ -4297,7 +4300,7 @@ export default function App() {
 
       if (response.status === 403) {
         setUserTypeDialogState('error')
-        setUserTypeDialogMessage('Only the configured admin can change user type.')
+        setUserTypeDialogMessage(adminDialogMode === 'delete-tracker' ? 'Only the configured admin can delete trackers.' : 'Only the configured admin can change user type.')
         return false
       }
 
@@ -4317,12 +4320,13 @@ export default function App() {
     }
   }
 
-  const handleOpenUserTypeDialog = async () => {
+  const handleOpenAdminDialog = async (mode: 'user-type' | 'delete-tracker') => {
     if (!authenticatedUser?.admin) {
       return
     }
 
     setIsUserMenuOpen(false)
+    setAdminDialogMode(mode)
     setIsUserTypeDialogOpen(true)
     setUserTypeSearchInput('')
     setDebouncedUserTypeSearchInput('')
@@ -4334,12 +4338,21 @@ export default function App() {
     await loadUserTypeDialogUsers()
   }
 
+  const handleOpenUserTypeDialog = async () => {
+    await handleOpenAdminDialog('user-type')
+  }
+
+  const handleOpenDeleteUserTrackerDialog = async () => {
+    await handleOpenAdminDialog('delete-tracker')
+  }
+
   const handleCloseUserTypeDialog = () => {
-    if (userTypeDialogState === 'saving') {
+    if (userTypeDialogState === 'saving' || isDeletingViewerTracker) {
       return
     }
 
     setIsUserTypeDialogOpen(false)
+    setAdminDialogMode('user-type')
     setUserTypeSearchInput('')
     setDebouncedUserTypeSearchInput('')
     setSelectedUserTypeUserSub('')
@@ -4380,6 +4393,26 @@ export default function App() {
 
     setUserTypeDialogState('idle')
     setUserTypeDialogMessage(`Saved ${updatedUser.email ?? updatedUser.userSub} as ${updatedUser.premium ? 'Premium' : 'Regular'}.`)
+  }
+
+  const handleDeleteUserTrackerSave = async () => {
+    if (!selectedUserTypeUserSub) {
+      setUserTypeDialogState('error')
+      setUserTypeDialogMessage('Select a user first.')
+      return
+    }
+
+    setUserTypeDialogState('saving')
+    setUserTypeDialogMessage('Deleting tracker...')
+    const deleted = await handleAdminDeleteViewerTracker(selectedUserTypeUserSub)
+
+    if (!deleted) {
+      setUserTypeDialogState('error')
+      setUserTypeDialogMessage('Deleting tracker failed. Check the API server.')
+      return
+    }
+
+    handleCloseUserTypeDialog()
   }
 
   const persistFinancialPlan = async (
@@ -5105,11 +5138,21 @@ export default function App() {
       if (!response.ok) {
         throw new Error(`Delete failed: ${response.status}`)
       }
-      setAdminDeleteConfirmUserSub(null)
-      await loadTrackersRoute()
+      setSharedViewerUsers((users) => users.filter((user) => user.userSub !== userSub))
+      setUserTypeDialogUsers((users) => users.filter((user) => user.userSub !== userSub))
+
+      if (isTrackersRoute) {
+        await loadTrackersRoute()
+      } else {
+        setSaveState('saved')
+        setSaveMessage('User tracker deleted.')
+      }
+
+      return true
     } catch {
       setSaveState('error')
       setSaveMessage('Failed to delete tracker. Check the API server.')
+      return false
     } finally {
       setIsDeletingViewerTracker(false)
     }
@@ -6416,9 +6459,14 @@ export default function App() {
                     </>
                   ) : null}
                   {authenticatedUser?.admin ? (
-                    <button type="button" className="user-menu-item" onClick={() => void handleOpenUserTypeDialog()} role="menuitem">
-                      Change User Type
-                    </button>
+                    <>
+                      <button type="button" className="user-menu-item" onClick={() => void handleOpenUserTypeDialog()} role="menuitem">
+                        Change User Type
+                      </button>
+                      <button type="button" className="user-menu-item user-menu-item-danger" onClick={() => void handleOpenDeleteUserTrackerDialog()} role="menuitem">
+                        Delete User Tracker
+                      </button>
+                    </>
                   ) : null}
                   <button type="button" className="user-menu-item" onClick={handleLogout} role="menuitem">
                     Sign Out
@@ -6502,16 +6550,6 @@ export default function App() {
             <button type="button" className="toolbar-button" onClick={handleReturnToMyPlan}>
               Back to My Plan
             </button>
-            {authenticatedUser?.admin && selectedSharedViewerUserSub ? (
-              <button
-                type="button"
-                className="toolbar-button destructive-button"
-                onClick={() => setAdminDeleteConfirmUserSub(selectedSharedViewerUserSub)}
-                disabled={isDeletingViewerTracker || isUpdatingViewerPremium || saveState === 'loading'}
-              >
-                Delete Tracker
-              </button>
-            ) : null}
           </div>
         </section>
       ) : null}
@@ -6929,9 +6967,11 @@ export default function App() {
         <div className="modal-backdrop" role="presentation">
           <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="user-type-dialog-title">
             <p className="eyebrow help-eyebrow">Admin</p>
-            <h2 id="user-type-dialog-title">Change User Type</h2>
+            <h2 id="user-type-dialog-title">{isDeleteUserTrackerDialog ? 'Delete User Tracker' : 'Change User Type'}</h2>
             <p className="help-intro">
-              Search by email address. After you pause for a second, matching email addresses appear below.
+              {isDeleteUserTrackerDialog
+                ? 'Search by email address to find the tracker you want to delete. After you pause for a second, matching email addresses appear below.'
+                : 'Search by email address. After you pause for a second, matching email addresses appear below.'}
             </p>
             <div className="pin-fields">
               <input
@@ -6961,32 +7001,40 @@ export default function App() {
                 <p><strong>Last Name:</strong> {selectedUserTypeLastName || 'Not available'}</p>
               </div>
             ) : null}
-            <label className="budget-cycle-select-wrap" style={{ width: '100%', marginTop: 12 }}>
-              <span>User Type</span>
-              <select
-                className="budget-cycle-select"
-                value={selectedUserTypeValue}
-                onChange={(event) => setSelectedUserTypeValue(event.target.value as 'regular' | 'premium')}
-                disabled={!selectedUserTypeDialogUser || userTypeDialogState === 'saving' || isUpdatingViewerPremium}
-              >
-                <option value="regular">Regular</option>
-                <option value="premium">Premium</option>
-              </select>
-            </label>
+            {isDeleteUserTrackerDialog ? (
+              <p className="danger-copy-subtle" style={{ marginTop: 12 }}>
+                This permanently deletes all saved tracker data for this user. This cannot be undone.
+              </p>
+            ) : (
+              <label className="budget-cycle-select-wrap" style={{ width: '100%', marginTop: 12 }}>
+                <span>User Type</span>
+                <select
+                  className="budget-cycle-select"
+                  value={selectedUserTypeValue}
+                  onChange={(event) => setSelectedUserTypeValue(event.target.value as 'regular' | 'premium')}
+                  disabled={!selectedUserTypeDialogUser || userTypeDialogState === 'saving' || isUpdatingViewerPremium}
+                >
+                  <option value="regular">Regular</option>
+                  <option value="premium">Premium</option>
+                </select>
+              </label>
+            )}
             {userTypeDialogMessage ? (
               <p className={userTypeDialogState === 'error' ? 'auth-message auth-error' : 'auth-message'}>{userTypeDialogMessage}</p>
             ) : null}
             <div className="modal-actions">
-              <button type="button" className="toolbar-button" onClick={handleCloseUserTypeDialog} disabled={userTypeDialogState === 'saving' || isUpdatingViewerPremium}>
+              <button type="button" className="toolbar-button" onClick={handleCloseUserTypeDialog} disabled={userTypeDialogState === 'saving' || isUpdatingViewerPremium || isDeletingViewerTracker}>
                 Cancel
               </button>
               <button
                 type="button"
-                className="toolbar-button"
-                onClick={() => void handleUserTypeSave()}
-                disabled={!selectedUserTypeDialogUser || userTypeDialogState === 'saving' || isUpdatingViewerPremium}
+                className={`toolbar-button${isDeleteUserTrackerDialog ? ' destructive-button' : ''}`}
+                onClick={() => void (isDeleteUserTrackerDialog ? handleDeleteUserTrackerSave() : handleUserTypeSave())}
+                disabled={!selectedUserTypeDialogUser || userTypeDialogState === 'saving' || isUpdatingViewerPremium || isDeletingViewerTracker}
               >
-                {userTypeDialogState === 'saving' ? 'Saving...' : 'Save User Type'}
+                {isDeleteUserTrackerDialog
+                  ? (userTypeDialogState === 'saving' || isDeletingViewerTracker ? 'Deleting...' : 'Delete User Tracker')
+                  : (userTypeDialogState === 'saving' ? 'Saving...' : 'Save User Type')}
               </button>
             </div>
           </section>
@@ -7378,38 +7426,6 @@ export default function App() {
         </div>
       ) : null}
 
-      {adminDeleteConfirmUserSub ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal-card danger-modal" role="alertdialog" aria-modal="true" aria-labelledby="admin-delete-tracker-title">
-            <p className="eyebrow danger-eyebrow">Admin Action</p>
-            <h2 id="admin-delete-tracker-title">Delete This Tracker?</h2>
-            <p className="danger-copy">
-              This will permanently delete all saved tracker data for this user from the database. This cannot be undone.
-            </p>
-            <p className="danger-copy-subtle">
-              User: <strong>{formatViewerUserLabel(sharedViewerUsers.find(u => u.userSub === adminDeleteConfirmUserSub) ?? { userSub: adminDeleteConfirmUserSub, email: null, displayName: null, lastUpdatedAt: null, encryptionExempt: false })}</strong>
-            </p>
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="toolbar-button"
-                onClick={() => setAdminDeleteConfirmUserSub(null)}
-                disabled={isDeletingViewerTracker}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="toolbar-button destructive-button"
-                onClick={() => void handleAdminDeleteViewerTracker(adminDeleteConfirmUserSub)}
-                disabled={isDeletingViewerTracker}
-              >
-                {isDeletingViewerTracker ? 'Deleting...' : 'Delete Tracker'}
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
 
       <div className="section-cluster chart-grid credit-chart-grid" style={creditWidthCapStyle}>
         <article className="chart-card">
