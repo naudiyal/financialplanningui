@@ -3120,6 +3120,24 @@ input.section-title-input {
     max-width: 40vw;
     font-size: 0.66rem;
   }
+
+  input:focus,
+  select:focus,
+  textarea:focus,
+  .currency-amount-input:focus,
+  .shared-view-select:focus,
+  .budget-cycle-select:focus,
+  .pin-currency-dropdown:focus,
+  .pin-input:focus,
+  .pin-timeline-option input:focus,
+  .credit-accounts-table input:focus,
+  .debit-expenses-table input:focus,
+  .debit-expenses-table select:focus,
+  .credit-account-field input[type='date']:focus,
+  .debit-expenses-table td input[type='date']:focus,
+  .debit-expenses-table td:nth-child(4) select:focus {
+    font-size: 16px;
+  }
 }
   .budget-cycle-track-stage {
     padding-top: 0.85rem;
