@@ -628,6 +628,32 @@ const formatEncryptedViewerUserLabel = (user: SharedViewerUserSummary) => {
 
 const normalizePinValue = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 4)
 
+const blurActiveFormControl = () => {
+  if (typeof document === 'undefined') {
+    return
+  }
+
+  const activeElement = document.activeElement
+  if (!(activeElement instanceof HTMLElement)) {
+    return
+  }
+
+  if (activeElement instanceof HTMLInputElement || activeElement instanceof HTMLTextAreaElement || activeElement instanceof HTMLSelectElement) {
+    activeElement.blur()
+  }
+}
+
+const moveCaretToCurrencyAmountEnd = (input: HTMLInputElement | null) => {
+  if (!input) {
+    return
+  }
+
+  window.requestAnimationFrame(() => {
+    const caretIndex = input.value.length
+    input.setSelectionRange(caretIndex, caretIndex)
+  })
+}
+
 type CurrencyInputProps = {
   value: number
   onValueChange: (value: number) => void
@@ -646,6 +672,8 @@ const CurrencyInput = ({ value, onValueChange, wrapClassName, inputClassName }: 
       allowNegative={false}
       inputMode="decimal"
       onValueChange={({ floatValue }) => onValueChange(floatValue ?? 0)}
+      onFocus={(event) => moveCaretToCurrencyAmountEnd(event.currentTarget)}
+      onClick={(event) => moveCaretToCurrencyAmountEnd(event.currentTarget)}
       className={inputClassName ?? 'currency-amount-input'}
     />
   </div>
@@ -1669,9 +1697,11 @@ export default function App() {
   const [expandedExpenseRowId, setExpandedExpenseRowId] = useState<string | null>(null)
   const [bankViewMode, setBankViewMode] = useState<BankViewMode>(defaultViewModes.bankAccounts)
   const [expandedBankSectionId, setExpandedBankSectionId] = useState(DEFAULT_BANK_EXPENSE_SOURCE_ID)
+  const [areTopActionsVisibleOnMobile, setAreTopActionsVisibleOnMobile] = useState(true)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
   const backupImportInputRef = useRef<HTMLInputElement | null>(null)
   const creditTableWrapperRef = useRef<HTMLElement | null>(null)
+  const heroActionsRef = useRef<HTMLDivElement | null>(null)
   const dismissSamplePromptOnMenuCloseRef = useRef(false)
   const skipNextCarryoverResetRef = useRef(false)
   const bankBalanceHistoryRequestIdRef = useRef(0)
@@ -3345,6 +3375,56 @@ export default function App() {
   const canUseReset = hasUnsavedChanges
   const canRevertClosedCycle = !isTrackersRoute && previousCyclePeriod !== null
 
+  useEffect(() => {
+    const heroActionsElement = heroActionsRef.current
+
+    if (!heroActionsElement) {
+      setAreTopActionsVisibleOnMobile(false)
+      return
+    }
+
+    const mobileQuery = window.matchMedia('(max-width: 560px)')
+
+    if (!mobileQuery.matches) {
+      setAreTopActionsVisibleOnMobile(true)
+      return
+    }
+
+    if (!('IntersectionObserver' in window)) {
+      const rect = heroActionsElement.getBoundingClientRect()
+      setAreTopActionsVisibleOnMobile(rect.bottom > 0 && rect.top < document.documentElement.clientHeight)
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setAreTopActionsVisibleOnMobile(entry.isIntersecting)
+      },
+      {
+        threshold: 0.05,
+      },
+    )
+
+    observer.observe(heroActionsElement)
+
+    const handleQueryChange = (event: MediaQueryListEvent) => {
+      if (!event.matches) {
+        setAreTopActionsVisibleOnMobile(true)
+        observer.disconnect()
+        return
+      }
+
+      observer.observe(heroActionsElement)
+    }
+
+    mobileQuery.addEventListener('change', handleQueryChange)
+
+    return () => {
+      mobileQuery.removeEventListener('change', handleQueryChange)
+      observer.disconnect()
+    }
+  }, [hasUnsavedChanges, isTrackersRoute])
+
   const statusText =
     isTrackersRoute
       ? selectedSharedViewerUser
@@ -3372,6 +3452,7 @@ export default function App() {
 
   const shouldWarnBeforeSwitchingCycle =
     !isTrackersRoute && selectedCycle === 'current' && hasUnsavedChanges && !suppressCycleSwitchWarning && !needsPostCloseBaselineSync
+  const shouldShowMobileActionBar = hasUnsavedChanges && !areTopActionsVisibleOnMobile
 
   const statusClassName = `status-text status-${isSampleMode ? 'saved' : hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
   const creditWidthCapStyle = creditTableWidth
@@ -4519,6 +4600,8 @@ export default function App() {
   }
 
   const handleSave = async () => {
+    blurActiveFormControl()
+
     if ((isSampleMode && !canEditSamplePlan) || isTrackerReadOnly) {
       setSaveState('idle')
       setSaveMessage('')
@@ -4634,6 +4717,8 @@ export default function App() {
   }
 
   const handleCloseCycleClick = () => {
+    blurActiveFormControl()
+
     if ((isSampleMode && !canEditSamplePlan) || isTrackerReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle) {
       return
     }
@@ -4742,6 +4827,8 @@ export default function App() {
   }
 
   const handleResetClick = () => {
+    blurActiveFormControl()
+
     const activeSnapshot = isSampleMode ? samplePlanSnapshot : personalPlanSnapshot
     if (isTrackerReadOnly || !canUseReset || !activeSnapshot || saveState === 'loading' || saveState === 'saving') {
       return
@@ -4759,6 +4846,8 @@ export default function App() {
   }
 
   const handleResetConfirm = () => {
+    blurActiveFormControl()
+
     const activeSnapshot = isSampleMode ? samplePlanSnapshot : personalPlanSnapshot
     if (!activeSnapshot) {
       setIsResetDialogOpen(false)
@@ -4776,6 +4865,8 @@ export default function App() {
   }
 
   const handleRevertCycleClick = () => {
+    blurActiveFormControl()
+
     if (isTrackersRoute || !canRevertClosedCycle || saveState === 'loading' || saveState === 'saving') {
       return
     }
@@ -6251,9 +6342,14 @@ export default function App() {
                       Cancel
                     </button>
                   ) : (
-                    <button type="button" className="toolbar-button link-button" onClick={handleForgotPin}>
-                      Forgot Encryption Key?
-                    </button>
+                    <>
+                      <button type="button" className="toolbar-button link-button" onClick={() => void handleLogout()} disabled={pinModalSubmitting}>
+                        Sign Out
+                      </button>
+                      <button type="button" className="toolbar-button link-button" onClick={handleForgotPin} disabled={pinModalSubmitting}>
+                        Forgot Encryption Key?
+                      </button>
+                    </>
                   )}
                   <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
                     {pinModalSubmitting ? 'Unlocking...' : 'Unlock'}
@@ -6350,7 +6446,7 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className={joinClassNames('app', shouldShowMobileActionBar ? 'app-mobile-action-bar-visible' : undefined)}>
       <header className="hero" style={creditWidthCapStyle}>
         <div>
           <p className="eyebrow">Financial Planning</p>
@@ -6362,13 +6458,14 @@ export default function App() {
           </p>
           <p className="build-stamp">{buildStampLabel}</p>
         </div>
-        <div className="hero-actions">
-          <button type="button" className="toolbar-button" onClick={handleSave} disabled={isPlanReadOnly || saveState === 'loading' || saveState === 'saving'}>
+        <div className="hero-actions" ref={heroActionsRef}>
+          <button type="button" className="toolbar-button" onPointerDown={blurActiveFormControl} onClick={handleSave} disabled={isPlanReadOnly || saveState === 'loading' || saveState === 'saving'}>
             {isSampleMode ? canEditSamplePlan ? (saveState === 'saving' ? 'Saving Sample...' : 'Save Sample') : 'Sample Read Only' : isTrackerReadOnly ? 'Read Only' : saveState === 'saving' ? 'Saving...' : 'Save Changes'}
           </button>
           <button
             type="button"
             className="toolbar-button"
+            onPointerDown={blurActiveFormControl}
             onClick={handleResetClick}
             disabled={isTrackerReadOnly || !canUseReset || !(isSampleMode ? samplePlanSnapshot : personalPlanSnapshot) || saveState === 'loading' || saveState === 'saving'}
           >
@@ -6554,6 +6651,32 @@ export default function App() {
         </section>
       ) : null}
 
+      {shouldShowMobileActionBar ? (
+        <div className="mobile-action-bar" aria-label="Unsaved changes actions">
+          <div className="mobile-action-bar-inner">
+            <span className="mobile-action-bar-status">Unsaved changes</span>
+            <button
+              type="button"
+              className="toolbar-button"
+              onPointerDown={blurActiveFormControl}
+              onClick={handleResetClick}
+              disabled={isTrackerReadOnly || !canUseReset || !(isSampleMode ? samplePlanSnapshot : personalPlanSnapshot) || saveState === 'loading' || saveState === 'saving'}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className="toolbar-button"
+              onPointerDown={blurActiveFormControl}
+              onClick={handleSave}
+              disabled={isPlanReadOnly || saveState === 'loading' || saveState === 'saving'}
+            >
+              {saveState === 'saving' ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="budget-cycle-toolbar-row" style={creditWidthCapStyle}>
         {!isTrackersRoute ? (
           <>
@@ -6561,6 +6684,7 @@ export default function App() {
               <button
                 type="button"
                 className="toolbar-button budget-cycle-button"
+                onPointerDown={blurActiveFormControl}
                 onClick={handleCloseCycleClick}
                 disabled={isPlanReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle}
               >
@@ -6570,6 +6694,7 @@ export default function App() {
             <button
               type="button"
               className="toolbar-button"
+              onPointerDown={blurActiveFormControl}
               onClick={handleRevertCycleClick}
               disabled={!canRevertClosedCycle || saveState === 'loading' || saveState === 'saving'}
             >
@@ -7255,9 +7380,14 @@ export default function App() {
                       Cancel
                     </button>
                   ) : (
-                    <button type="button" className="toolbar-button link-button" onClick={handleForgotPin}>
-                      Forgot Encryption Key?
-                    </button>
+                    <>
+                      <button type="button" className="toolbar-button link-button" onClick={() => void handleLogout()} disabled={pinModalSubmitting}>
+                        Sign Out
+                      </button>
+                      <button type="button" className="toolbar-button link-button" onClick={handleForgotPin} disabled={pinModalSubmitting}>
+                        Forgot Encryption Key?
+                      </button>
+                    </>
                   )}
                   <button type="button" className="toolbar-button" onClick={() => void handlePinSubmit()} disabled={pinModalSubmitting}>
                     {pinModalSubmitting ? 'Unlocking...' : 'Unlock'}

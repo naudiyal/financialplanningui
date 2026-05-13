@@ -25,6 +25,7 @@ Open http://localhost:5173 in your browser.
 
 - First-time encrypted users are prompted for a 4-character alphanumeric PIN, currency, and cycle type.
 - The first-time setup screen also allows exiting; exiting signs the user out (it does not reset Terms acceptance).
+- Returning encrypted users now also see a `Sign Out` option in the post-login `Enter Encryption Key` prompt, so they can leave the account before unlocking data.
 - The visible Terms and Conditions text is currently defined in `src/App.tsx`.
 
 ## Auth And Delete Flow
@@ -45,6 +46,8 @@ Open http://localhost:5173 in your browser.
 - `Change User Type` and `Delete User Tracker` both use the same debounced email-search flow, and each dialog now shows at most 10 matching email suggestions after the user pauses typing.
 - Admins can also open `Delete User Tracker` from the signed-in user menu, search by email, confirm first and last name, and permanently delete a user's saved tracker data from the same admin search flow. Deleting another user's tracker from the personal view does not clear the admin's own loaded tracker data.
 - Debit Card Expenses now include a `Paid` checkbox. Checking it forces that row's `Current Month Payment` to `0`. Unchecking restores `Current Month Payment` from that row's `Next Month Payment`. When older saved data does not have an explicit `Paid` flag yet, the UI infers it from whether `Current Month Payment` is `0`.
+- On phones, unsaved changes now surface a sticky bottom `Save Changes` / `Reset` action bar only after the original top action buttons have scrolled out of view, so users do not lose quick access while editing deep in the page.
+- Tapping a shared dollar-value input now places the caret at the end of the formatted amount so users can append or replace values from the cents side more predictably on mobile.
 - The user menu, help copy, and goodbye/delete experience were updated to match the current navigation and sign-in wording.
 
 ## Cycle History And Revert

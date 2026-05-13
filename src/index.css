@@ -37,6 +37,24 @@ html, body, #root {
   padding: 0.625rem 0.625rem 1rem;
 }
 
+.mobile-action-bar {
+  display: none;
+}
+
+.mobile-action-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.mobile-action-bar-status {
+  min-width: 0;
+  margin-right: auto;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
 .section-readonly-fieldset {
   min-inline-size: 0;
   margin: 0;
@@ -3093,6 +3111,48 @@ input.section-title-input {
 }
 
 @media (max-width: 560px) {
+  .app.app-mobile-action-bar-visible {
+    padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mobile-action-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 80;
+    display: block;
+    padding: 0.55rem 0.625rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(180deg, rgba(244, 246, 251, 0) 0%, rgba(244, 246, 251, 0.96) 26%, rgba(244, 246, 251, 0.99) 100%);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .mobile-action-bar-inner {
+    width: min(calc(100% - 1.25rem), 1465px);
+    margin: 0 auto;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 0.95rem;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+  }
+
+  .mobile-action-bar .toolbar-button {
+    flex: 0 0 auto;
+    min-width: 5.6rem;
+    padding: 0.52rem 0.7rem;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .mobile-action-bar-status {
+    max-width: 40vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .hero-actions {
     flex-wrap: nowrap;
     gap: 0.35rem;
