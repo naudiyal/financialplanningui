@@ -95,6 +95,7 @@ type SharedViewerUserSummary = {
   displayName: string | null
   lastUpdatedAt: string | null
   encryptionExempt: boolean
+  premium: boolean
 }
 
 type TimelineType = 'MID_TO_MID' | 'START_TO_END'
@@ -107,7 +108,7 @@ const TERMS_LAST_UPDATED_LABEL = 'May 2, 2026'
 
 type AppRoute = typeof PERSONAL_ROUTE | typeof TRACKERS_ROUTE
 
-type CycleSelection = 'current' | 'previous'
+type CycleSelection = string
 
 type CyclePeriod = {
   startDate: string
@@ -120,11 +121,17 @@ type FinancialPlanCycleResponse = {
   timelineType: TimelineType
   currentCycle: CyclePeriod
   previousCycle: CyclePeriod | null
+  closedCycles: CyclePeriod[]
+  selectedClosedCycle: CyclePeriod | null
   hasPreviousCycle: boolean
   readOnly: boolean
   hasSavedPlan: boolean
   canCloseCycle: boolean
   lastCycleSavedAt: string | null
+}
+
+type UserPremiumStatusRequest = {
+  premium: boolean
 }
 
 type BankBalanceHistoryPoint = {
@@ -444,8 +451,8 @@ const formatTableHeaderLabel = (label: string) => {
 const formatCreditTableHeaderLabel = (label: string) => {
   const trimmedLabel = label.trim()
 
-  if (trimmedLabel === 'Next Cycle Pymnt Stmt Cycled?') {
-    return ['Next Cycle Pymnt', 'Stmt Cycled?']
+  if (trimmedLabel === 'Stmt for Next Cycle Pymnt Cycled?') {
+    return ['Stmt for Next Cycle', 'Pymnt Cycled?']
   }
 
   if (!trimmedLabel.includes(' ')) {
@@ -494,8 +501,8 @@ const normalizeLegacyCreditAccountColumnLabel = (id: string, label: string) => {
     return 'Current Pymnt Stmt Date'
   }
 
-  if (id === 'statement-cycled' && (label === 'Stmt Cycled' || label === 'Stmt Cycled?' || label === 'New Stmt Cycled?' || label === 'Current Cycle Stmt Cycled?' || label === 'Next Payment Stmt Cycled?' || label === 'Next Cycle Payment Stmt Cycled?' || label === 'Next Cycle Pymnt Stmt Cycled?')) {
-    return 'Next Cycle Pymnt Stmt Cycled?'
+  if (id === 'statement-cycled' && (label === 'Stmt Cycled' || label === 'Stmt Cycled?' || label === 'New Stmt Cycled?' || label === 'Current Cycle Stmt Cycled?' || label === 'Next Payment Stmt Cycled?' || label === 'Next Cycle Payment Stmt Cycled?' || label === 'Next Cycle Pymnt Stmt Cycled?' || label === 'Stmt for Next Cycle Pymnt Cycled?')) {
+    return 'Stmt for Next Cycle Pymnt Cycled?'
   }
 
   if (id === 'credit-limit' && label === 'Limit') {
@@ -527,7 +534,7 @@ const getCreditColumnHeaderTooltip = (columnId: string) => {
   }
 
   if (columnId === 'statement-cycled') {
-    return 'Next Cycle Payment Stmt Cycled?'
+    return 'Stmt for Next Cycle Pymnt Cycled?'
   }
 
   if (columnId === 'statement-balance') {
@@ -1195,6 +1202,19 @@ const createLocalDate = (year: number, monthIndex: number, day: number) => new D
 
 const getCyclePeriodKey = (cyclePeriod: CyclePeriod) => `${cyclePeriod.startDate}:${cyclePeriod.endDate}`
 
+const getClosedCycleSelectionValue = (cyclePeriod: CyclePeriod) => `closed:${getCyclePeriodKey(cyclePeriod)}`
+
+const isClosedCycleSelection = (cycleSelection: string) => cycleSelection !== 'current'
+
+const getResponseCycleSelection = (response: FinancialPlanCycleResponse): CycleSelection => {
+  if (response.selectedCycle === 'current') {
+    return 'current'
+  }
+
+  const selectedClosedCycle = response.selectedClosedCycle ?? response.previousCycle
+  return selectedClosedCycle ? getClosedCycleSelectionValue(selectedClosedCycle) : 'current'
+}
+
 const normalizeBankBalanceHistoryCycle = (cycle: BankBalanceHistoryCycle): BankBalanceHistoryCycle => ({
   cycle: cycle.cycle,
   banks: (cycle.banks ?? []).map((bank) => ({
@@ -1572,6 +1592,7 @@ export default function App() {
   const [isHelpDialogOpen, setIsHelpDialogOpen] = useState(false)
   const [isSampleConfirmDialogOpen, setIsSampleConfirmDialogOpen] = useState(false)
   const [isCycleSwitchDialogOpen, setIsCycleSwitchDialogOpen] = useState(false)
+  const [isUserTypeDialogOpen, setIsUserTypeDialogOpen] = useState(false)
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isCloseCycleDialogOpen, setIsCloseCycleDialogOpen] = useState(false)
@@ -1591,6 +1612,14 @@ export default function App() {
   const [planReady, setPlanReady] = useState(false)
   const [adminDeleteConfirmUserSub, setAdminDeleteConfirmUserSub] = useState<string | null>(null)
   const [isDeletingViewerTracker, setIsDeletingViewerTracker] = useState(false)
+  const [isUpdatingViewerPremium, setIsUpdatingViewerPremium] = useState(false)
+  const [userTypeDialogUsers, setUserTypeDialogUsers] = useState<SharedViewerUserSummary[]>([])
+  const [userTypeSearchInput, setUserTypeSearchInput] = useState('')
+  const [debouncedUserTypeSearchInput, setDebouncedUserTypeSearchInput] = useState('')
+  const [selectedUserTypeUserSub, setSelectedUserTypeUserSub] = useState('')
+  const [selectedUserTypeValue, setSelectedUserTypeValue] = useState<'regular' | 'premium'>('regular')
+  const [userTypeDialogState, setUserTypeDialogState] = useState<'idle' | 'loading' | 'saving' | 'error'>('idle')
+  const [userTypeDialogMessage, setUserTypeDialogMessage] = useState('')
   const [pinModalCurrency, setPinModalCurrency] = useState<string>(() => _activeCurrency.code)
   const [pinModalTimelineType, setPinModalTimelineType] = useState<TimelineType>('START_TO_END')
   const [currencyCode, setCurrencyCode] = useState<string>(() => _activeCurrency.code)
@@ -1606,8 +1635,11 @@ export default function App() {
   const [timelineType, setTimelineType] = useState<TimelineType>('START_TO_END')
   const [lastCycleSavedAt, setLastCycleSavedAt] = useState<string | null>(null)
   const [pendingCycleSelection, setPendingCycleSelection] = useState<CycleSelection | null>(null)
+  const [loadedSharedViewerUserSub, setLoadedSharedViewerUserSub] = useState('')
   const [currentCyclePeriod, setCurrentCyclePeriod] = useState<CyclePeriod>(() => buildCurrentCycleForTimeline(new Date(), 'START_TO_END'))
   const [previousCyclePeriod, setPreviousCyclePeriod] = useState<CyclePeriod | null>(null)
+  const [closedCyclePeriods, setClosedCyclePeriods] = useState<CyclePeriod[]>([])
+  const [selectedClosedCyclePeriod, setSelectedClosedCyclePeriod] = useState<CyclePeriod | null>(null)
   const [bankBalanceHistoryCycles, setBankBalanceHistoryCycles] = useState<BankBalanceHistoryCycle[]>([])
   const localBankBalanceHistoryCyclesRef = useRef<Map<string, BankBalanceHistoryCycle>>(new Map())
   const [localBankBalanceHistoryVersion, setLocalBankBalanceHistoryVersion] = useState(0)
@@ -1775,6 +1807,8 @@ export default function App() {
         setTimelineType('START_TO_END')
         setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'START_TO_END'))
         setPreviousCyclePeriod(null)
+        setClosedCyclePeriods([])
+        setSelectedClosedCyclePeriod(null)
         setPendingCloseCycleReset(null)
         setAuthState('error')
         setAuthMessage('Authentication service unavailable.')
@@ -2307,7 +2341,7 @@ export default function App() {
     const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
     return sum + currentMonthPayment
   }, 0)
-  const activeCyclePeriod = selectedCycle === 'previous' && previousCyclePeriod ? previousCyclePeriod : currentCyclePeriod
+  const activeCyclePeriod = isClosedCycleSelection(selectedCycle) && selectedClosedCyclePeriod ? selectedClosedCyclePeriod : currentCyclePeriod
   const activeCycleStartDate = activeCyclePeriod.startDate
 
   const creditCardNextMonthBalance = creditAccounts.reduce((sum, account) => {
@@ -2522,7 +2556,7 @@ export default function App() {
   const budgetCycleTimeline = useMemo(() => getBudgetCycleTimeline(activeCyclePeriod, new Date()), [activeCyclePeriod])
   const budgetCycleTitle = formatCycleRangeLabel(activeCyclePeriod)
   const budgetCycleProgressLabel =
-    selectedCycle === 'previous'
+    isClosedCycleSelection(selectedCycle)
       ? 'Archived cycle • read only'
       : budgetCycleTimeline.currentDate < budgetCycleTimeline.cycleStart
         ? `Upcoming cycle • starts ${formatLongDate(budgetCycleTimeline.cycleStart)}`
@@ -2740,8 +2774,8 @@ export default function App() {
       }]
     }
 
-    const maxCycleEndDate = (selectedCycle === 'previous' && previousCyclePeriod)
-      ? previousCyclePeriod.endDate
+    const maxCycleEndDate = (isClosedCycleSelection(selectedCycle) && selectedClosedCyclePeriod)
+      ? selectedClosedCyclePeriod.endDate
       : currentCyclePeriod.endDate
 
     const cyclesByPeriod = new Map<string, BankBalanceHistoryCycle>()
@@ -3171,7 +3205,7 @@ export default function App() {
   ]
 
   const budgetCycleButtonTooltip =
-    selectedCycle === 'previous'
+    isClosedCycleSelection(selectedCycle)
       ? 'Previous cycle is read only.'
       : canCloseCurrentCycle
         ? 'Close Cycle\n- Archives the current cycle as previous\n- Replaces any existing previous cycle\n- Applies the new-cycle rollover rules to the next current cycle'
@@ -3231,17 +3265,37 @@ export default function App() {
   const isTrackersRoute = appRoute === TRACKERS_ROUTE
   const canAccessTrackersRoute = authenticatedUser?.admin === true
   const canEditSamplePlan = authenticatedUser?.admin === true
-  const isViewingPreviousCycle = selectedCycle === 'previous'
+  const isViewingPreviousCycle = isClosedCycleSelection(selectedCycle)
   const isTrackerReadOnly = isViewingPreviousCycle || isTrackersRoute
   const isSampleReadOnly = isSampleMode && !canEditSamplePlan
   const isPlanReadOnly = isTrackerReadOnly || isSampleReadOnly
   const hasSharedViewerUsers = sharedViewerUsers.length > 0
   const selectedSharedViewerUser = sharedViewerUsers.find((user) => user.userSub === selectedSharedViewerUserSub) ?? null
+  const selectedUserTypeDialogUser = userTypeDialogUsers.find((user) => user.userSub === selectedUserTypeUserSub) ?? null
+  const userTypeSearchMatches = debouncedUserTypeSearchInput.trim()
+    ? userTypeDialogUsers.filter((user) => (user.email ?? '').toLowerCase().includes(debouncedUserTypeSearchInput.trim().toLowerCase()))
+    : []
+  const selectedUserTypeNameParts = (selectedUserTypeDialogUser?.displayName ?? '').trim().split(/\s+/).filter(Boolean)
+  const selectedUserTypeFirstName = selectedUserTypeNameParts[0] ?? ''
+  const selectedUserTypeLastName = selectedUserTypeNameParts.length > 1 ? selectedUserTypeNameParts.slice(1).join(' ') : ''
   const pendingEncryptedViewerUser = pendingEncryptedViewerUserSub
     ? sharedViewerUsers.find((user) => user.userSub === pendingEncryptedViewerUserSub) ?? null
     : null
   const isViewerEncryptionVerification = pinModalMode === 'verify' && !!pendingEncryptedViewerPlanResponse && !!pendingEncryptedViewerUserSub
   const sampleHasLocalChanges = isSampleMode && loadedPlanSignature !== null && currentPlanSignature !== loadedPlanSignature
+
+  useEffect(() => {
+    if (!isUserTypeDialogOpen) {
+      setDebouncedUserTypeSearchInput('')
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedUserTypeSearchInput(userTypeSearchInput)
+    }, 1000)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [isUserTypeDialogOpen, userTypeSearchInput])
 
   const hasUnsavedChanges =
     !isTrackersRoute &&
@@ -3632,7 +3686,7 @@ export default function App() {
     }
 
     if (appRoute === TRACKERS_ROUTE) {
-      if (!selectedSharedViewerUserSub) {
+      if (!loadedSharedViewerUserSub) {
         setBankBalanceHistoryCycles([])
         return
       }
@@ -3642,12 +3696,12 @@ export default function App() {
         return
       }
 
-      void refreshBankBalanceHistory(selectedSharedViewerUserSub, viewerEncryptionKey)
+      void refreshBankBalanceHistory(loadedSharedViewerUserSub, viewerEncryptionKey)
       return
     }
 
     void refreshBankBalanceHistory()
-  }, [appRoute, authState, authenticatedUser?.termsAccepted, planReady, planViewMode, selectedSharedViewerUser, selectedSharedViewerUserSub, timelineType, viewerEncryptionKey])
+  }, [appRoute, authState, authenticatedUser?.termsAccepted, loadedSharedViewerUserSub, planReady, planViewMode, selectedSharedViewerUser, timelineType, viewerEncryptionKey])
 
   useEffect(() => {
     if (authState !== 'authenticated') {
@@ -3730,7 +3784,9 @@ export default function App() {
     const normalizedData = normalizeFinancialPlanData(decryptedData ?? response.data)
 
     const isEncryptedWrapperOnly = !!response.data.encryptedData && !decryptedData
-    const selectedCyclePeriod = response.selectedCycle === 'previous' ? response.previousCycle : response.currentCycle
+    const selectedCyclePeriod = response.selectedCycle === 'current'
+      ? response.currentCycle
+      : response.selectedClosedCycle ?? response.previousCycle
     if (!isEncryptedWrapperOnly && selectedCyclePeriod && appRoute !== TRACKERS_ROUTE && planViewMode !== 'sample') {
       const cycleKey = getCyclePeriodKey(selectedCyclePeriod)
       localBankBalanceHistoryCyclesRef.current.set(cycleKey, {
@@ -3750,10 +3806,12 @@ export default function App() {
     }
 
     applyFinancialPlan(normalizedData)
-    setSelectedCycle(response.selectedCycle)
+    setSelectedCycle(getResponseCycleSelection(response))
     setTimelineType(response.timelineType)
     setCurrentCyclePeriod(response.currentCycle)
     setPreviousCyclePeriod(response.previousCycle)
+    setClosedCyclePeriods(response.closedCycles ?? (response.previousCycle ? [response.previousCycle] : []))
+    setSelectedClosedCyclePeriod(response.selectedClosedCycle ?? null)
     setLastCycleSavedAt(response.lastCycleSavedAt)
     setLoadedPlanSignature(getFinancialPlanSignature(normalizedData))
     setPersonalPlanSnapshot({
@@ -3794,10 +3852,12 @@ export default function App() {
     }
 
     applyFinancialPlan(normalizedData)
-    setSelectedCycle(response.selectedCycle)
+    setSelectedCycle(getResponseCycleSelection(response))
     setTimelineType(response.timelineType)
     setCurrentCyclePeriod(response.currentCycle)
     setPreviousCyclePeriod(response.previousCycle)
+    setClosedCyclePeriods(response.closedCycles ?? (response.previousCycle ? [response.previousCycle] : []))
+    setSelectedClosedCyclePeriod(response.selectedClosedCycle ?? null)
     setLastCycleSavedAt(response.lastCycleSavedAt)
     setLoadedPlanSignature(getFinancialPlanSignature(normalizedData))
     setSamplePlanSnapshot({
@@ -3829,9 +3889,12 @@ export default function App() {
 
     applyFinancialPlan(normalizedData)
     setSelectedSharedViewerUserSub(userSub)
-    setSelectedCycle(response.selectedCycle)
+    setLoadedSharedViewerUserSub(userSub)
+    setSelectedCycle(getResponseCycleSelection(response))
     setCurrentCyclePeriod(response.currentCycle)
     setPreviousCyclePeriod(response.previousCycle)
+    setClosedCyclePeriods(response.closedCycles ?? (response.previousCycle ? [response.previousCycle] : []))
+    setSelectedClosedCyclePeriod(response.selectedClosedCycle ?? null)
     setLastCycleSavedAt(response.lastCycleSavedAt)
     setLoadedPlanSignature(getFinancialPlanSignature(normalizedData))
     setPersonalPlanSnapshot(null)
@@ -3861,7 +3924,7 @@ export default function App() {
     setSaveMessage(loadingMessage)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${cycle}`, {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${encodeURIComponent(cycle)}`, {
         credentials: 'include',
       })
 
@@ -3949,6 +4012,8 @@ export default function App() {
       setTimelineType('START_TO_END')
       setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'START_TO_END'))
       setPreviousCyclePeriod(null)
+      setClosedCyclePeriods([])
+      setSelectedClosedCyclePeriod(null)
       setBankBalanceHistoryCycles([])
       setLastCycleSavedAt(null)
       setAuthState('error')
@@ -3964,7 +4029,7 @@ export default function App() {
     setSaveMessage(loadingMessage)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/financial-plan/sample?cycle=${cycle}&timelineType=${timelineType}`, {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/sample?cycle=${encodeURIComponent(cycle)}&timelineType=${timelineType}`, {
         credentials: 'include',
       })
 
@@ -4013,8 +4078,11 @@ export default function App() {
     setViewerEncryptionKey(null)
     setPendingEncryptedViewerPlanResponse(null)
     setPendingEncryptedViewerUserSub(null)
+    setLoadedSharedViewerUserSub('')
     setSelectedCycle('current')
     setPreviousCyclePeriod(null)
+    setClosedCyclePeriods([])
+    setSelectedClosedCyclePeriod(null)
     setBankBalanceHistoryCycles([])
     setLastCycleSavedAt(null)
     applyFinancialPlan(emptyFinancialPlanData)
@@ -4049,6 +4117,7 @@ export default function App() {
       if (users.length === 0) {
         setSharedViewerUsers([])
         setSelectedSharedViewerUserSub('')
+        setLoadedSharedViewerUserSub('')
         setSaveState('idle')
         setSaveMessage('No other trackers are available.')
         setPlanReady(true)
@@ -4057,13 +4126,15 @@ export default function App() {
 
       setSharedViewerUsers(users)
       setSelectedSharedViewerUserSub(preferredUserSub && users.some((user) => user.userSub === preferredUserSub) ? preferredUserSub : '')
+      setLoadedSharedViewerUserSub('')
       setSaveState('idle')
-      setSaveMessage('Select a user to view tracker.')
+      setSaveMessage('Select a user to manage access or load that tracker.')
       setPlanReady(true)
       return true
     } catch {
       setSharedViewerUsers([])
       setSelectedSharedViewerUserSub('')
+      setLoadedSharedViewerUserSub('')
       setSaveState('error')
       setSaveMessage('Other trackers failed to load. Check the API server.')
       return false
@@ -4079,7 +4150,7 @@ export default function App() {
     setSaveMessage(loadingMessage)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/financial-plan/viewer?userSub=${encodeURIComponent(userSub)}&cycle=${cycle}`, {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/viewer?userSub=${encodeURIComponent(userSub)}&cycle=${encodeURIComponent(cycle)}`, {
         credentials: 'include',
       })
 
@@ -4143,6 +4214,137 @@ export default function App() {
       setSaveMessage('Selected tracker failed to load. Check the API server.')
       return false
     }
+  }
+
+  const updateViewerPremiumStatus = async (userSub: string, premium: boolean): Promise<SharedViewerUserSummary | null> => {
+    setIsUpdatingViewerPremium(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/users/${encodeURIComponent(userSub)}/premium`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ premium } as UserPremiumStatusRequest),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to update viewer premium status: ${response.status}`)
+      }
+
+      const updatedUser: SharedViewerUserSummary = await response.json()
+      setSharedViewerUsers((users) => users.map((user) => (user.userSub === updatedUser.userSub ? updatedUser : user)))
+      setUserTypeDialogUsers((users) => users.map((user) => (user.userSub === updatedUser.userSub ? updatedUser : user)))
+      return updatedUser
+    } catch {
+      return null
+    } finally {
+      setIsUpdatingViewerPremium(false)
+    }
+  }
+
+  const loadUserTypeDialogUsers = async () => {
+    setUserTypeDialogState('loading')
+    setUserTypeDialogMessage('Loading users...')
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan/users`, {
+        credentials: 'include',
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
+        setIsUserTypeDialogOpen(false)
+        return false
+      }
+
+      if (response.status === 403) {
+        setUserTypeDialogState('error')
+        setUserTypeDialogMessage('Only the configured admin can change user type.')
+        return false
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to load users: ${response.status}`)
+      }
+
+      const users: SharedViewerUserSummary[] = await response.json()
+      setUserTypeDialogUsers(users)
+      setUserTypeDialogState('idle')
+      setUserTypeDialogMessage(users.length > 0 ? 'Type an email address to search.' : 'No users found.')
+      return true
+    } catch {
+      setUserTypeDialogState('error')
+      setUserTypeDialogMessage('Unable to load users right now.')
+      return false
+    }
+  }
+
+  const handleOpenUserTypeDialog = async () => {
+    if (!authenticatedUser?.admin) {
+      return
+    }
+
+    setIsUserMenuOpen(false)
+    setIsUserTypeDialogOpen(true)
+    setUserTypeSearchInput('')
+    setDebouncedUserTypeSearchInput('')
+    setSelectedUserTypeUserSub('')
+    setSelectedUserTypeValue('regular')
+    setUserTypeDialogUsers([])
+    setUserTypeDialogState('idle')
+    setUserTypeDialogMessage('')
+    await loadUserTypeDialogUsers()
+  }
+
+  const handleCloseUserTypeDialog = () => {
+    if (userTypeDialogState === 'saving') {
+      return
+    }
+
+    setIsUserTypeDialogOpen(false)
+    setUserTypeSearchInput('')
+    setDebouncedUserTypeSearchInput('')
+    setSelectedUserTypeUserSub('')
+    setSelectedUserTypeValue('regular')
+    setUserTypeDialogState('idle')
+    setUserTypeDialogMessage('')
+  }
+
+  const handleUserTypeSearchInputChange = (value: string) => {
+    setUserTypeSearchInput(value)
+
+    const normalizedValue = value.trim().toLowerCase()
+    const selectedUser = normalizedValue
+      ? userTypeDialogUsers.find((user) => (user.email ?? '').trim().toLowerCase() === normalizedValue) ?? null
+      : null
+
+    setSelectedUserTypeUserSub(selectedUser?.userSub ?? '')
+    setSelectedUserTypeValue(selectedUser?.premium ? 'premium' : 'regular')
+    setUserTypeDialogMessage('')
+  }
+
+  const handleUserTypeSave = async () => {
+    if (!selectedUserTypeUserSub) {
+      setUserTypeDialogState('error')
+      setUserTypeDialogMessage('Select a user first.')
+      return
+    }
+
+    setUserTypeDialogState('saving')
+    setUserTypeDialogMessage('Saving user type...')
+    const updatedUser = await updateViewerPremiumStatus(selectedUserTypeUserSub, selectedUserTypeValue === 'premium')
+
+    if (!updatedUser) {
+      setUserTypeDialogState('error')
+      setUserTypeDialogMessage('Updating user type failed. Check the API server.')
+      return
+    }
+
+    setUserTypeDialogState('idle')
+    setUserTypeDialogMessage(`Saved ${updatedUser.email ?? updatedUser.userSub} as ${updatedUser.premium ? 'Premium' : 'Regular'}.`)
   }
 
   const persistFinancialPlan = async (
@@ -4266,8 +4468,11 @@ export default function App() {
     setIsCycleSwitchDialogOpen(false)
     setPendingCycleSelection(null)
 
+    const latestClosedCycleSelection = previousCyclePeriod ? getClosedCycleSelectionValue(previousCyclePeriod) : null
+
     if (
-      cycle === 'previous' &&
+      latestClosedCycleSelection !== null &&
+      cycle === latestClosedCycleSelection &&
       pendingCloseCycleReset &&
       previousCyclePeriod &&
       pendingCloseCycleReset.previousCycle.startDate === previousCyclePeriod.startDate &&
@@ -4275,10 +4480,12 @@ export default function App() {
     ) {
       const cachedResponse: FinancialPlanCycleResponse = {
         data: pendingCloseCycleReset.previousData,
-        selectedCycle: 'previous',
+        selectedCycle: latestClosedCycleSelection,
         timelineType,
         currentCycle: pendingCloseCycleReset.currentCycle,
         previousCycle: pendingCloseCycleReset.previousCycle,
+        closedCycles: [pendingCloseCycleReset.previousCycle],
+        selectedClosedCycle: pendingCloseCycleReset.previousCycle,
         hasPreviousCycle: true,
         readOnly: true,
         hasSavedPlan: true,
@@ -4294,11 +4501,11 @@ export default function App() {
     }
 
     if (isSampleMode) {
-      await loadSamplePlan(cycle, cycle === 'previous' ? 'Loading sample previous cycle...' : 'Loading sample current cycle...')
+      await loadSamplePlan(cycle, isClosedCycleSelection(cycle) ? 'Loading sample closed cycle...' : 'Loading sample current cycle...')
       return
     }
 
-    await loadPersonalPlan(cycle, cycle === 'previous' ? 'Loading previous cycle...' : 'Loading current cycle...')
+    await loadPersonalPlan(cycle, isClosedCycleSelection(cycle) ? 'Loading closed cycle...' : 'Loading current cycle...')
   }
 
   const handleCycleSelectionChange = async (nextCycle: CycleSelection) => {
@@ -4314,7 +4521,7 @@ export default function App() {
       await loadSharedViewerPlan(
         selectedSharedViewerUserSub,
         nextCycle,
-        nextCycle === 'previous' ? 'Loading selected previous cycle...' : 'Loading selected current cycle...',
+        isClosedCycleSelection(nextCycle) ? 'Loading selected closed cycle...' : 'Loading selected current cycle...',
       )
       return
     }
@@ -4728,6 +4935,7 @@ export default function App() {
     setPendingEncryptedViewerUserSub(null)
     setSharedViewerUsers([])
     setSelectedSharedViewerUserSub('')
+    setLoadedSharedViewerUserSub('')
     setPersonalPlanSnapshot(null)
     setSamplePlanSnapshot(null)
     setHasSavedPersonalPlan(false)
@@ -4737,6 +4945,8 @@ export default function App() {
     setTimelineType('START_TO_END')
     setCurrentCyclePeriod(buildCurrentCycleForTimeline(new Date(), 'START_TO_END'))
     setPreviousCyclePeriod(null)
+    setClosedCyclePeriods([])
+    setSelectedClosedCyclePeriod(null)
     setBankBalanceHistoryCycles([])
     setLastCycleSavedAt(null)
     setPendingCloseCycleReset(null)
@@ -4767,7 +4977,7 @@ export default function App() {
 
   const shouldWarnBeforeSwitchingToSample = !isSampleMode && !isTrackersRoute && hasUnsavedChanges
 
-  const handleSharedViewerSelectionChange = async (nextUserSub: string) => {
+  const handleSharedViewerSelectionChange = (nextUserSub: string) => {
     if (nextUserSub === selectedSharedViewerUserSub) {
       return
     }
@@ -4778,6 +4988,9 @@ export default function App() {
 
     if (!nextUserSub) {
       setSelectedSharedViewerUserSub('')
+      setLoadedSharedViewerUserSub('')
+      setClosedCyclePeriods([])
+      setSelectedClosedCyclePeriod(null)
       setBankBalanceHistoryCycles([])
       applyFinancialPlan(emptyFinancialPlanData)
       setLoadedPlanSignature(getFinancialPlanSignature(emptyFinancialPlanData))
@@ -4787,7 +5000,27 @@ export default function App() {
       return
     }
 
-    await loadSharedViewerPlan(nextUserSub, 'current')
+    setSelectedSharedViewerUserSub(nextUserSub)
+    setLoadedSharedViewerUserSub('')
+    setSelectedCycle('current')
+    setPreviousCyclePeriod(null)
+    setClosedCyclePeriods([])
+    setSelectedClosedCyclePeriod(null)
+    setBankBalanceHistoryCycles([])
+    setLastCycleSavedAt(null)
+    applyFinancialPlan(emptyFinancialPlanData)
+    setLoadedPlanSignature(getFinancialPlanSignature(emptyFinancialPlanData))
+    setSaveState('idle')
+    setSaveMessage('User selected. Change User Type or click View Tracker to open that tracker.')
+    setPlanReady(true)
+  }
+
+  const handleViewSelectedTracker = async () => {
+    if (!selectedSharedViewerUserSub) {
+      return
+    }
+
+    await loadSharedViewerPlan(selectedSharedViewerUserSub, 'current')
   }
 
   const handleSampleClick = async () => {
@@ -6167,6 +6400,11 @@ export default function App() {
                       </button>
                     </>
                   ) : null}
+                  {authenticatedUser?.admin ? (
+                    <button type="button" className="user-menu-item" onClick={() => void handleOpenUserTypeDialog()} role="menuitem">
+                      Change User Type
+                    </button>
+                  ) : null}
                   <button type="button" className="user-menu-item" onClick={handleLogout} role="menuitem">
                     Sign Out
                   </button>
@@ -6216,8 +6454,10 @@ export default function App() {
             <span>
               {hasSharedViewerUsers
                 ? selectedSharedViewerUser
-                  ? 'Selected tracker is read only. Only the currently selected tracker data is loaded in the browser.'
-                  : 'No tracker is loaded yet. Choose a user from the dropdown to load that tracker.'
+                  ? loadedSharedViewerUserSub === selectedSharedViewerUser.userSub
+                    ? 'Selected tracker is read only. Only the currently selected tracker data is loaded in the browser.'
+                    : 'User selected. Click View Tracker if you want to try opening that tracker.'
+                  : 'No tracker is loaded yet. Choose a user from the dropdown to manage that user or load that tracker.'
                 : 'No additional tracker records are available for this account yet.'}
             </span>
           </div>
@@ -6247,12 +6487,20 @@ export default function App() {
             <button type="button" className="toolbar-button" onClick={handleReturnToMyPlan}>
               Back to My Plan
             </button>
+            <button
+              type="button"
+              className="toolbar-button"
+              onClick={() => void handleViewSelectedTracker()}
+              disabled={!selectedSharedViewerUserSub || saveState === 'loading' || saveState === 'saving'}
+            >
+              View Tracker
+            </button>
             {authenticatedUser?.admin && selectedSharedViewerUserSub ? (
               <button
                 type="button"
                 className="toolbar-button destructive-button"
                 onClick={() => setAdminDeleteConfirmUserSub(selectedSharedViewerUserSub)}
-                disabled={isDeletingViewerTracker || saveState === 'loading'}
+                disabled={isDeletingViewerTracker || isUpdatingViewerPremium || saveState === 'loading'}
               >
                 Delete Tracker
               </button>
@@ -6289,15 +6537,19 @@ export default function App() {
           <select
             className="budget-cycle-select"
             value={selectedCycle}
-            onChange={(event) => void handleCycleSelectionChange(event.target.value as CycleSelection)}
+            onChange={(event) => void handleCycleSelectionChange(event.target.value)}
             disabled={
               saveState === 'loading' ||
               saveState === 'saving' ||
-              (isTrackersRoute && !selectedSharedViewerUserSub)
+              (isTrackersRoute && !loadedSharedViewerUserSub)
             }
           >
             <option value="current">{formatCycleRangeLabel(currentCyclePeriod)}</option>
-            {previousCyclePeriod ? <option value="previous">{formatCycleRangeLabel(previousCyclePeriod)}</option> : null}
+            {closedCyclePeriods.map((cyclePeriod) => (
+              <option key={getCyclePeriodKey(cyclePeriod)} value={getClosedCycleSelectionValue(cyclePeriod)}>
+                {formatCycleRangeLabel(cyclePeriod)}
+              </option>
+            ))}
           </select>
         </label>
       </div>
@@ -6541,7 +6793,7 @@ export default function App() {
                 <li>Savings Next Cycle shows Total Next Cycle Salary Funding minus Next Cycle Exposure. When savings are positive the pie chart shows your savings versus Next Cycle Exposure. When negative (shortfall) the chart shows the funding amount versus the shortfall amount.</li>
                 <li>Current Cycle Exposure shows current month credit card payments, current month debit card expenses, and additional payments from the default bank. When exposure exceeds your total credit limit the metric turns red to highlight the risk.</li>
                 <li>Next Cycle Exposure is upcoming debit expenses plus credit exposure that is Next Stmt Balance unless a card is Paid—then it uses Latest Stmt Balance (cycled) or Total Due (not cycled)</li>
-                <li>Cycle After Next Cycle Exposure shows next month debit card expenses plus Next Stmt Balance only for cards where Next Cycle Payment Stmt Cycled? is checked and Paid is checked.</li>
+                <li>Cycle After Next Cycle Exposure shows next month debit card expenses plus Next Stmt Balance only for cards where Stmt for Next Cycle Pymnt Cycled? is checked and Paid is checked.</li>
                 <li>Overdue Cards and Overdue Expenses show how many items are already past due based on the dates in the tracker. Any payment date or expense due date in the past with the item still unmarked as paid counts as overdue.</li>
               </ul>
             </div>
@@ -6660,6 +6912,74 @@ export default function App() {
               </button>
               <button type="button" className="toolbar-button" onClick={handleCycleSwitchSaveAndProceed} disabled={saveState === 'saving'}>
                 {saveState === 'saving' ? 'Saving...' : 'Save And Switch'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isUserTypeDialogOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="user-type-dialog-title">
+            <p className="eyebrow help-eyebrow">Admin</p>
+            <h2 id="user-type-dialog-title">Change User Type</h2>
+            <p className="help-intro">
+              Search by email address. After you pause for a second, matching email addresses appear below.
+            </p>
+            <div className="pin-fields">
+              <input
+                type="text"
+                inputMode="email"
+                placeholder="Type email address"
+                value={userTypeSearchInput}
+                onChange={(event) => handleUserTypeSearchInputChange(event.target.value)}
+                className="pin-input"
+                list="user-type-email-suggestions"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoFocus
+              />
+            </div>
+            <datalist id="user-type-email-suggestions">
+              {userTypeSearchMatches.map((user) => (
+                <option key={user.userSub} value={user.email ?? ''}>
+                  {user.displayName ?? user.userSub}
+                </option>
+              ))}
+            </datalist>
+            {selectedUserTypeDialogUser ? (
+              <div className="help-intro" style={{ marginTop: 12 }}>
+                <p><strong>First Name:</strong> {selectedUserTypeFirstName || 'Not available'}</p>
+                <p><strong>Last Name:</strong> {selectedUserTypeLastName || 'Not available'}</p>
+              </div>
+            ) : null}
+            <label className="budget-cycle-select-wrap" style={{ width: '100%', marginTop: 12 }}>
+              <span>User Type</span>
+              <select
+                className="budget-cycle-select"
+                value={selectedUserTypeValue}
+                onChange={(event) => setSelectedUserTypeValue(event.target.value as 'regular' | 'premium')}
+                disabled={!selectedUserTypeDialogUser || userTypeDialogState === 'saving' || isUpdatingViewerPremium}
+              >
+                <option value="regular">Regular</option>
+                <option value="premium">Premium</option>
+              </select>
+            </label>
+            {userTypeDialogMessage ? (
+              <p className={userTypeDialogState === 'error' ? 'auth-message auth-error' : 'auth-message'}>{userTypeDialogMessage}</p>
+            ) : null}
+            <div className="modal-actions">
+              <button type="button" className="toolbar-button" onClick={handleCloseUserTypeDialog} disabled={userTypeDialogState === 'saving' || isUpdatingViewerPremium}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="toolbar-button"
+                onClick={() => void handleUserTypeSave()}
+                disabled={!selectedUserTypeDialogUser || userTypeDialogState === 'saving' || isUpdatingViewerPremium}
+              >
+                {userTypeDialogState === 'saving' ? 'Saving...' : 'Save User Type'}
               </button>
             </div>
           </section>
@@ -7351,7 +7671,7 @@ export default function App() {
                           />
                         </label>
                         <label className="credit-account-toggle">
-                          <span>{columnLabels.creditAccounts[5]?.label ?? 'Next Cycle Pymnt Stmt Cycled?'}</span>
+                          <span>{columnLabels.creditAccounts[5]?.label ?? 'Stmt for Next Cycle Pymnt Cycled?'}</span>
                           <input
                             type="checkbox"
                             checked={account.statementCycledAfterPayment}

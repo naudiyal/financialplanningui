@@ -268,7 +268,7 @@ export const defaultColumnLabels: FinancialPlanColumnLabels = {
     { id: 'statement-date', label: 'Prev Cycle Stmt Date' },
     { id: 'pay-date', label: 'Payment Date' },
     { id: 'paid', label: 'Paid' },
-    { id: 'statement-cycled', label: 'Stmt Cycled?' },
+    { id: 'statement-cycled', label: 'Stmt for Next Cycle Pymnt Cycled?' },
     { id: 'statement-balance', label: 'Latest Stmt Balance' },
     { id: 'credit-limit', label: 'Credit Limit' },
     { id: 'due', label: 'Total Due' },
