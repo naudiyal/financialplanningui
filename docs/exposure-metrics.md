@@ -10,6 +10,16 @@ This document describes how the UI computes the *exposure* metrics.
 - **Total Due** → `creditLimit - availableCredit`
 - **Next Stmt Balance** → `getCreditMetrics(account, cycleStartDate).nextMonthStatementBalance`
 
+## Debit Expense Paid Semantics
+
+- Debit expense rows now also have a `Paid` checkbox in the UI.
+- For debit expenses, `Paid` is implemented by controlling `e.current`:
+  - checking `Paid` sets `e.current = 0`
+  - unchecking `Paid` restores `e.current = e.next`
+- If an older saved debit expense row does not contain an explicit `paid` flag yet, the UI/API infer it from the current amount:
+  - `e.current == 0` means checked
+  - otherwise unchecked
+
 ## Next Cycle Exposure
 
 ```text

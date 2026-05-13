@@ -38,6 +38,7 @@ type ExpenseItem = {
   label: string
   payDate: string
   payFromBankId: string
+  paid: boolean
   current: number
   next: number
 }
@@ -545,6 +546,10 @@ const getCreditColumnHeaderTooltip = (columnId: string) => {
 }
 
 const getDebitColumnHeaderTooltip = (columnId: string) => {
+  if (columnId === 'paid') {
+    return 'Check when this debit expense has already been paid for the current cycle.'
+  }
+
   if (columnId === 'current-month') {
     return 'Update to $0 if payment made'
   }
@@ -602,6 +607,7 @@ const normalizeExpensePayFromBankId = (payFromBankId: string | undefined, validP
 const normalizeExpenseItemsForUi = (expenseItems: ExpenseItem[] | undefined, validPayFromBankIds: Set<string>): ExpenseItem[] =>
   (expenseItems ?? []).map((item) => ({
     ...item,
+    paid: item.paid ?? Math.abs(item.current) < 0.004,
     payFromBankId: normalizeExpensePayFromBankId(item.payFromBankId, validPayFromBankIds),
   }))
 
@@ -662,23 +668,23 @@ const DEFAULT_BANK_EXPENSE_SOURCE_ID = 'default-bank'
 const TOTAL_BANK_BALANCE_SERIES_KEY = '__total-bank-balance__'
 
 const initialPlanoExpenses: ExpenseItem[] = [
-  { id: 'plano-water', label: 'Water (Chase)', payDate: convertToISODate('24-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 87.94 },
-  { id: 'plano-internet-att', label: 'Internet ATT(Chase)', payDate: convertToISODate('19-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 42.43 },
-  { id: 'plano-hoa', label: 'HOA (Chase)', payDate: convertToISODate('11-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 355, next: 355 },
-  { id: 'plano-electricity', label: 'Electricity (WellsFargo CC Tran)', payDate: convertToISODate('14-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 111, next: 111 },
+  { id: 'plano-water', label: 'Water (Chase)', payDate: convertToISODate('24-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 0, next: 87.94 },
+  { id: 'plano-internet-att', label: 'Internet ATT(Chase)', payDate: convertToISODate('19-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 0, next: 42.43 },
+  { id: 'plano-hoa', label: 'HOA (Chase)', payDate: convertToISODate('11-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 355, next: 355 },
+  { id: 'plano-electricity', label: 'Electricity (WellsFargo CC Tran)', payDate: convertToISODate('14-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 111, next: 111 },
 ]
 
 const initialSanfordExpenses: ExpenseItem[] = [
-  { id: 'sanford-water', label: 'Water (Chase)', payDate: convertToISODate('19-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 90.48 },
-  { id: 'sanford-electricity', label: 'Electricity (Chase)', payDate: convertToISODate('19-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 188.82 },
-  { id: 'sanford-internet-att', label: 'Internet ATT (Chase)', payDate: convertToISODate('24-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 64.87 },
-  { id: 'sanford-hoa-quarterly', label: 'HOA -($628.64/Qtr) (Chase)', payDate: convertToISODate('7-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 628.64, next: 0 },
+  { id: 'sanford-water', label: 'Water (Chase)', payDate: convertToISODate('19-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 0, next: 90.48 },
+  { id: 'sanford-electricity', label: 'Electricity (Chase)', payDate: convertToISODate('19-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 0, next: 188.82 },
+  { id: 'sanford-internet-att', label: 'Internet ATT (Chase)', payDate: convertToISODate('24-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 0, next: 64.87 },
+  { id: 'sanford-hoa-quarterly', label: 'HOA -($628.64/Qtr) (Chase)', payDate: convertToISODate('7-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 628.64, next: 0 },
 ]
 
 const initialOtherExpenses: ExpenseItem[] = [
-  { id: 'other-att-mobile', label: 'ATT - Mobile (Chase)', payDate: convertToISODate('4-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 65.35, next: 65.35 },
-  { id: 'other-529-college-savings', label: '529 College Savings', payDate: convertToISODate('5-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 0, next: 0 },
-  { id: 'other-geico-car-insurance', label: 'Geico Car Insurance (WellsFargo CC Tran)', payDate: convertToISODate('9-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, current: 328.58, next: 328.58 },
+  { id: 'other-att-mobile', label: 'ATT - Mobile (Chase)', payDate: convertToISODate('4-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 65.35, next: 65.35 },
+  { id: 'other-529-college-savings', label: '529 College Savings', payDate: convertToISODate('5-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 0, next: 0 },
+  { id: 'other-geico-car-insurance', label: 'Geico Car Insurance (WellsFargo CC Tran)', payDate: convertToISODate('9-Apr'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 328.58, next: 328.58 },
 ]
 
 type ExpenseGroupConfig = {
@@ -704,7 +710,7 @@ type CreditSortKey =
   | 'nextMonthStatementBalance'
   | 'utilizationPercent'
 
-type ExpenseSortKey = 'label' | 'payDate' | 'payFromBankId' | 'current' | 'next'
+type ExpenseSortKey = 'label' | 'payDate' | 'payFromBankId' | 'paid' | 'current' | 'next'
 
 type SortState<T extends string> = {
   key: T
@@ -780,6 +786,8 @@ const getExpenseColumnSortKey = (columnId: string): ExpenseSortKey | null => {
       return 'payDate'
     case 'pay-from':
       return 'payFromBankId'
+    case 'paid':
+      return 'paid'
     case 'current-month':
       return 'current'
     case 'next-month':
@@ -848,6 +856,8 @@ const getExpenseSortValue = (item: ExpenseItem, key: ExpenseSortKey) => {
       return item.payDate
     case 'payFromBankId':
       return item.payFromBankId
+    case 'paid':
+      return item.paid
     case 'current':
       return item.current
     case 'next':
@@ -2010,8 +2020,8 @@ export default function App() {
   const updateExpenseItemById = (
     setter: React.Dispatch<React.SetStateAction<ExpenseItem[]>>,
     itemId: string,
-    field: 'current' | 'next' | 'payDate' | 'payFromBankId',
-    value: number | string,
+    field: 'current' | 'next' | 'payDate' | 'payFromBankId' | 'paid',
+    value: number | string | boolean,
   ) => {
     if (isViewingPreviousCycle) {
       return
@@ -2019,7 +2029,31 @@ export default function App() {
 
     markCurrentCycleEdited()
 
-    setter((current) => current.map((item) => (item.id === itemId ? { ...item, [field]: value } : item)))
+    setter((current) => current.map((item) => {
+      if (item.id !== itemId) {
+        return item
+      }
+
+      if (field === 'paid') {
+        const nextPaid = value === true
+        return {
+          ...item,
+          paid: nextPaid,
+          current: nextPaid ? 0 : item.next,
+        }
+      }
+
+      if (field === 'current') {
+        const nextCurrent = typeof value === 'number' ? value : Number(value)
+        return {
+          ...item,
+          current: nextCurrent,
+          paid: Math.abs(nextCurrent) > 0.004 ? false : item.paid,
+        }
+      }
+
+      return { ...item, [field]: value }
+    }))
   }
 
   const updateExpenseLabelById = (
@@ -3074,6 +3108,7 @@ export default function App() {
       label: 'New Expense',
       payDate: today,
       payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID,
+      paid: false,
       current: 0,
       next: 0,
     }
@@ -7806,6 +7841,13 @@ export default function App() {
                           </select>
                         </td>
                         <td>
+                          <input
+                            type="checkbox"
+                            checked={item.paid}
+                            onChange={(e) => updateExpenseItemById(setter, item.id, 'paid', e.target.checked)}
+                          />
+                        </td>
+                        <td>
                           <CurrencyInput
                             value={item.current}
                             onValueChange={(value) => updateExpenseItemById(setter, item.id, 'current', value)}
@@ -7826,6 +7868,7 @@ export default function App() {
                 <tr className="table-summary-row">
                   <td></td>
                   <td>Debit Card Expenses Total</td>
+                  <td></td>
                   <td></td>
                   <td></td>
                   <td>{currency(debitCardExpensesTotalCurrent)}</td>
@@ -7939,7 +7982,15 @@ export default function App() {
                           </select>
                         </label>
                         <label className="expense-item-field">
-                          <span>{columnLabels.debitExpenses[3]?.label ?? 'Current Month'}</span>
+                          <span>{columnLabels.debitExpenses[3]?.label ?? 'Paid'}</span>
+                          <input
+                            type="checkbox"
+                            checked={item.paid}
+                            onChange={(e) => updateExpenseItemById(setter, item.id, 'paid', e.target.checked)}
+                          />
+                        </label>
+                        <label className="expense-item-field">
+                          <span>{columnLabels.debitExpenses[4]?.label ?? 'Current Month Payment'}</span>
                           <CurrencyInput
                             value={item.current}
                             onValueChange={(value) => updateExpenseItemById(setter, item.id, 'current', value)}
@@ -7948,7 +7999,7 @@ export default function App() {
                           />
                         </label>
                         <label className="expense-item-field">
-                          <span>{columnLabels.debitExpenses[4]?.label ?? 'Next Month'}</span>
+                          <span>{columnLabels.debitExpenses[5]?.label ?? 'Next Month Payment'}</span>
                           <CurrencyInput
                             value={item.next}
                             onValueChange={(value) => updateExpenseItemById(setter, item.id, 'next', value)}

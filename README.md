@@ -17,6 +17,7 @@ Open http://localhost:5173 in your browser.
 ## What this app tracks
 
 - Credit card available credit, statement dates, and due amounts
+- Debit-card expenses, including whether a current-cycle debit expense has already been paid
 - Monthly income and salary transfer items
 - Account balance summaries and month-end projections
 
@@ -38,7 +39,15 @@ Open http://localhost:5173 in your browser.
 - First-time setup and PIN flows show the signed-in email address, and the first-time setup flow includes both the currency selector and cycle-type selection.
 - Supported currencies were expanded beyond the original short list so the app can be used with many more global currencies.
 - Shared tracker administration was expanded: admins can see tracker-owner email addresses, review each shared tracker's latest update timestamp, and delete any shared tracker when necessary.
+- Cycle visibility is now tiered by user type: regular users see the active cycle plus the latest closed cycle, while premium users can view up to 12 closed cycles in addition to the current cycle.
+- Admins can change any user's type between `Regular` and `Premium` from the signed-in user menu via `Change User Type`; the same search flow also allows an admin to update their own account.
+- Debit Card Expenses now include a `Paid` checkbox. Checking it forces that row's `Current Month Payment` to `0`. Unchecking restores `Current Month Payment` from that row's `Next Month Payment`. When older saved data does not have an explicit `Paid` flag yet, the UI infers it from whether `Current Month Payment` is `0`.
 - The user menu, help copy, and goodbye/delete experience were updated to match the current navigation and sign-in wording.
+
+## Cycle History And Revert
+
+- Premium history support keeps full closed-cycle snapshots so premium users can open older closed cycles directly from the cycle selector.
+- Revert remains a one-step rollback of the most recent close-cycle action only; it does not revert directly to an arbitrary older closed cycle.
 
 ## Credit Logic
 
@@ -46,6 +55,12 @@ Open http://localhost:5173 in your browser.
 - Sorting, totals, charts, the credit table, and the credit tab all reuse that same helper path so the displayed values stay aligned.
 - The current rules are documented in `docs/credit-next-balance-logic.md`.
 - Exposure metric formulas (Current/Next/Cycle After Next) are documented in `docs/exposure-metrics.md`.
+
+## Debit Expense Logic
+
+- Debit expense `Paid` is a persisted row field, not just a temporary display toggle.
+- The current-cycle debit exposure math still uses the row's `Current Month Payment`; the checkbox is a convenience control that updates that amount consistently.
+- Legacy saved rows that predate the `Paid` field are normalized by treating `Current Month Payment = 0` as paid.
 
 ## Cycle Switching And Help
 

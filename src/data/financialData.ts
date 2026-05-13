@@ -280,6 +280,7 @@ export const defaultColumnLabels: FinancialPlanColumnLabels = {
     { id: 'expense', label: 'Expense' },
     { id: 'pay-date', label: 'Pay Date' },
     { id: 'pay-from', label: 'Pay From' },
+    { id: 'paid', label: 'Paid' },
     { id: 'current-month', label: 'Current Month Payment' },
     { id: 'next-month', label: 'Next Month Payment' },
   ],
