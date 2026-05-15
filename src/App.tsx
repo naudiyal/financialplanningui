@@ -1,5 +1,7 @@
 import React, { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import { NumericFormat } from 'react-number-format'
+import premiumTierIcon from './assets/user-tier-premium.svg'
+import regularTierIcon from './assets/user-tier-regular.svg'
 import {
   Bar,
   BarChart,
@@ -80,6 +82,7 @@ type DecryptedDashboardBackup = {
 type AuthStatusResponse = {
   authenticated: boolean
   admin: boolean
+  premium: boolean
   encryptionExempt: boolean
   termsAccepted: boolean
   requiredTermsVersion: string | null
@@ -621,9 +624,14 @@ const formatViewerUserLabel = (user: SharedViewerUserSummary) => {
   return primaryLabel
 }
 
+const formatUserTierLabel = (premium: boolean) => (premium ? 'Premium' : 'Regular')
+
+const getUserTierIcon = (premium: boolean) => (premium ? premiumTierIcon : regularTierIcon)
+
 const formatEncryptedViewerUserLabel = (user: SharedViewerUserSummary) => {
   const isEncrypted = user.encryptionExempt === false
-  return isEncrypted ? `🔒️ ${formatViewerUserLabel(user)}` : formatViewerUserLabel(user)
+  const userLabel = `${formatViewerUserLabel(user)} • ${formatUserTierLabel(user.premium)}`
+  return isEncrypted ? `🔒️ ${userLabel}` : userLabel
 }
 
 const normalizePinValue = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 4)
@@ -6486,11 +6494,19 @@ export default function App() {
                 ) : null}
                 <div>
                   <strong>{authenticatedUser.name ?? authenticatedUser.email}</strong>
-                  <span>{authenticatedUser.email}</span>
+                  <div className="user-chip-meta">
+                    <span>{authenticatedUser.email}</span>
+                  </div>
                 </div>
               </button>
               {isUserMenuOpen ? (
                 <div className="user-menu-dropdown" role="menu">
+                  <button type="button" className="user-menu-item user-menu-item-membership" disabled role="menuitem" aria-disabled="true">
+                    <span>Membership</span>
+                    <span className={joinClassNames('user-menu-membership-chip', authenticatedUser.premium ? 'user-menu-membership-chip-premium' : 'user-menu-membership-chip-regular')}>
+                      {formatUserTierLabel(authenticatedUser.premium)}
+                    </span>
+                  </button>
                   {isTrackersRoute ? (
                     <>
                       <button type="button" className="user-menu-item" disabled role="menuitem" aria-disabled="true">

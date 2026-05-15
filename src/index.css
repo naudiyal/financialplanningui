@@ -362,6 +362,18 @@ html, body, #root {
   min-width: 0;
 }
 
+.user-chip-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.user-chip-meta span {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .user-chip strong,
 .user-chip span {
   overflow: hidden;
@@ -418,6 +430,32 @@ html, body, #root {
   color: #0f172a;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.user-menu-item-membership {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.user-menu-membership-chip {
+  flex: 0 0 auto;
+  padding: 0.18rem 0.48rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.user-menu-membership-chip-regular {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.user-menu-membership-chip-premium {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .user-menu-item:hover {
