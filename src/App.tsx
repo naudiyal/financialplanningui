@@ -675,6 +675,26 @@ const moveCaretToCurrencyAmountEnd = (input: HTMLInputElement | null) => {
   })
 }
 
+const shouldReplaceZeroCurrencyValue = (input: HTMLInputElement, key: string) => {
+  if (!/^\d$/.test(key)) {
+    return false
+  }
+
+  if (input.selectionStart !== input.selectionEnd) {
+    return false
+  }
+
+  return /^0([.]00)?$/.test(input.value)
+}
+
+const prepareCurrencyInputForDigitOverwrite = (input: HTMLInputElement | null, key: string) => {
+  if (!input || !shouldReplaceZeroCurrencyValue(input, key)) {
+    return
+  }
+
+  input.setSelectionRange(0, input.value.length)
+}
+
 type CurrencyInputProps = {
   value: number
   onValueChange: (value: number) => void
@@ -694,6 +714,12 @@ const CurrencyInput = ({ value, onValueChange, wrapClassName, inputClassName }: 
       inputMode="decimal"
       onValueChange={({ floatValue }) => onValueChange(floatValue ?? 0)}
       onFocus={(event) => moveCaretToCurrencyAmountEnd(event.currentTarget)}
+      onClick={(event) => {
+        if (event.detail === 1) {
+          moveCaretToCurrencyAmountEnd(event.currentTarget)
+        }
+      }}
+      onKeyDown={(event) => prepareCurrencyInputForDigitOverwrite(event.currentTarget, event.key)}
       className={inputClassName ?? 'currency-amount-input'}
     />
   </div>
@@ -3697,11 +3723,13 @@ export default function App() {
         ? 'Viewing previous cycle'
       : saveState === 'loading' || saveState === 'saving'
       ? saveMessage
+      : saveState === 'error'
+        ? saveMessage
       : hasUnsavedChanges
         ? 'Unsaved changes'
-        : saveState === 'error' || saveState === 'saved'
-          ? saveMessage
-          : ''
+      : saveState === 'saved'
+        ? saveMessage
+        : ''
 
   const shouldWarnBeforeSwitchingCycle =
     !isTrackersRoute && selectedCycle === 'current' && hasUnsavedChanges && !suppressCycleSwitchWarning && !needsPostCloseBaselineSync
