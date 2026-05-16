@@ -2393,6 +2393,35 @@ tbody tr:hover {
   flex: 1;
 }
 
+.subsection-header-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.bank-name-warning {
+  color: #b91c1c;
+}
+
+.subsection-header-default {
+  justify-content: flex-start;
+}
+
+.bank-balance-warning {
+  flex: 0 0 auto;
+  padding: 0.12rem 0.38rem;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.62rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .currency-input-wrap {
   display: flex;
   align-items: center;
@@ -2967,6 +2996,30 @@ input.section-title-input {
   min-height: 0;
   margin: 0;
   padding: 0;
+}
+
+.paycheck-status-control {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.paycheck-date-input {
+  width: 7.8rem;
+  min-width: 0;
+  padding: 0 0.12rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.2rem;
+  background: #ffffff;
+  font-size: 0.66rem;
+  line-height: 1;
+}
+
+.paycheck-date-input[aria-invalid='true'] {
+  border-color: #dc2626;
+  background: #fff5f5;
 }
 
 .compact-side-panel .card-meta,

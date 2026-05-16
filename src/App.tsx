@@ -60,6 +60,8 @@ type FinancialPlanData = {
   columnLabels?: FinancialPlanColumnLabels
   sectionTitles?: FinancialPlanSectionTitles & { incomeScheduleChase?: string }
   viewModes?: FinancialPlanViewModes
+  firstPaycheckDate?: string
+  secondPaycheckDate?: string
   incomeSubsections?: IncomeSubsection[]
   summary?: Record<string, number>
   encryptedData?: string
@@ -179,6 +181,17 @@ type AnalyticsKpiCard = {
   valueStyle?: React.CSSProperties
   detailStyle?: React.CSSProperties
   barStyle?: React.CSSProperties
+}
+
+type BankNegativeBalanceWarning = {
+  negativeDate: string
+  projectedBalance: number
+}
+
+type BankCashflowEvent = {
+  date: string
+  amount: number
+  kind: 'inflow' | 'outflow'
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
@@ -681,7 +694,6 @@ const CurrencyInput = ({ value, onValueChange, wrapClassName, inputClassName }: 
       inputMode="decimal"
       onValueChange={({ floatValue }) => onValueChange(floatValue ?? 0)}
       onFocus={(event) => moveCaretToCurrencyAmountEnd(event.currentTarget)}
-      onClick={(event) => moveCaretToCurrencyAmountEnd(event.currentTarget)}
       className={inputClassName ?? 'currency-amount-input'}
     />
   </div>
@@ -696,6 +708,41 @@ const isPastDate = (value: string) => {
   targetDate.setHours(0, 0, 0, 0)
 
   return targetDate < today
+}
+
+const normalizeOptionalDateValue = (value?: string | null) => (typeof value === 'string' ? value.trim() : '')
+
+const isIsoDateValue = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value)
+
+const coerceEventDateToProjectionDate = (value: string, todayIsoDate: string) => (value < todayIsoDate ? todayIsoDate : value)
+
+const normalizeIncomeSubsectionForUi = (subsection: IncomeSubsection): IncomeSubsection => ({
+  ...subsection,
+  firstPaycheckDate: normalizeOptionalDateValue(subsection.firstPaycheckDate),
+  secondPaycheckDate: normalizeOptionalDateValue(subsection.secondPaycheckDate),
+})
+
+const buildBankNegativeBalanceWarning = (
+  startingBalance: number,
+  events: BankCashflowEvent[],
+): BankNegativeBalanceWarning | null => {
+  let runningBalance = startingBalance
+  const sortedEvents = [...events].sort((left, right) => (
+    left.date.localeCompare(right.date) ||
+    (left.kind === right.kind ? 0 : left.kind === 'inflow' ? -1 : 1)
+  ))
+
+  for (const event of sortedEvents) {
+    runningBalance += event.kind === 'inflow' ? event.amount : -event.amount
+    if (runningBalance < -0.004) {
+      return {
+        negativeDate: event.date,
+        projectedBalance: runningBalance,
+      }
+    }
+  }
+
+  return null
 }
 
 const getHeaderInputWidth = (label: string, minChars = 0) => `${Math.max(label.length + 2, minChars)}ch`
@@ -1111,7 +1158,7 @@ const readLegacyBackupPayload = (value: unknown): {
 const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData => {
   const normalizedSectionTitles = normalizeSectionTitles(data.sectionTitles)
   const normalizedViewModes = normalizeViewModes(data.viewModes)
-  const normalizedIncomeSubsections = data.incomeSubsections ?? defaultIncomeSubsections
+  const normalizedIncomeSubsections = (data.incomeSubsections ?? defaultIncomeSubsections).map(normalizeIncomeSubsectionForUi)
   const validPayFromBankIds = new Set([
     DEFAULT_BANK_EXPENSE_SOURCE_ID,
     ...normalizedIncomeSubsections.map((subsection) => subsection.id),
@@ -1127,6 +1174,8 @@ const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData 
     columnLabels: normalizeColumnLabelsForUi(data.columnLabels),
     sectionTitles: serializeSectionTitles(normalizedSectionTitles),
     viewModes: normalizedViewModes,
+    firstPaycheckDate: normalizeOptionalDateValue(data.firstPaycheckDate),
+    secondPaycheckDate: normalizeOptionalDateValue(data.secondPaycheckDate),
     incomeSubsections: normalizedIncomeSubsections,
     summary: data.summary,
   }
@@ -1589,6 +1638,8 @@ export default function App() {
   const [columnLabels, setColumnLabels] = useState(defaultColumnLabels)
   const [sectionTitles, setSectionTitles] = useState(defaultSectionTitles)
   const [incomeSubsections, setIncomeSubsections] = useState(defaultIncomeSubsections)
+  const [defaultBankFirstPaycheckDate, setDefaultBankFirstPaycheckDate] = useState(defaultFinancialPlanData.firstPaycheckDate ?? '')
+  const [defaultBankSecondPaycheckDate, setDefaultBankSecondPaycheckDate] = useState(defaultFinancialPlanData.secondPaycheckDate ?? '')
   const [newBankSubsectionIds, setNewBankSubsectionIds] = useState<Set<string>>(new Set())
   const [selectedBankSubsectionIds, setSelectedBankSubsectionIds] = useState<Set<string>>(new Set())
   const [selectedCreditIds, setSelectedCreditIds] = useState<Set<string>>(new Set())
@@ -2223,6 +2274,21 @@ export default function App() {
     })
   }
 
+  const updateDefaultBankPaycheckDate = (field: 'first' | 'second', value: string) => {
+    if (isViewingPreviousCycle) {
+      return
+    }
+
+    markCurrentCycleEdited()
+
+    if (field === 'first') {
+      setDefaultBankFirstPaycheckDate(value)
+      return
+    }
+
+    setDefaultBankSecondPaycheckDate(value)
+  }
+
   const addIncomeSubsection = () => {
     if (isViewingPreviousCycle) {
       return
@@ -2240,8 +2306,10 @@ export default function App() {
         biMonthlySalaryLabel: 'Bi-monthly salary',
         biMonthlySalary: 0,
         midMonthSalaryLabel: 'First Paycheck Arrived?',
+        firstPaycheckDate: '',
         midMonthSalaryArrived: false,
         monthEndSalaryLabel: 'Second Paycheck Arrived?',
+        secondPaycheckDate: '',
         monthEndSalaryArrived: false,
         checkingBalanceLabel: 'Account Balance',
         checkingBalance: 0,
@@ -2532,6 +2600,107 @@ export default function App() {
   const bankSectionBalanceItems = selectedCycle === 'current' && closeCycleCarryoverBankData
     ? closeCycleCarryoverBankData.balanceItems
     : adjustedBalanceItems
+  const todayIsoDate = new Date().toISOString().slice(0, 10)
+  const defaultBankBiMonthlySalary = bankSectionIncomeItems.find((item) => item.id === 'bi-monthly-salary')?.amount ?? 0
+  const defaultBankFirstPaycheckArrived = defaultBankBiMonthlySalary > 0
+    && Math.abs(bankSectionIncomeItems.find((item) => item.id === FIRST_PAYCHECK_ID)?.amount ?? 0) < 0.004
+  const defaultBankSecondPaycheckArrived = defaultBankBiMonthlySalary > 0
+    && Math.abs(bankSectionIncomeItems.find((item) => item.id === SECOND_PAYCHECK_ID)?.amount ?? 0) < 0.004
+  const displayedCheckingAccountBalanceChase = bankSectionBalanceItems.find((item) => item.id === 'checking-balance-chase')?.amount ?? 0
+  const hasRequiredDefaultBankPaycheckDates = defaultBankBiMonthlySalary <= 0
+    || (isIsoDateValue(defaultBankFirstPaycheckDate) && isIsoDateValue(defaultBankSecondPaycheckDate))
+  const allBanksHaveRequiredPaycheckDates = incomeSubsections.every((subsection) => (
+    subsection.biMonthlySalary <= 0
+      || (isIsoDateValue(subsection.firstPaycheckDate) && isIsoDateValue(subsection.secondPaycheckDate))
+  ))
+  const bankNegativeBalanceWarnings = new Map<string, BankNegativeBalanceWarning>()
+
+  if (selectedCycle === 'current') {
+    const defaultBankEvents: BankCashflowEvent[] = []
+
+    if (!defaultBankFirstPaycheckArrived && defaultBankBiMonthlySalary > 0 && isIsoDateValue(defaultBankFirstPaycheckDate)) {
+      defaultBankEvents.push({
+        date: coerceEventDateToProjectionDate(defaultBankFirstPaycheckDate, todayIsoDate),
+        amount: defaultBankBiMonthlySalary,
+        kind: 'inflow',
+      })
+    }
+
+    if (!defaultBankSecondPaycheckArrived && defaultBankBiMonthlySalary > 0 && isIsoDateValue(defaultBankSecondPaycheckDate)) {
+      defaultBankEvents.push({
+        date: coerceEventDateToProjectionDate(defaultBankSecondPaycheckDate, todayIsoDate),
+        amount: defaultBankBiMonthlySalary,
+        kind: 'inflow',
+      })
+    }
+
+    creditAccounts.forEach((account) => {
+      const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
+      if (currentMonthPayment <= 0.004 || !isIsoDateValue(account.nextPaymentDate)) {
+        return
+      }
+
+      defaultBankEvents.push({
+        date: coerceEventDateToProjectionDate(account.nextPaymentDate, todayIsoDate),
+        amount: currentMonthPayment,
+        kind: 'outflow',
+      })
+    })
+
+    debitCardExpenseItems.forEach((item) => {
+      if (item.payFromBankId !== DEFAULT_BANK_EXPENSE_SOURCE_ID || Math.abs(item.current) <= 0.004 || !isIsoDateValue(item.payDate)) {
+        return
+      }
+
+      defaultBankEvents.push({
+        date: coerceEventDateToProjectionDate(item.payDate, todayIsoDate),
+        amount: item.current,
+        kind: 'outflow',
+      })
+    })
+
+    const defaultBankWarning = buildBankNegativeBalanceWarning(displayedCheckingAccountBalanceChase, defaultBankEvents)
+    if (defaultBankWarning) {
+      bankNegativeBalanceWarnings.set(DEFAULT_BANK_EXPENSE_SOURCE_ID, defaultBankWarning)
+    }
+
+    incomeSubsections.forEach((subsection) => {
+      const subsectionEvents: BankCashflowEvent[] = []
+
+      if (!subsection.midMonthSalaryArrived && subsection.biMonthlySalary > 0 && isIsoDateValue(subsection.firstPaycheckDate)) {
+        subsectionEvents.push({
+          date: coerceEventDateToProjectionDate(subsection.firstPaycheckDate, todayIsoDate),
+          amount: subsection.biMonthlySalary,
+          kind: 'inflow',
+        })
+      }
+
+      if (!subsection.monthEndSalaryArrived && subsection.biMonthlySalary > 0 && isIsoDateValue(subsection.secondPaycheckDate)) {
+        subsectionEvents.push({
+          date: coerceEventDateToProjectionDate(subsection.secondPaycheckDate, todayIsoDate),
+          amount: subsection.biMonthlySalary,
+          kind: 'inflow',
+        })
+      }
+
+      debitCardExpenseItems.forEach((item) => {
+        if (item.payFromBankId !== subsection.id || Math.abs(item.current) <= 0.004 || !isIsoDateValue(item.payDate)) {
+          return
+        }
+
+        subsectionEvents.push({
+          date: coerceEventDateToProjectionDate(item.payDate, todayIsoDate),
+          amount: item.current,
+          kind: 'outflow',
+        })
+      })
+
+      const subsectionWarning = buildBankNegativeBalanceWarning(subsection.checkingBalance, subsectionEvents)
+      if (subsectionWarning) {
+        bankNegativeBalanceWarnings.set(subsection.id, subsectionWarning)
+      }
+    })
+  }
 
   const overdueCreditAccounts = creditAccounts.filter(
     (account) => isPastDate(account.nextPaymentDate) && !account.paidThisMonth,
@@ -2956,17 +3125,39 @@ export default function App() {
   const renderIncomeCard = (item: IncomeItem) => {
     const itemIndex = incomeItemsState.findIndex((entry) => entry.id === item.id)
     const isCheckboxIncome = checkboxIncomeIds.has(item.id)
+    const requiresPaycheckDate = isCheckboxIncome && biMonthlySalary > 0
+    const defaultBankPaycheckConfig = isCheckboxIncome
+      ? item.id === FIRST_PAYCHECK_ID
+        ? {
+            paycheckDate: defaultBankFirstPaycheckDate,
+            onPaycheckDateChange: (value: string) => updateDefaultBankPaycheckDate('first', value),
+          }
+        : {
+            paycheckDate: defaultBankSecondPaycheckDate,
+            onPaycheckDateChange: (value: string) => updateDefaultBankPaycheckDate('second', value),
+          }
+      : null
 
     return (
       <article key={item.id} className="info-card">
         <p className="card-title card-title-static">{item.label}</p>
         {isCheckboxIncome ? (
-          <input
-            type="checkbox"
-            checked={biMonthlySalary > 0 && item.amount === 0}
-            onChange={(e) => updateIncomeItemById(item.id, e.target.checked ? 0 : biMonthlySalary)}
-            className="salary-toggle-checkbox"
-          />
+          <div className="paycheck-status-control">
+            <input
+              type="date"
+              value={defaultBankPaycheckConfig?.paycheckDate ?? ''}
+              onChange={(event) => defaultBankPaycheckConfig?.onPaycheckDateChange(event.target.value)}
+              className="paycheck-date-input"
+              required={requiresPaycheckDate}
+              aria-invalid={requiresPaycheckDate && !isIsoDateValue(defaultBankPaycheckConfig?.paycheckDate ?? '')}
+            />
+            <input
+              type="checkbox"
+              checked={biMonthlySalary > 0 && item.amount === 0}
+              onChange={(e) => updateIncomeItemById(item.id, e.target.checked ? 0 : biMonthlySalary)}
+              className="salary-toggle-checkbox"
+            />
+          </div>
         ) : editableIncomeIds.has(item.id) ? (
           <CurrencyInput
             value={item.amount}
@@ -3002,9 +3193,20 @@ export default function App() {
     )
   }
 
+  const renderBankWarning = (warning: BankNegativeBalanceWarning | undefined) => {
+    if (!warning) {
+      return null
+    }
+
+    return <span className="bank-balance-warning">Balance -ve on {formatShortDate(warning.negativeDate)}</span>
+  }
+
   const renderIncomeSubsection = (subsection: IncomeSubsection, index: number) => {
     const totalBalance = getIncomeSubsectionTotalBalance(subsection)
     const monthEndBalance = getBankMonthEndBalance(subsection.id, totalBalance, subsection.additionalIncome)
+    const warning = bankNegativeBalanceWarnings.get(subsection.id)
+    const titleClassName = joinClassNames('label-input subsection-title-input', warning ? 'bank-name-warning' : undefined)
+    const requiresPaycheckDates = subsection.biMonthlySalary > 0
 
     return (
       <div key={subsection.id} className={selectedBankSubsectionIds.has(subsection.id) ? 'subsection-block row-selected' : 'subsection-block'}>
@@ -3016,14 +3218,17 @@ export default function App() {
               onChange={() => toggleBankSubsectionSelection(subsection.id)}
             />
           </label>
-          <h3>
-            <input
-              type="text"
-              value={subsection.title}
-              onChange={(e) => updateIncomeSubsectionTitle(index, e.target.value)}
-              className="label-input subsection-title-input"
-            />
-          </h3>
+          <div className="subsection-header-title-row">
+            <h3>
+              <input
+                type="text"
+                value={subsection.title}
+                onChange={(e) => updateIncomeSubsectionTitle(index, e.target.value)}
+                className={titleClassName}
+              />
+            </h3>
+            {renderBankWarning(warning)}
+          </div>
         </div>
         <div className="card-list">
           <article className="info-card">
@@ -3036,21 +3241,41 @@ export default function App() {
           </article>
           <article className="info-card">
             <p className="card-title card-title-static">{subsection.midMonthSalaryLabel}</p>
-            <input
-              type="checkbox"
-              checked={subsection.midMonthSalaryArrived}
-              onChange={(e) => updateIncomeSubsection(index, 'midMonthSalaryArrived', e.target.checked)}
-              className="salary-toggle-checkbox"
-            />
+            <div className="paycheck-status-control">
+              <input
+                type="date"
+                value={subsection.firstPaycheckDate}
+                onChange={(event) => updateIncomeSubsection(index, 'firstPaycheckDate', event.target.value)}
+                className="paycheck-date-input"
+                required={requiresPaycheckDates}
+                aria-invalid={requiresPaycheckDates && !isIsoDateValue(subsection.firstPaycheckDate)}
+              />
+              <input
+                type="checkbox"
+                checked={subsection.midMonthSalaryArrived}
+                onChange={(e) => updateIncomeSubsection(index, 'midMonthSalaryArrived', e.target.checked)}
+                className="salary-toggle-checkbox"
+              />
+            </div>
           </article>
           <article className="info-card">
             <p className="card-title card-title-static">{subsection.monthEndSalaryLabel}</p>
-            <input
-              type="checkbox"
-              checked={subsection.monthEndSalaryArrived}
-              onChange={(e) => updateIncomeSubsection(index, 'monthEndSalaryArrived', e.target.checked)}
-              className="salary-toggle-checkbox"
-            />
+            <div className="paycheck-status-control">
+              <input
+                type="date"
+                value={subsection.secondPaycheckDate}
+                onChange={(event) => updateIncomeSubsection(index, 'secondPaycheckDate', event.target.value)}
+                className="paycheck-date-input"
+                required={requiresPaycheckDates}
+                aria-invalid={requiresPaycheckDates && !isIsoDateValue(subsection.secondPaycheckDate)}
+              />
+              <input
+                type="checkbox"
+                checked={subsection.monthEndSalaryArrived}
+                onChange={(e) => updateIncomeSubsection(index, 'monthEndSalaryArrived', e.target.checked)}
+                className="salary-toggle-checkbox"
+              />
+            </div>
           </article>
           <article className="info-card">
             <p className="card-title card-title-static">{subsection.checkingBalanceLabel}</p>
@@ -3089,23 +3314,33 @@ export default function App() {
     )
   }
 
-  const renderDefaultBankSubsection = () => (
-    <div className="subsection-block chase-subsection">
-      <h3>
-        <input
-          type="text"
-          value={sectionTitles.defaultBank}
-          onChange={(e) => updateSectionTitle('defaultBank', e.target.value)}
-          className="label-input subsection-title-input"
-          title="Default Bank Account"
-        />
-      </h3>
-      <div className="card-list">
-        {chaseIncomeItems.map(renderIncomeCard)}
-        {chaseBalanceItems.map(renderBalanceCard)}
+  const renderDefaultBankSubsection = () => {
+    const warning = bankNegativeBalanceWarnings.get(DEFAULT_BANK_EXPENSE_SOURCE_ID)
+    const titleClassName = joinClassNames('label-input subsection-title-input', warning ? 'bank-name-warning' : undefined)
+
+    return (
+      <div className="subsection-block chase-subsection">
+        <div className="subsection-header subsection-header-default">
+          <div className="subsection-header-title-row">
+            <h3>
+              <input
+                type="text"
+                value={sectionTitles.defaultBank}
+                onChange={(e) => updateSectionTitle('defaultBank', e.target.value)}
+                className={titleClassName}
+                title="Default Bank Account"
+              />
+            </h3>
+            {renderBankWarning(warning)}
+          </div>
+        </div>
+        <div className="card-list">
+          {chaseIncomeItems.map(renderIncomeCard)}
+          {chaseBalanceItems.map(renderBalanceCard)}
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   const addCreditAccount = () => {
     if (isViewingPreviousCycle) {
@@ -3252,6 +3487,8 @@ export default function App() {
         debitExpenses: expenseViewMode,
         bankAccounts: bankViewMode,
       }),
+      firstPaycheckDate: overrides.firstPaycheckDate ?? defaultBankFirstPaycheckDate,
+      secondPaycheckDate: overrides.secondPaycheckDate ?? defaultBankSecondPaycheckDate,
       incomeSubsections: nextIncomeSubsections,
       summary: overrides.summary,
     }
@@ -3260,6 +3497,8 @@ export default function App() {
   const canCloseCurrentCycle =
     creditAccounts.length > 0 &&
     creditAccounts.every((account) => account.paidThisMonth && account.statementCycledAfterPayment) &&
+    hasRequiredDefaultBankPaycheckDates &&
+    allBanksHaveRequiredPaycheckDates &&
     debitCardExpenseItems.every((item) => Math.abs(item.current) < 0.004)
 
   const closeCycleRequirements = [
@@ -3274,6 +3513,10 @@ export default function App() {
     {
       label: 'All current-month debit expenses are 0',
       met: debitCardExpenseItems.every((item) => Math.abs(item.current) < 0.004),
+    },
+    {
+      label: 'All banks with salary have both paycheck dates entered',
+      met: hasRequiredDefaultBankPaycheckDates && allBanksHaveRequiredPaycheckDates,
     },
   ]
 
@@ -3294,6 +3537,8 @@ export default function App() {
       columnLabels,
       closeCycleCarryoverBankData,
       creditAccounts,
+      defaultBankFirstPaycheckDate,
+      defaultBankSecondPaycheckDate,
       incomeSubsections,
       otherExpenses,
       planoExpenses,
@@ -3648,6 +3893,8 @@ export default function App() {
     setCreditViewMode(normalizedViewModes.creditAccounts)
     setExpenseViewMode(normalizedViewModes.debitExpenses)
     setBankViewMode(normalizedViewModes.bankAccounts)
+    setDefaultBankFirstPaycheckDate(normalizedData.firstPaycheckDate ?? '')
+    setDefaultBankSecondPaycheckDate(normalizedData.secondPaycheckDate ?? '')
     setIncomeSubsections(normalizedData.incomeSubsections ?? defaultIncomeSubsections)
     setNewBankSubsectionIds(new Set())
     setSelectedBankSubsectionIds(new Set())
@@ -4613,6 +4860,12 @@ export default function App() {
     if ((isSampleMode && !canEditSamplePlan) || isTrackerReadOnly) {
       setSaveState('idle')
       setSaveMessage('')
+      return
+    }
+
+    if (!hasRequiredDefaultBankPaycheckDates || !allBanksHaveRequiredPaycheckDates) {
+      setSaveState('error')
+      setSaveMessage('Enter Paycheck Arrived Dates?')
       return
     }
 
@@ -8309,6 +8562,10 @@ export default function App() {
             ) : (
               <div className="bank-tab-shell">
                 <div className="bank-tab-strip" role="tablist" aria-label="Bank account tabs">
+                  {(() => {
+                    const defaultBankWarning = bankNegativeBalanceWarnings.get(DEFAULT_BANK_EXPENSE_SOURCE_ID)
+
+                    return (
                   <button
                     type="button"
                     role="tab"
@@ -8321,13 +8578,16 @@ export default function App() {
                     )}
                     onClick={() => setExpandedBankSectionId(DEFAULT_BANK_EXPENSE_SOURCE_ID)}
                   >
-                    <span className="bank-tab-title">{sectionTitles.defaultBank || 'Default Bank'}</span>
+                    <span className={joinClassNames('bank-tab-title', defaultBankWarning ? 'bank-name-warning' : undefined)}>{sectionTitles.defaultBank || 'Default Bank'}</span>
                     <span className="bank-tab-summary">Month End - {currency(checkingAccountBalanceMonthEndChase)}</span>
                   </button>
+                    )
+                  })()}
                   {incomeSubsections.map((subsection, index) => {
                     const totalBalance = getIncomeSubsectionTotalBalance(subsection)
                     const monthEndBalance = getBankMonthEndBalance(subsection.id, totalBalance, subsection.additionalIncome)
                     const isActive = expandedBankSectionId === subsection.id
+                    const warning = bankNegativeBalanceWarnings.get(subsection.id)
 
                     return (
                       <button
@@ -8344,7 +8604,7 @@ export default function App() {
                         )}
                         onClick={() => setExpandedBankSectionId(subsection.id)}
                       >
-                        <span className="bank-tab-title">{subsection.title || `Bank ${index + 1}`}</span>
+                        <span className={joinClassNames('bank-tab-title', warning ? 'bank-name-warning' : undefined)}>{subsection.title || `Bank ${index + 1}`}</span>
                         <span className="bank-tab-summary">Month End - {currency(monthEndBalance)}</span>
                       </button>
                     )

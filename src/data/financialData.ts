@@ -31,8 +31,10 @@ export type IncomeSubsection = {
   biMonthlySalaryLabel: string
   biMonthlySalary: number
   midMonthSalaryLabel: string
+  firstPaycheckDate: string
   midMonthSalaryArrived: boolean
   monthEndSalaryLabel: string
+  secondPaycheckDate: string
   monthEndSalaryArrived: boolean
   checkingBalanceLabel: string
   checkingBalance: number
