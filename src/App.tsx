@@ -3706,6 +3706,14 @@ export default function App() {
   const shouldWarnBeforeSwitchingCycle =
     !isTrackersRoute && selectedCycle === 'current' && hasUnsavedChanges && !suppressCycleSwitchWarning && !needsPostCloseBaselineSync
   const shouldShowMobileActionBar = hasUnsavedChanges && !areTopActionsVisibleOnMobile
+  const mobileTopActionErrorText = saveState === 'error' && !!saveMessage ? saveMessage : ''
+  const hasMobileActionBarError = saveState === 'error' && !!saveMessage
+  const mobileActionBarErrorText = hasMobileActionBarError ? saveMessage : ''
+  const mobileActionBarStatusClassName = 'mobile-action-bar-status'
+  const mobileActionBarErrorClassName = joinClassNames(
+    'mobile-action-bar-status',
+    hasMobileActionBarError ? 'mobile-action-bar-status-error' : undefined,
+  )
 
   const statusClassName = `status-text status-${isSampleMode ? 'saved' : hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
   const creditWidthCapStyle = creditTableWidth
@@ -4865,7 +4873,7 @@ export default function App() {
 
     if (!hasRequiredDefaultBankPaycheckDates || !allBanksHaveRequiredPaycheckDates) {
       setSaveState('error')
-      setSaveMessage('Enter Paycheck Arrived Dates?')
+      setSaveMessage('Enter Paycheck Dates')
       return
     }
 
@@ -6842,6 +6850,7 @@ export default function App() {
             </div>
           ) : null}
         </div>
+        {mobileTopActionErrorText ? <div className="hero-mobile-error">{mobileTopActionErrorText}</div> : null}
       </header>
 
       {isSampleMode ? (
@@ -6923,25 +6932,30 @@ export default function App() {
       {shouldShowMobileActionBar ? (
         <div className="mobile-action-bar" aria-label="Unsaved changes actions">
           <div className="mobile-action-bar-inner">
-            <span className="mobile-action-bar-status">Unsaved changes</span>
-            <button
-              type="button"
-              className="toolbar-button"
-              onPointerDown={blurActiveFormControl}
-              onClick={handleResetClick}
-              disabled={isTrackerReadOnly || !canUseReset || !(isSampleMode ? samplePlanSnapshot : personalPlanSnapshot) || saveState === 'loading' || saveState === 'saving'}
-            >
-              Reset
-            </button>
-            <button
-              type="button"
-              className="toolbar-button"
-              onPointerDown={blurActiveFormControl}
-              onClick={handleSave}
-              disabled={isPlanReadOnly || saveState === 'loading' || saveState === 'saving'}
-            >
-              {saveState === 'saving' ? 'Saving...' : 'Save Changes'}
-            </button>
+            {hasMobileActionBarError ? (
+              <span className={mobileActionBarErrorClassName}>{mobileActionBarErrorText}</span>
+            ) : null}
+            <div className="mobile-action-bar-buttons">
+              <span className={mobileActionBarStatusClassName}>Unsaved changes</span>
+              <button
+                type="button"
+                className="toolbar-button"
+                onPointerDown={blurActiveFormControl}
+                onClick={handleResetClick}
+                disabled={isTrackerReadOnly || !canUseReset || !(isSampleMode ? samplePlanSnapshot : personalPlanSnapshot) || saveState === 'loading' || saveState === 'saving'}
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                className="toolbar-button"
+                onPointerDown={blurActiveFormControl}
+                onClick={handleSave}
+                disabled={isPlanReadOnly || saveState === 'loading' || saveState === 'saving'}
+              >
+                {saveState === 'saving' ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

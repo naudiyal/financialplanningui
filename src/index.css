@@ -218,6 +218,10 @@ html, body, #root {
   margin-left: auto;
 }
 
+.hero-mobile-error {
+  display: none;
+}
+
 .build-stamp {
   margin: 0.18rem 0 0;
   font-size: 0.68rem;
@@ -3227,6 +3231,9 @@ input.section-title-input {
     border-radius: 0.95rem;
     background: rgba(255, 255, 255, 0.94);
     box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
   }
 
   .mobile-action-bar .toolbar-button {
@@ -3238,10 +3245,21 @@ input.section-title-input {
   }
 
   .mobile-action-bar-status {
-    max-width: 40vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: block;
+    max-width: 100%;
+    font-size: 0.76rem;
+    line-height: 1.2;
+  }
+
+  .mobile-action-bar-buttons {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.45rem;
+  }
+
+  .mobile-action-bar-status-error {
+    color: #b91c1c;
   }
 
   .hero-actions {
@@ -3270,6 +3288,14 @@ input.section-title-input {
   .hero-actions .status-text {
     max-width: 40vw;
     font-size: 0.66rem;
+  }
+
+  .hero-mobile-error {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.72rem;
+    line-height: 1.2;
+    color: #b91c1c;
   }
 
   input:focus,
