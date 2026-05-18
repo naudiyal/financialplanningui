@@ -62,6 +62,7 @@ type FinancialPlanData = {
   viewModes?: FinancialPlanViewModes
   firstPaycheckDate?: string
   secondPaycheckDate?: string
+  defaultBankWarningThreshold?: number
   incomeSubsections?: IncomeSubsection[]
   summary?: Record<string, number>
   encryptedData?: string
@@ -184,8 +185,9 @@ type AnalyticsKpiCard = {
 }
 
 type BankNegativeBalanceWarning = {
-  negativeDate: string
+  date: string
   projectedBalance: number
+  severity: 'warning' | 'negative'
 }
 
 type BankCashflowEvent = {
@@ -201,6 +203,7 @@ const DECRYPTED_BACKUP_SCHEMA_VERSION = 1
 const HISTORY_REQUEST_TIMEOUT_MS = 10_000
 const FIRST_PAYCHECK_ID = 'first-paycheck'
 const SECOND_PAYCHECK_ID = 'second-paycheck'
+const DEFAULT_WARNING_THRESHOLD = 100
 
 const normalizeAppRoute = (pathname: string): AppRoute => (pathname === TRACKERS_ROUTE ? TRACKERS_ROUTE : PERSONAL_ROUTE)
 
@@ -746,13 +749,18 @@ const normalizeIncomeSubsectionForUi = (subsection: IncomeSubsection): IncomeSub
   ...subsection,
   firstPaycheckDate: normalizeOptionalDateValue(subsection.firstPaycheckDate),
   secondPaycheckDate: normalizeOptionalDateValue(subsection.secondPaycheckDate),
+  warningThreshold: Number.isFinite(subsection.warningThreshold) && subsection.warningThreshold >= 0
+    ? subsection.warningThreshold
+    : DEFAULT_WARNING_THRESHOLD,
 })
 
 const buildBankNegativeBalanceWarning = (
   startingBalance: number,
   events: BankCashflowEvent[],
+  warningThreshold: number,
 ): BankNegativeBalanceWarning | null => {
   let runningBalance = startingBalance
+  let thresholdWarning: BankNegativeBalanceWarning | null = null
   const sortedEvents = [...events].sort((left, right) => (
     left.date.localeCompare(right.date) ||
     (left.kind === right.kind ? 0 : left.kind === 'inflow' ? -1 : 1)
@@ -760,15 +768,25 @@ const buildBankNegativeBalanceWarning = (
 
   for (const event of sortedEvents) {
     runningBalance += event.kind === 'inflow' ? event.amount : -event.amount
+
     if (runningBalance < -0.004) {
       return {
-        negativeDate: event.date,
+        date: event.date,
         projectedBalance: runningBalance,
+        severity: 'negative',
+      }
+    }
+
+    if (!thresholdWarning && warningThreshold > 0 && runningBalance < warningThreshold - 0.004) {
+      thresholdWarning = {
+        date: event.date,
+        projectedBalance: runningBalance,
+        severity: 'warning',
       }
     }
   }
 
-  return null
+  return thresholdWarning
 }
 
 const getHeaderInputWidth = (label: string, minChars = 0) => `${Math.max(label.length + 2, minChars)}ch`
@@ -1202,6 +1220,9 @@ const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData 
     viewModes: normalizedViewModes,
     firstPaycheckDate: normalizeOptionalDateValue(data.firstPaycheckDate),
     secondPaycheckDate: normalizeOptionalDateValue(data.secondPaycheckDate),
+    defaultBankWarningThreshold: Number.isFinite(data.defaultBankWarningThreshold) && (data.defaultBankWarningThreshold ?? 0) >= 0
+      ? data.defaultBankWarningThreshold
+      : DEFAULT_WARNING_THRESHOLD,
     incomeSubsections: normalizedIncomeSubsections,
     summary: data.summary,
   }
@@ -1666,6 +1687,7 @@ export default function App() {
   const [incomeSubsections, setIncomeSubsections] = useState(defaultIncomeSubsections)
   const [defaultBankFirstPaycheckDate, setDefaultBankFirstPaycheckDate] = useState(defaultFinancialPlanData.firstPaycheckDate ?? '')
   const [defaultBankSecondPaycheckDate, setDefaultBankSecondPaycheckDate] = useState(defaultFinancialPlanData.secondPaycheckDate ?? '')
+  const [defaultBankWarningThreshold, setDefaultBankWarningThreshold] = useState(defaultFinancialPlanData.defaultBankWarningThreshold ?? DEFAULT_WARNING_THRESHOLD)
   const [newBankSubsectionIds, setNewBankSubsectionIds] = useState<Set<string>>(new Set())
   const [selectedBankSubsectionIds, setSelectedBankSubsectionIds] = useState<Set<string>>(new Set())
   const [selectedCreditIds, setSelectedCreditIds] = useState<Set<string>>(new Set())
@@ -1721,6 +1743,8 @@ export default function App() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isCloseCycleDialogOpen, setIsCloseCycleDialogOpen] = useState(false)
   const [isRevertCycleDialogOpen, setIsRevertCycleDialogOpen] = useState(false)
+  const [isBankWarningSettingsDialogOpen, setIsBankWarningSettingsDialogOpen] = useState(false)
+  const [bankWarningThresholdDrafts, setBankWarningThresholdDrafts] = useState<Record<string, number>>({})
   const [pinKey, setPinKey] = useState<CryptoKey | null>(null)
   const [isPinModalOpen, setIsPinModalOpen] = useState(false)
   const [pinModalMode, setPinModalMode] = useState<'new' | 'verify' | 'migrate' | 'change' | 'reset-confirm'>('new')
@@ -2339,6 +2363,7 @@ export default function App() {
         monthEndSalaryArrived: false,
         checkingBalanceLabel: 'Account Balance',
         checkingBalance: 0,
+        warningThreshold: DEFAULT_WARNING_THRESHOLD,
         additionalPaymentsLabel: 'Additional Payments',
         additionalPayments: 0,
         totalBalanceLabel: 'Total Balance',
@@ -2350,6 +2375,54 @@ export default function App() {
 
     setIncomeSubsections(nextSubsections)
     setNewBankSubsectionIds((current) => new Set(current).add(subsectionId))
+  }
+
+  const handleBankWarningSettingsOpen = () => {
+    if (isViewingPreviousCycle || isPlanReadOnly) {
+      return
+    }
+
+    const nextDrafts: Record<string, number> = {
+      [DEFAULT_BANK_EXPENSE_SOURCE_ID]: defaultBankWarningThreshold,
+    }
+
+    incomeSubsections.forEach((subsection) => {
+      nextDrafts[subsection.id] = subsection.warningThreshold
+    })
+
+    setBankWarningThresholdDrafts(nextDrafts)
+    setIsBankWarningSettingsDialogOpen(true)
+  }
+
+  const handleBankWarningSettingsCancel = () => {
+    setIsBankWarningSettingsDialogOpen(false)
+    setBankWarningThresholdDrafts({})
+  }
+
+  const updateBankWarningThresholdDraft = (bankId: string, value: number) => {
+    setBankWarningThresholdDrafts((current) => ({
+      ...current,
+      [bankId]: value,
+    }))
+  }
+
+  const handleBankWarningSettingsSave = () => {
+    const nextDefaultBankWarningThreshold = bankWarningThresholdDrafts[DEFAULT_BANK_EXPENSE_SOURCE_ID] ?? defaultBankWarningThreshold
+    const nextIncomeSubsections = incomeSubsections.map((subsection) => ({
+      ...subsection,
+      warningThreshold: bankWarningThresholdDrafts[subsection.id] ?? subsection.warningThreshold,
+    }))
+    const hasThresholdChanges = Math.abs(nextDefaultBankWarningThreshold - defaultBankWarningThreshold) > 0.004
+      || nextIncomeSubsections.some((subsection, index) => Math.abs(subsection.warningThreshold - incomeSubsections[index].warningThreshold) > 0.004)
+
+    if (hasThresholdChanges) {
+      markCurrentCycleEdited()
+      setDefaultBankWarningThreshold(nextDefaultBankWarningThreshold)
+      setIncomeSubsections(nextIncomeSubsections)
+    }
+
+    setIsBankWarningSettingsDialogOpen(false)
+    setBankWarningThresholdDrafts({})
   }
 
   const toggleBankSubsectionSelection = (subsectionId: string) => {
@@ -2685,7 +2758,7 @@ export default function App() {
       })
     })
 
-    const defaultBankWarning = buildBankNegativeBalanceWarning(displayedCheckingAccountBalanceChase, defaultBankEvents)
+    const defaultBankWarning = buildBankNegativeBalanceWarning(displayedCheckingAccountBalanceChase, defaultBankEvents, defaultBankWarningThreshold)
     if (defaultBankWarning) {
       bankNegativeBalanceWarnings.set(DEFAULT_BANK_EXPENSE_SOURCE_ID, defaultBankWarning)
     }
@@ -2721,7 +2794,7 @@ export default function App() {
         })
       })
 
-      const subsectionWarning = buildBankNegativeBalanceWarning(subsection.checkingBalance, subsectionEvents)
+      const subsectionWarning = buildBankNegativeBalanceWarning(subsection.checkingBalance, subsectionEvents, subsection.warningThreshold)
       if (subsectionWarning) {
         bankNegativeBalanceWarnings.set(subsection.id, subsectionWarning)
       }
@@ -3224,14 +3297,26 @@ export default function App() {
       return null
     }
 
-    return <span className="bank-balance-warning">Balance -ve on {formatShortDate(warning.negativeDate)}</span>
+    return (
+      <span
+        className={joinClassNames(
+          'bank-balance-warning',
+          warning.severity === 'negative' ? 'bank-balance-warning-negative' : 'bank-balance-warning-warning',
+        )}
+      >
+        Balance {currency(warning.projectedBalance)} on {formatShortDate(warning.date)}
+      </span>
+    )
   }
 
   const renderIncomeSubsection = (subsection: IncomeSubsection, index: number) => {
     const totalBalance = getIncomeSubsectionTotalBalance(subsection)
     const monthEndBalance = getBankMonthEndBalance(subsection.id, totalBalance, subsection.additionalIncome)
     const warning = bankNegativeBalanceWarnings.get(subsection.id)
-    const titleClassName = joinClassNames('label-input subsection-title-input', warning ? 'bank-name-warning' : undefined)
+    const titleClassName = joinClassNames(
+      'label-input subsection-title-input',
+      warning ? (warning.severity === 'negative' ? 'bank-name-warning-negative' : 'bank-name-warning-warning') : undefined,
+    )
     const requiresPaycheckDates = subsection.biMonthlySalary > 0
 
     return (
@@ -3342,7 +3427,10 @@ export default function App() {
 
   const renderDefaultBankSubsection = () => {
     const warning = bankNegativeBalanceWarnings.get(DEFAULT_BANK_EXPENSE_SOURCE_ID)
-    const titleClassName = joinClassNames('label-input subsection-title-input', warning ? 'bank-name-warning' : undefined)
+    const titleClassName = joinClassNames(
+      'label-input subsection-title-input',
+      warning ? (warning.severity === 'negative' ? 'bank-name-warning-negative' : 'bank-name-warning-warning') : undefined,
+    )
 
     return (
       <div className="subsection-block chase-subsection">
@@ -3515,6 +3603,7 @@ export default function App() {
       }),
       firstPaycheckDate: overrides.firstPaycheckDate ?? defaultBankFirstPaycheckDate,
       secondPaycheckDate: overrides.secondPaycheckDate ?? defaultBankSecondPaycheckDate,
+      defaultBankWarningThreshold: overrides.defaultBankWarningThreshold ?? defaultBankWarningThreshold,
       incomeSubsections: nextIncomeSubsections,
       summary: overrides.summary,
     }
@@ -3565,6 +3654,7 @@ export default function App() {
       creditAccounts,
       defaultBankFirstPaycheckDate,
       defaultBankSecondPaycheckDate,
+      defaultBankWarningThreshold,
       incomeSubsections,
       otherExpenses,
       planoExpenses,
@@ -3931,6 +4021,7 @@ export default function App() {
     setBankViewMode(normalizedViewModes.bankAccounts)
     setDefaultBankFirstPaycheckDate(normalizedData.firstPaycheckDate ?? '')
     setDefaultBankSecondPaycheckDate(normalizedData.secondPaycheckDate ?? '')
+    setDefaultBankWarningThreshold(normalizedData.defaultBankWarningThreshold ?? DEFAULT_WARNING_THRESHOLD)
     setIncomeSubsections(normalizedData.incomeSubsections ?? defaultIncomeSubsections)
     setNewBankSubsectionIds(new Set())
     setSelectedBankSubsectionIds(new Set())
@@ -7520,6 +7611,54 @@ export default function App() {
         </div>
       ) : null}
 
+      {isBankWarningSettingsDialogOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal-card bank-threshold-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-threshold-settings-title">
+            <p className="eyebrow help-eyebrow">Bank Warning Thresholds</p>
+            <h2 id="bank-threshold-settings-title">Edit Per-Bank Thresholds</h2>
+            <p className="help-intro">
+              Banks turn orange when their projected balance drops below the threshold and red when projected balance goes below {currency(0)}.
+            </p>
+            <div className="bank-threshold-settings-list">
+              <div className="bank-threshold-settings-row">
+                <div>
+                  <p className="bank-threshold-settings-name">{sectionTitles.defaultBank || 'Default Bank'}</p>
+                  <p className="bank-threshold-settings-hint">Orange below this amount</p>
+                </div>
+                <CurrencyInput
+                  value={bankWarningThresholdDrafts[DEFAULT_BANK_EXPENSE_SOURCE_ID] ?? defaultBankWarningThreshold}
+                  onValueChange={(value) => updateBankWarningThresholdDraft(DEFAULT_BANK_EXPENSE_SOURCE_ID, value)}
+                  wrapClassName="bank-threshold-settings-input"
+                  inputClassName="amount-input currency-amount-input"
+                />
+              </div>
+              {incomeSubsections.map((subsection, index) => (
+                <div key={subsection.id} className="bank-threshold-settings-row">
+                  <div>
+                    <p className="bank-threshold-settings-name">{subsection.title || `Bank ${index + 1}`}</p>
+                    <p className="bank-threshold-settings-hint">Orange below this amount</p>
+                  </div>
+                  <CurrencyInput
+                    value={bankWarningThresholdDrafts[subsection.id] ?? subsection.warningThreshold}
+                    onValueChange={(value) => updateBankWarningThresholdDraft(subsection.id, value)}
+                    wrapClassName="bank-threshold-settings-input"
+                    inputClassName="amount-input currency-amount-input"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="toolbar-button" onClick={handleBankWarningSettingsCancel}>
+                Cancel
+              </button>
+              <button type="button" className="toolbar-button" onClick={handleBankWarningSettingsSave}>
+                Save Thresholds
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {isRevertCycleDialogOpen ? (
         <div className="modal-backdrop" role="presentation">
           <section className="modal-card danger-modal" role="alertdialog" aria-modal="true" aria-labelledby="revert-cycle-title">
@@ -8593,6 +8732,15 @@ export default function App() {
                 {selectedBankSubsectionIds.size > 0 && (
                   <button type="button" className="delete-row-button" onClick={deleteSelectedBankSubsections}>Delete ({selectedBankSubsectionIds.size})</button>
                 )}
+                <button
+                  type="button"
+                  className="bank-threshold-settings-button"
+                  onClick={handleBankWarningSettingsOpen}
+                  aria-label="Edit bank warning thresholds"
+                  title="Edit Bank Warning Thresholds"
+                >
+                  ⚙
+                </button>
                 <button type="button" className="add-row-button" onClick={addIncomeSubsection}>+ Add</button>
               </div>
             </div>
@@ -8620,7 +8768,14 @@ export default function App() {
                     )}
                     onClick={() => setExpandedBankSectionId(DEFAULT_BANK_EXPENSE_SOURCE_ID)}
                   >
-                    <span className={joinClassNames('bank-tab-title', defaultBankWarning ? 'bank-name-warning' : undefined)}>{sectionTitles.defaultBank || 'Default Bank'}</span>
+                    <span
+                      className={joinClassNames(
+                        'bank-tab-title',
+                        defaultBankWarning ? (defaultBankWarning.severity === 'negative' ? 'bank-name-warning-negative' : 'bank-name-warning-warning') : undefined,
+                      )}
+                    >
+                      {sectionTitles.defaultBank || 'Default Bank'}
+                    </span>
                     <span className="bank-tab-summary">Month End - {currency(checkingAccountBalanceMonthEndChase)}</span>
                   </button>
                     )
@@ -8646,7 +8801,14 @@ export default function App() {
                         )}
                         onClick={() => setExpandedBankSectionId(subsection.id)}
                       >
-                        <span className={joinClassNames('bank-tab-title', warning ? 'bank-name-warning' : undefined)}>{subsection.title || `Bank ${index + 1}`}</span>
+                        <span
+                          className={joinClassNames(
+                            'bank-tab-title',
+                            warning ? (warning.severity === 'negative' ? 'bank-name-warning-negative' : 'bank-name-warning-warning') : undefined,
+                          )}
+                        >
+                          {subsection.title || `Bank ${index + 1}`}
+                        </span>
                         <span className="bank-tab-summary">Month End - {currency(monthEndBalance)}</span>
                       </button>
                     )

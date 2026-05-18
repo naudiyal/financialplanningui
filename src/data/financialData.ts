@@ -38,6 +38,7 @@ export type IncomeSubsection = {
   monthEndSalaryArrived: boolean
   checkingBalanceLabel: string
   checkingBalance: number
+  warningThreshold: number
   additionalPaymentsLabel: string
   additionalPayments: number
   totalBalanceLabel: string
