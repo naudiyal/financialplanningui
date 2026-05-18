@@ -53,6 +53,7 @@ Open http://localhost:5173 in your browser.
 ## Cycle History And Revert
 
 - Premium history support keeps full closed-cycle snapshots so premium users can open older closed cycles directly from the cycle selector.
+- The `Change in Bank Balance` chart now prefetches every visible closed cycle on load, so premium users see all visible cycle points immediately instead of only after opening older cycles manually.
 - When viewing any closed cycle, the tracker remains read-only for financial data, but users can still switch between table and tab layouts and click across credit, debit, and bank tabs locally without saving those view changes.
 - Revert remains a one-step rollback of the most recent close-cycle action only; it does not revert directly to an arbitrary older closed cycle.
 
