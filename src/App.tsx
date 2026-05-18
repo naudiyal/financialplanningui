@@ -8267,7 +8267,6 @@ export default function App() {
         ref={creditTableWrapperRef}
         style={creditSectionStyle}
       >
-        <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
         <div className="section-content-fit">
           <div className="section-header">
             <h2>
@@ -8300,7 +8299,9 @@ export default function App() {
             </div>
           </div>
           {creditViewMode === 'table' ? (
-            renderCreditAccountsTable('table-wrapper compact-credit-table')
+            <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
+              {renderCreditAccountsTable('table-wrapper compact-credit-table')}
+            </fieldset>
           ) : (
             <div className="credit-tab-shell">
               <div className="credit-tab-strip" role="tablist" aria-label="Credit card account tabs">
@@ -8332,142 +8333,142 @@ export default function App() {
                 })}
               </div>
 
-              {activeDisplayedCreditAccount ? (() => {
-                const account = activeDisplayedCreditAccount
-                const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account, activeCycleStartDate)
-                const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
-                const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
+              <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
+                {activeDisplayedCreditAccount ? (() => {
+                  const account = activeDisplayedCreditAccount
+                  const { totalDueForCard, currentMonthPayment, nextMonthStatementBalance, displayedLastStatementBalance, utilizationPercent } = getCreditMetrics(account, activeCycleStartDate)
+                  const isPastDueUnpaid = isPastDate(account.nextPaymentDate) && !account.paidThisMonth
+                  const isNextPaymentOutsideCycle = shouldHighlightPaymentDate(account, activeCyclePeriod)
 
-                return (
-                  <article
-                    id={`credit-account-panel-${account.id}`}
-                    role="tabpanel"
-                    aria-labelledby={`credit-account-tab-${account.id}`}
-                    className={joinClassNames(
-                      'credit-account-card',
-                      'credit-account-card-expanded',
-                      selectedCreditIds.has(account.id) ? 'credit-account-card-selected' : undefined,
-                      isPastDueUnpaid ? 'credit-account-card-alert' : undefined,
-                    )}
-                  >
-                    <div className="credit-account-card-topbar">
-                      <input
-                        type="text"
-                        value={account.name}
-                        onChange={(e) => updateAccountById(account.id, 'name', e.target.value)}
-                        className="label-input credit-account-card-name"
-                      />
-                      <div className="credit-account-card-title-row">
-                        <label className="credit-account-select">
-                          <input type="checkbox" checked={selectedCreditIds.has(account.id)} onChange={() => toggleCreditSelection(account.id)} />
-                          <span>Select</span>
-                        </label>
-                        <div className="credit-account-badges">
-                          {isPastDueUnpaid ? (
-                            <span className="credit-account-badge credit-account-badge-danger">Past due</span>
-                          ) : null}
-                          {isNextPaymentOutsideCycle ? (
-                            <span className="credit-account-badge credit-account-badge-danger" title="Date outside of cycle">Outside cycle</span>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="credit-account-card-body credit-account-card-body-static">
-                      <div className="credit-account-metric-grid">
-                        <div className="credit-account-metric">
-                          <span>Total Due</span>
-                          <strong>{currency(totalDueForCard)}</strong>
-                        </div>
-                        <div className="credit-account-metric">
-                          <span>Curr Payment</span>
-                          <strong>{currency(currentMonthPayment)}</strong>
-                        </div>
-                        <div className="credit-account-metric">
-                          <span>Next Stmt Balance</span>
-                          <strong>{currency(nextMonthStatementBalance)}</strong>
-                        </div>
-                        <div className="credit-account-metric">
-                          <span>Util %</span>
-                          <strong>{utilizationPercent.toFixed(1)}%</strong>
+                  return (
+                    <article
+                      id={`credit-account-panel-${account.id}`}
+                      role="tabpanel"
+                      aria-labelledby={`credit-account-tab-${account.id}`}
+                      className={joinClassNames(
+                        'credit-account-card',
+                        'credit-account-card-expanded',
+                        selectedCreditIds.has(account.id) ? 'credit-account-card-selected' : undefined,
+                        isPastDueUnpaid ? 'credit-account-card-alert' : undefined,
+                      )}
+                    >
+                      <div className="credit-account-card-topbar">
+                        <input
+                          type="text"
+                          value={account.name}
+                          onChange={(e) => updateAccountById(account.id, 'name', e.target.value)}
+                          className="label-input credit-account-card-name"
+                        />
+                        <div className="credit-account-card-title-row">
+                          <label className="credit-account-select">
+                            <input type="checkbox" checked={selectedCreditIds.has(account.id)} onChange={() => toggleCreditSelection(account.id)} />
+                            <span>Select</span>
+                          </label>
+                          <div className="credit-account-badges">
+                            {isPastDueUnpaid ? (
+                              <span className="credit-account-badge credit-account-badge-danger">Past due</span>
+                            ) : null}
+                            {isNextPaymentOutsideCycle ? (
+                              <span className="credit-account-badge credit-account-badge-danger" title="Date outside of cycle">Outside cycle</span>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
 
-                      <div className="credit-account-fields">
-                        <label className="credit-account-field">
-                          <span>{columnLabels.creditAccounts[1]?.label ?? 'Available Credit'}</span>
-                          <CurrencyInput
-                            value={account.availableCredit}
-                            onValueChange={(value) => updateAccountById(account.id, 'availableCredit', value)}
-                          />
-                        </label>
-                        <label className="credit-account-field">
-                          <span>{columnLabels.creditAccounts[2]?.label ?? 'Current Pymnt Stmt Date'}</span>
-                          <input
-                            type="date"
-                            value={account.lastStatementDate}
-                            onChange={(e) => updateAccountById(account.id, 'lastStatementDate', e.target.value)}
-                          />
-                        </label>
-                        <label className="credit-account-field">
-                          <span>{columnLabels.creditAccounts[3]?.label ?? 'Payment Date'}</span>
-                          <input
-                            type="date"
-                            value={account.nextPaymentDate}
-                            onChange={(e) => updateAccountById(account.id, 'nextPaymentDate', e.target.value)}
-                            className={joinClassNames(isNextPaymentOutsideCycle ? 'cycle-outside-date' : undefined)}
-                            title={isNextPaymentOutsideCycle ? 'Date outside of cycle' : undefined}
-                          />
-                        </label>
-                        <label className="credit-account-field">
-                          <span>{columnLabels.creditAccounts[6]?.label ?? 'Latest Stmt Balance'}</span>
-                          <CurrencyInput
-                            value={displayedLastStatementBalance}
-                            onValueChange={(value) => updateAccountById(account.id, 'lastStatementBalance', value)}
-                          />
-                        </label>
-                        <label className="credit-account-field">
-                          <span>{columnLabels.creditAccounts[7]?.label ?? 'Credit Limit'}</span>
-                          <CurrencyInput
-                            value={account.creditLimit}
-                            onValueChange={(value) => updateAccountById(account.id, 'creditLimit', value)}
-                          />
-                        </label>
-                      </div>
+                      <div className="credit-account-card-body credit-account-card-body-static">
+                        <div className="credit-account-metric-grid">
+                          <div className="credit-account-metric">
+                            <span>Total Due</span>
+                            <strong>{currency(totalDueForCard)}</strong>
+                          </div>
+                          <div className="credit-account-metric">
+                            <span>Curr Payment</span>
+                            <strong>{currency(currentMonthPayment)}</strong>
+                          </div>
+                          <div className="credit-account-metric">
+                            <span>Next Stmt Balance</span>
+                            <strong>{currency(nextMonthStatementBalance)}</strong>
+                          </div>
+                          <div className="credit-account-metric">
+                            <span>Util %</span>
+                            <strong>{utilizationPercent.toFixed(1)}%</strong>
+                          </div>
+                        </div>
 
-                      <div className="credit-account-toggle-row">
-                        <label className={joinClassNames('credit-account-toggle', isPastDueUnpaid ? 'credit-account-toggle-alert' : undefined)}>
-                          <span>{columnLabels.creditAccounts[4]?.label ?? 'Paid'}</span>
-                          <input
-                            type="checkbox"
-                            checked={account.paidThisMonth}
-                            onChange={(e) => updateAccountById(account.id, 'paidThisMonth', e.target.checked)}
-                            className={isPastDueUnpaid ? 'overdue-checkbox' : undefined}
-                          />
-                        </label>
-                        <label className="credit-account-toggle">
-                          <span>{columnLabels.creditAccounts[5]?.label ?? 'Stmt for Next Cycle Pymnt Cycled?'}</span>
-                          <input
-                            type="checkbox"
-                            checked={account.statementCycledAfterPayment}
-                            onChange={(e) => updateAccountById(account.id, 'statementCycledAfterPayment', e.target.checked)}
-                          />
-                        </label>
+                        <div className="credit-account-fields">
+                          <label className="credit-account-field">
+                            <span>{columnLabels.creditAccounts[1]?.label ?? 'Available Credit'}</span>
+                            <CurrencyInput
+                              value={account.availableCredit}
+                              onValueChange={(value) => updateAccountById(account.id, 'availableCredit', value)}
+                            />
+                          </label>
+                          <label className="credit-account-field">
+                            <span>{columnLabels.creditAccounts[2]?.label ?? 'Current Pymnt Stmt Date'}</span>
+                            <input
+                              type="date"
+                              value={account.lastStatementDate}
+                              onChange={(e) => updateAccountById(account.id, 'lastStatementDate', e.target.value)}
+                            />
+                          </label>
+                          <label className="credit-account-field">
+                            <span>{columnLabels.creditAccounts[3]?.label ?? 'Payment Date'}</span>
+                            <input
+                              type="date"
+                              value={account.nextPaymentDate}
+                              onChange={(e) => updateAccountById(account.id, 'nextPaymentDate', e.target.value)}
+                              className={joinClassNames(isNextPaymentOutsideCycle ? 'cycle-outside-date' : undefined)}
+                              title={isNextPaymentOutsideCycle ? 'Date outside of cycle' : undefined}
+                            />
+                          </label>
+                          <label className="credit-account-field">
+                            <span>{columnLabels.creditAccounts[6]?.label ?? 'Latest Stmt Balance'}</span>
+                            <CurrencyInput
+                              value={displayedLastStatementBalance}
+                              onValueChange={(value) => updateAccountById(account.id, 'lastStatementBalance', value)}
+                            />
+                          </label>
+                          <label className="credit-account-field">
+                            <span>{columnLabels.creditAccounts[7]?.label ?? 'Credit Limit'}</span>
+                            <CurrencyInput
+                              value={account.creditLimit}
+                              onValueChange={(value) => updateAccountById(account.id, 'creditLimit', value)}
+                            />
+                          </label>
+                        </div>
+
+                        <div className="credit-account-toggle-row">
+                          <label className={joinClassNames('credit-account-toggle', isPastDueUnpaid ? 'credit-account-toggle-alert' : undefined)}>
+                            <span>{columnLabels.creditAccounts[4]?.label ?? 'Paid'}</span>
+                            <input
+                              type="checkbox"
+                              checked={account.paidThisMonth}
+                              onChange={(e) => updateAccountById(account.id, 'paidThisMonth', e.target.checked)}
+                              className={isPastDueUnpaid ? 'overdue-checkbox' : undefined}
+                            />
+                          </label>
+                          <label className="credit-account-toggle">
+                            <span>{columnLabels.creditAccounts[5]?.label ?? 'Stmt for Next Cycle Pymnt Cycled?'}</span>
+                            <input
+                              type="checkbox"
+                              checked={account.statementCycledAfterPayment}
+                              onChange={(e) => updateAccountById(account.id, 'statementCycledAfterPayment', e.target.checked)}
+                            />
+                          </label>
+                        </div>
                       </div>
-                    </div>
-                  </article>
-                )
-              })() : null}
-              {renderCreditAccountsTable('table-wrapper compact-credit-table-measurement')}
+                    </article>
+                  )
+                })() : null}
+                {renderCreditAccountsTable('table-wrapper compact-credit-table-measurement')}
+              </fieldset>
             </div>
           )}
         </div>
-        </fieldset>
       </section>
 
       <div className="section-cluster finance-overview-row expense-overview-row" style={creditWidthCapStyle}>
         <section className="expense-section compact-section">
-          <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
           <div className="section-header">
             <h2>
               <input
@@ -8499,11 +8500,12 @@ export default function App() {
             </div>
           </div>
           {expenseViewMode === 'table' ? (
-          <div
-            className="table-wrapper compact-expense-table"
-            style={creditWidthMaxStyle}
-          >
-            <table className="debit-expenses-table">
+          <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
+            <div
+              className="table-wrapper compact-expense-table"
+              style={creditWidthMaxStyle}
+            >
+              <table className="debit-expenses-table">
               <thead>
                 <tr>
                   <th className="select-col"></th>
@@ -8615,8 +8617,9 @@ export default function App() {
                   <td>{currency(debitCardExpensesTotalNext)}</td>
                 </tr>
               </tbody>
-            </table>
-          </div>
+              </table>
+            </div>
+          </fieldset>
           ) : (
             <div className="expense-tab-shell">
               <div className="expense-tab-strip" role="tablist" aria-label="Debit expense tabs">
@@ -8648,112 +8651,113 @@ export default function App() {
                 })}
               </div>
 
-              {activeDisplayedExpenseRow ? (() => {
-                const { item, setter } = activeDisplayedExpenseRow
-                const isPastDueCurrentExpense = isPastDate(item.payDate) && Math.abs(item.current) > 0.004
-                const isExpenseDateOutsideCycle = isDateOutsideCyclePeriod(item.payDate, activeCyclePeriod)
-                const payFromLabel = getExpensePayFromLabel(normalizeExpensePayFromBankId(item.payFromBankId, validExpensePayFromBankIds))
+              <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
+                {activeDisplayedExpenseRow ? (() => {
+                  const { item, setter } = activeDisplayedExpenseRow
+                  const isPastDueCurrentExpense = isPastDate(item.payDate) && Math.abs(item.current) > 0.004
+                  const isExpenseDateOutsideCycle = isDateOutsideCyclePeriod(item.payDate, activeCyclePeriod)
+                  const payFromLabel = getExpensePayFromLabel(normalizeExpensePayFromBankId(item.payFromBankId, validExpensePayFromBankIds))
 
-                return (
-                  <article
-                    id={`expense-row-panel-${item.id}`}
-                    role="tabpanel"
-                    aria-labelledby={`expense-row-tab-${item.id}`}
-                    className={joinClassNames(
-                      'expense-item-card',
-                      selectedExpenseIds.has(item.id) ? 'expense-item-card-selected' : undefined,
-                      isPastDueCurrentExpense || isExpenseDateOutsideCycle ? 'expense-item-card-alert' : undefined,
-                    )}
-                  >
-                    <div className="expense-item-card-topbar">
-                      <input
-                        type="text"
-                        value={item.label}
-                        onChange={(e) => updateExpenseLabelById(setter, item.id, e.target.value)}
-                        className="label-input expense-item-card-name"
-                      />
-                      <div className="expense-item-card-title-row">
-                        <label className="expense-item-select">
-                          <input type="checkbox" checked={selectedExpenseIds.has(item.id)} onChange={() => toggleExpenseSelection(item.id)} />
-                          <span>Select</span>
-                        </label>
-                        <div className="expense-item-badges">
-                          {isPastDueCurrentExpense ? (
-                            <span className="expense-item-badge expense-item-badge-danger">Past due</span>
-                          ) : null}
-                          {isExpenseDateOutsideCycle ? (
-                            <span className="expense-item-badge expense-item-badge-danger" title="Date outside of cycle">Outside cycle</span>
-                          ) : null}
+                  return (
+                    <article
+                      id={`expense-row-panel-${item.id}`}
+                      role="tabpanel"
+                      aria-labelledby={`expense-row-tab-${item.id}`}
+                      className={joinClassNames(
+                        'expense-item-card',
+                        selectedExpenseIds.has(item.id) ? 'expense-item-card-selected' : undefined,
+                        isPastDueCurrentExpense || isExpenseDateOutsideCycle ? 'expense-item-card-alert' : undefined,
+                      )}
+                    >
+                      <div className="expense-item-card-topbar">
+                        <input
+                          type="text"
+                          value={item.label}
+                          onChange={(e) => updateExpenseLabelById(setter, item.id, e.target.value)}
+                          className="label-input expense-item-card-name"
+                        />
+                        <div className="expense-item-card-title-row">
+                          <label className="expense-item-select">
+                            <input type="checkbox" checked={selectedExpenseIds.has(item.id)} onChange={() => toggleExpenseSelection(item.id)} />
+                            <span>Select</span>
+                          </label>
+                          <div className="expense-item-badges">
+                            {isPastDueCurrentExpense ? (
+                              <span className="expense-item-badge expense-item-badge-danger">Past due</span>
+                            ) : null}
+                            {isExpenseDateOutsideCycle ? (
+                              <span className="expense-item-badge expense-item-badge-danger" title="Date outside of cycle">Outside cycle</span>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="expense-item-card-body">
-                      <div className="expense-item-fields">
-                        <label className="expense-item-field expense-item-field-wide">
-                          <span>{columnLabels.debitExpenses[0]?.label ?? 'Expense'}</span>
-                          <input
-                            type="text"
-                            value={item.label}
-                            onChange={(e) => updateExpenseLabelById(setter, item.id, e.target.value)}
-                          />
-                        </label>
-                        <label className="expense-item-field">
-                          <span>{columnLabels.debitExpenses[1]?.label ?? 'Pay Date'}</span>
-                          <input
-                            type="date"
-                            value={item.payDate}
-                            onChange={(e) => updateExpenseItemById(setter, item.id, 'payDate', e.target.value)}
-                            className={joinClassNames(isExpenseDateOutsideCycle ? 'cycle-outside-date' : undefined)}
-                            title={isExpenseDateOutsideCycle ? 'Date outside of cycle' : undefined}
-                          />
-                        </label>
-                        <label className="expense-item-field">
-                          <span>{columnLabels.debitExpenses[2]?.label ?? 'Pay From'}</span>
-                          <select
-                            value={normalizeExpensePayFromBankId(item.payFromBankId, validExpensePayFromBankIds)}
-                            onChange={(e) => updateExpenseItemById(setter, item.id, 'payFromBankId', e.target.value)}
-                          >
-                            {expensePayFromOptions.map((option) => (
-                              <option key={option.id} value={option.id}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="expense-item-field">
-                          <span>{columnLabels.debitExpenses[3]?.label ?? 'Paid'}</span>
-                          <input
-                            type="checkbox"
-                            checked={item.paid}
-                            onChange={(e) => updateExpenseItemById(setter, item.id, 'paid', e.target.checked)}
-                          />
-                        </label>
-                        <label className="expense-item-field">
-                          <span>{columnLabels.debitExpenses[4]?.label ?? 'Current Month Payment'}</span>
-                          <CurrencyInput
-                            value={item.current}
-                            onValueChange={(value) => updateExpenseItemById(setter, item.id, 'current', value)}
-                            wrapClassName="expense-currency-input-wrap"
-                            inputClassName={joinClassNames('currency-amount-input', isPastDueCurrentExpense ? 'overdue-amount-input' : undefined)}
-                          />
-                        </label>
-                        <label className="expense-item-field">
-                          <span>{columnLabels.debitExpenses[5]?.label ?? 'Next Month Payment'}</span>
-                          <CurrencyInput
-                            value={item.next}
-                            onValueChange={(value) => updateExpenseItemById(setter, item.id, 'next', value)}
-                            wrapClassName="expense-currency-input-wrap"
-                          />
-                        </label>
+                      <div className="expense-item-card-body">
+                        <div className="expense-item-fields">
+                          <label className="expense-item-field expense-item-field-wide">
+                            <span>{columnLabels.debitExpenses[0]?.label ?? 'Expense'}</span>
+                            <input
+                              type="text"
+                              value={item.label}
+                              onChange={(e) => updateExpenseLabelById(setter, item.id, e.target.value)}
+                            />
+                          </label>
+                          <label className="expense-item-field">
+                            <span>{columnLabels.debitExpenses[1]?.label ?? 'Pay Date'}</span>
+                            <input
+                              type="date"
+                              value={item.payDate}
+                              onChange={(e) => updateExpenseItemById(setter, item.id, 'payDate', e.target.value)}
+                              className={joinClassNames(isExpenseDateOutsideCycle ? 'cycle-outside-date' : undefined)}
+                              title={isExpenseDateOutsideCycle ? 'Date outside of cycle' : undefined}
+                            />
+                          </label>
+                          <label className="expense-item-field">
+                            <span>{columnLabels.debitExpenses[2]?.label ?? 'Pay From'}</span>
+                            <select
+                              value={normalizeExpensePayFromBankId(item.payFromBankId, validExpensePayFromBankIds)}
+                              onChange={(e) => updateExpenseItemById(setter, item.id, 'payFromBankId', e.target.value)}
+                            >
+                              {expensePayFromOptions.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="expense-item-field">
+                            <span>{columnLabels.debitExpenses[3]?.label ?? 'Paid'}</span>
+                            <input
+                              type="checkbox"
+                              checked={item.paid}
+                              onChange={(e) => updateExpenseItemById(setter, item.id, 'paid', e.target.checked)}
+                            />
+                          </label>
+                          <label className="expense-item-field">
+                            <span>{columnLabels.debitExpenses[4]?.label ?? 'Current Month Payment'}</span>
+                            <CurrencyInput
+                              value={item.current}
+                              onValueChange={(value) => updateExpenseItemById(setter, item.id, 'current', value)}
+                              wrapClassName="expense-currency-input-wrap"
+                              inputClassName={joinClassNames('currency-amount-input', isPastDueCurrentExpense ? 'overdue-amount-input' : undefined)}
+                            />
+                          </label>
+                          <label className="expense-item-field">
+                            <span>{columnLabels.debitExpenses[5]?.label ?? 'Next Month Payment'}</span>
+                            <CurrencyInput
+                              value={item.next}
+                              onValueChange={(value) => updateExpenseItemById(setter, item.id, 'next', value)}
+                              wrapClassName="expense-currency-input-wrap"
+                            />
+                          </label>
+                        </div>
                       </div>
-                    </div>
-                  </article>
-                )
-              })() : null}
+                    </article>
+                  )
+                })() : null}
+              </fieldset>
             </div>
           )}
-          </fieldset>
         </section>
 
         <div className="compact-side-panel expense-analytics-stack">
@@ -8870,7 +8874,6 @@ export default function App() {
       <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
 
         <section className="compact-section compact-side-panel bank-accounts-section">
-          <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
           <div className="section-content-fit">
             <div className="section-header bank-section-header">
               <h2>
@@ -8917,10 +8920,12 @@ export default function App() {
               </div>
             </div>
             {bankViewMode === 'table' ? (
-              <div className="income-subsection-grid">
-                {renderDefaultBankSubsection()}
-                {incomeSubsections.map(renderIncomeSubsection)}
-              </div>
+              <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
+                <div className="income-subsection-grid">
+                  {renderDefaultBankSubsection()}
+                  {incomeSubsections.map(renderIncomeSubsection)}
+                </div>
+              </fieldset>
             ) : (
               <div className="bank-tab-shell">
                 <div className="bank-tab-strip" role="tablist" aria-label="Bank account tabs">
@@ -8987,39 +8992,42 @@ export default function App() {
                   })}
                 </div>
 
-                {expandedBankSectionId === DEFAULT_BANK_EXPENSE_SOURCE_ID ? (
-                  <div
-                    id={`bank-section-panel-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
-                    role="tabpanel"
-                    aria-labelledby={`bank-section-tab-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
-                    className="bank-tab-panel"
-                  >
-                    {renderDefaultBankSubsection()}
-                  </div>
-                ) : activeDisplayedBankSubsection ? (
-                  <div
-                    id={`bank-section-panel-${activeDisplayedBankSubsection.id}`}
-                    role="tabpanel"
-                    aria-labelledby={`bank-section-tab-${activeDisplayedBankSubsection.id}`}
-                    className="bank-tab-panel"
-                  >
-                    {renderIncomeSubsection(
-                      activeDisplayedBankSubsection,
-                      incomeSubsections.findIndex((subsection) => subsection.id === activeDisplayedBankSubsection.id),
-                    )}
-                  </div>
-                ) : null}
+                <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
+                  {expandedBankSectionId === DEFAULT_BANK_EXPENSE_SOURCE_ID ? (
+                    <div
+                      id={`bank-section-panel-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
+                      role="tabpanel"
+                      aria-labelledby={`bank-section-tab-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
+                      className="bank-tab-panel"
+                    >
+                      {renderDefaultBankSubsection()}
+                    </div>
+                  ) : activeDisplayedBankSubsection ? (
+                    <div
+                      id={`bank-section-panel-${activeDisplayedBankSubsection.id}`}
+                      role="tabpanel"
+                      aria-labelledby={`bank-section-tab-${activeDisplayedBankSubsection.id}`}
+                      className="bank-tab-panel"
+                    >
+                      {renderIncomeSubsection(
+                        activeDisplayedBankSubsection,
+                        incomeSubsections.findIndex((subsection) => subsection.id === activeDisplayedBankSubsection.id),
+                      )}
+                    </div>
+                  ) : null}
+                </fieldset>
               </div>
             )}
             {otherIncomeItems.length > 0 ? (
-              <div className="subsection-block">
-                <div className="card-list">
-                  {otherIncomeItems.map(renderIncomeCard)}
+              <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
+                <div className="subsection-block">
+                  <div className="card-list">
+                    {otherIncomeItems.map(renderIncomeCard)}
+                  </div>
                 </div>
-              </div>
+              </fieldset>
             ) : null}
           </div>
-          </fieldset>
         </section>
 
         <article className="chart-card compact-section cashflow-side-panel">
