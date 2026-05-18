@@ -754,6 +754,19 @@ const normalizeIncomeSubsectionForUi = (subsection: IncomeSubsection): IncomeSub
     : DEFAULT_WARNING_THRESHOLD,
 })
 
+const withUpdatedWarningThresholds = (
+  data: FinancialPlanData,
+  defaultBankWarningThreshold: number,
+  subsectionThresholds: Map<string, number>,
+): FinancialPlanData => ({
+  ...data,
+  defaultBankWarningThreshold,
+  incomeSubsections: (data.incomeSubsections ?? defaultIncomeSubsections).map((subsection) => ({
+    ...subsection,
+    warningThreshold: subsectionThresholds.get(subsection.id) ?? subsection.warningThreshold,
+  })),
+})
+
 const buildBankNegativeBalanceWarning = (
   startingBalance: number,
   events: BankCashflowEvent[],
@@ -793,6 +806,22 @@ const getHeaderInputWidth = (label: string, minChars = 0) => `${Math.max(label.l
 
 const DEFAULT_BANK_EXPENSE_SOURCE_ID = 'default-bank'
 const TOTAL_BANK_BALANCE_SERIES_KEY = '__total-bank-balance__'
+const COMPACT_CHART_TOOLTIP_PROPS = {
+  contentStyle: {
+    borderRadius: 4,
+    border: '1px solid rgba(148,163,184,0.28)',
+    fontSize: 9,
+    padding: '6px 8px',
+  },
+  itemStyle: {
+    fontSize: 9,
+    padding: 0,
+  },
+  labelStyle: {
+    fontSize: 9,
+    marginBottom: 3,
+  },
+} as const
 
 const initialPlanoExpenses: ExpenseItem[] = [
   { id: 'plano-water', label: 'Water (Chase)', payDate: convertToISODate('24-Mar'), payFromBankId: DEFAULT_BANK_EXPENSE_SOURCE_ID, paid: false, current: 0, next: 87.94 },
@@ -2406,23 +2435,168 @@ export default function App() {
     }))
   }
 
-  const handleBankWarningSettingsSave = () => {
+  const handleBankWarningSettingsSave = async () => {
+    blurActiveFormControl()
+
     const nextDefaultBankWarningThreshold = bankWarningThresholdDrafts[DEFAULT_BANK_EXPENSE_SOURCE_ID] ?? defaultBankWarningThreshold
+    const nextThresholdsBySubsectionId = new Map(
+      incomeSubsections.map((subsection) => [
+        subsection.id,
+        bankWarningThresholdDrafts[subsection.id] ?? subsection.warningThreshold,
+      ]),
+    )
     const nextIncomeSubsections = incomeSubsections.map((subsection) => ({
       ...subsection,
-      warningThreshold: bankWarningThresholdDrafts[subsection.id] ?? subsection.warningThreshold,
+      warningThreshold: nextThresholdsBySubsectionId.get(subsection.id) ?? subsection.warningThreshold,
     }))
     const hasThresholdChanges = Math.abs(nextDefaultBankWarningThreshold - defaultBankWarningThreshold) > 0.004
       || nextIncomeSubsections.some((subsection, index) => Math.abs(subsection.warningThreshold - incomeSubsections[index].warningThreshold) > 0.004)
 
-    if (hasThresholdChanges) {
-      markCurrentCycleEdited()
-      setDefaultBankWarningThreshold(nextDefaultBankWarningThreshold)
-      setIncomeSubsections(nextIncomeSubsections)
+    if (!hasThresholdChanges) {
+      setIsBankWarningSettingsDialogOpen(false)
+      setBankWarningThresholdDrafts({})
+      return
     }
 
-    setIsBankWarningSettingsDialogOpen(false)
-    setBankWarningThresholdDrafts({})
+    const activeSnapshot = isSampleMode ? samplePlanSnapshot : personalPlanSnapshot
+    const baselinePlan = activeSnapshot?.data ?? buildPayload()
+    const thresholdOnlyPayload = withUpdatedWarningThresholds(
+      baselinePlan,
+      nextDefaultBankWarningThreshold,
+      nextThresholdsBySubsectionId,
+    )
+    const currentLocalPayloadWithThresholds = withUpdatedWarningThresholds(
+      buildPayload(),
+      nextDefaultBankWarningThreshold,
+      nextThresholdsBySubsectionId,
+    )
+    const savedThresholdSignature = getFinancialPlanSignature(thresholdOnlyPayload)
+    const localThresholdSignature = getFinancialPlanSignature(currentLocalPayloadWithThresholds)
+
+    if (isSampleMode) {
+      if (!canEditSamplePlan) {
+        setSaveState('idle')
+        setSaveMessage('')
+        return
+      }
+
+      setSaveState('saving')
+      setSaveMessage('Saving thresholds...')
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/financial-plan/sample?timelineType=${timelineType}`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(thresholdOnlyPayload),
+        })
+
+        if (response.status === 401) {
+          setAuthenticatedUser(null)
+          setAuthState('unauthenticated')
+          setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
+          setSaveState('idle')
+          setSaveMessage('')
+          return
+        }
+
+        if (response.status === 403) {
+          setSaveState('error')
+          setSaveMessage('Only the configured admin can save the sample plan.')
+          return
+        }
+
+        if (!response.ok) {
+          throw new Error(`Failed to save sample threshold settings: ${response.status}`)
+        }
+
+        const cycleResponse: FinancialPlanCycleResponse = await response.json()
+        const normalizedSavedData = normalizeFinancialPlanData(thresholdOnlyPayload)
+
+        setSamplePlanSnapshot({
+          data: normalizedSavedData,
+          loadedSignature: savedThresholdSignature,
+          saveState: 'saved',
+          saveMessage: 'Thresholds saved to server',
+        })
+        setDefaultBankWarningThreshold(nextDefaultBankWarningThreshold)
+        setIncomeSubsections(nextIncomeSubsections)
+        setLastCycleSavedAt(cycleResponse.lastCycleSavedAt)
+        setLoadedPlanSignature(savedThresholdSignature)
+        setHasCurrentCycleUserEdits(localThresholdSignature !== savedThresholdSignature)
+        setSaveState('saved')
+        setSaveMessage('Thresholds saved to server')
+        setIsBankWarningSettingsDialogOpen(false)
+        setBankWarningThresholdDrafts({})
+        return
+      } catch {
+        setSaveState('error')
+        setSaveMessage('Threshold save failed. Check the API server.')
+        return
+      }
+    }
+
+    setSaveState('saving')
+    setSaveMessage('Saving thresholds...')
+
+    try {
+      const isEncryptionActive = !!pinKey && !(authenticatedUser?.encryptionExempt ?? false)
+      const bodyPayload = isEncryptionActive ? await buildEncryptedWrapper(thresholdOnlyPayload, pinKey) : thresholdOnlyPayload
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=current`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(bodyPayload),
+      })
+
+      if (response.status === 401) {
+        setAuthenticatedUser(null)
+        setPinKey(null)
+        setAuthState('unauthenticated')
+        setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
+        setSaveState('idle')
+        setSaveMessage('')
+        return
+      }
+
+      if (!response.ok) {
+        throw new Error(`Failed to save threshold settings: ${response.status}`)
+      }
+
+      const savedResponse: FinancialPlanCycleResponse = await response.json()
+      if (savedResponse.data.pinVerify) {
+        setStoredPinVerify(savedResponse.data.pinVerify)
+        setStoredPinVerifyIv(savedResponse.data.pinVerifyIv ?? null)
+      }
+
+      const normalizedSavedData = normalizeFinancialPlanData(thresholdOnlyPayload)
+      setPersonalPlanSnapshot({
+        data: normalizedSavedData,
+        loadedSignature: savedThresholdSignature,
+        saveState: 'saved',
+        saveMessage: 'Thresholds saved to server',
+      })
+      setHasSavedPersonalPlan(savedResponse.hasSavedPlan)
+      setShowSamplePrompt(!savedResponse.hasSavedPlan)
+      setDefaultBankWarningThreshold(nextDefaultBankWarningThreshold)
+      setIncomeSubsections(nextIncomeSubsections)
+      setLastCycleSavedAt(savedResponse.lastCycleSavedAt)
+      setLoadedPlanSignature(savedThresholdSignature)
+      setHasCurrentCycleUserEdits(localThresholdSignature !== savedThresholdSignature)
+      setSaveState('saved')
+      setSaveMessage('Thresholds saved to server')
+      setPendingCloseCycleReset(null)
+      setSuppressCycleSwitchWarning(false)
+      setIsBankWarningSettingsDialogOpen(false)
+      setBankWarningThresholdDrafts({})
+    } catch {
+      setSaveState('error')
+      setSaveMessage('Threshold save failed. Check the API server.')
+    }
   }
 
   const toggleBankSubsectionSelection = (subsectionId: string) => {
@@ -7623,7 +7797,6 @@ export default function App() {
               <div className="bank-threshold-settings-row">
                 <div>
                   <p className="bank-threshold-settings-name">{sectionTitles.defaultBank || 'Default Bank'}</p>
-                  <p className="bank-threshold-settings-hint">Orange below this amount</p>
                 </div>
                 <CurrencyInput
                   value={bankWarningThresholdDrafts[DEFAULT_BANK_EXPENSE_SOURCE_ID] ?? defaultBankWarningThreshold}
@@ -7636,7 +7809,6 @@ export default function App() {
                 <div key={subsection.id} className="bank-threshold-settings-row">
                   <div>
                     <p className="bank-threshold-settings-name">{subsection.title || `Bank ${index + 1}`}</p>
-                    <p className="bank-threshold-settings-hint">Orange below this amount</p>
                   </div>
                   <CurrencyInput
                     value={bankWarningThresholdDrafts[subsection.id] ?? subsection.warningThreshold}
@@ -7648,11 +7820,11 @@ export default function App() {
               ))}
             </div>
             <div className="modal-actions">
-              <button type="button" className="toolbar-button" onClick={handleBankWarningSettingsCancel}>
+              <button type="button" className="toolbar-button" onClick={handleBankWarningSettingsCancel} disabled={saveState === 'saving'}>
                 Cancel
               </button>
-              <button type="button" className="toolbar-button" onClick={handleBankWarningSettingsSave}>
-                Save Thresholds
+              <button type="button" className="toolbar-button" onClick={() => { void handleBankWarningSettingsSave() }} disabled={saveState === 'saving'}>
+                {saveState === 'saving' ? 'Saving...' : 'Save Thresholds'}
               </button>
             </div>
           </section>
@@ -8030,7 +8202,7 @@ export default function App() {
                       <Cell key={entry.name} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: number) => currency(value)} />
+                  <Tooltip {...COMPACT_CHART_TOOLTIP_PROPS} formatter={(value: number) => currency(value)} />
                   <Legend wrapperStyle={{ fontSize: '11px' }} />
                 </PieChart>
               </ResponsiveContainer>
@@ -8061,7 +8233,7 @@ export default function App() {
                   axisLine={false}
                   tick={renderCreditTotalDueYAxisTick}
                 />
-                <Tooltip formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName ?? ''} />
+                <Tooltip {...COMPACT_CHART_TOOLTIP_PROPS} formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName ?? ''} />
                 <Legend wrapperStyle={{ fontSize: '11px' }} />
                 <Bar dataKey="paymentDue" name="Payment Due" stackId="totalDue" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} isAnimationActive={false} />
                 <Bar dataKey="nextStmtBalance" name="Next Stmt Balance" stackId="totalDue" fill={CHART_COLORS.deferred} radius={[0, 6, 6, 0]} isAnimationActive={false} />
@@ -8080,7 +8252,7 @@ export default function App() {
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
                 <XAxis dataKey="payDateLabel" stroke={CHART_COLORS.text} fontSize={11} />
                 <YAxis tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={11} width={48} />
-                <Tooltip formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.name ?? ''} />
+                <Tooltip {...COMPACT_CHART_TOOLTIP_PROPS} formatter={(value: number) => currency(value)} labelFormatter={(_, payload) => payload?.[0]?.payload?.name ?? ''} />
                 <Legend wrapperStyle={{ fontSize: '11px' }} />
                 <Bar dataKey="paymentDue" name="Payment Due" fill={CHART_COLORS.current} radius={[6, 6, 0, 0]} isAnimationActive={false} />
                 <Bar dataKey="nextBalance" name="Next Stmt" fill={CHART_COLORS.next} radius={[6, 6, 0, 0]} isAnimationActive={false} />
@@ -8612,7 +8784,7 @@ export default function App() {
                             <Cell key={entry.name} fill={entry.color} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(value: number) => currency(value)} />
+                        <Tooltip {...COMPACT_CHART_TOOLTIP_PROPS} formatter={(value: number) => currency(value)} />
                         <Legend wrapperStyle={{ fontSize: '11px' }} />
                       </PieChart>
                     </ResponsiveContainer>
@@ -8643,7 +8815,7 @@ export default function App() {
                             <Cell key={entry.name} fill={entry.color} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(value: number) => currency(value)} />
+                        <Tooltip {...COMPACT_CHART_TOOLTIP_PROPS} formatter={(value: number) => currency(value)} />
                         <Legend wrapperStyle={{ fontSize: '11px' }} />
                       </PieChart>
                     </ResponsiveContainer>
@@ -8676,7 +8848,7 @@ export default function App() {
                       stroke={CHART_COLORS.text}
                       fontSize={10}
                     />
-                    <Tooltip formatter={(value: number) => currency(value)} />
+                    <Tooltip {...COMPACT_CHART_TOOLTIP_PROPS} formatter={(value: number) => currency(value)} />
                     <Legend wrapperStyle={{ fontSize: '10px' }} />
                     <Bar dataKey="current" name="Current Month Payment" stackId="payFromTotal" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} barSize={10} isAnimationActive={false}>
                       <LabelList dataKey="current" content={renderCompactBarValueLabel} />
@@ -8707,12 +8879,12 @@ export default function App() {
                   value={sectionTitles.incomeSchedule}
                   readOnly
                   aria-readonly="true"
-                  className="label-input section-title-input"
-                  style={{ width: getHeaderInputWidth(sectionTitles.incomeSchedule, 14) }}
+                  className="label-input section-title-input bank-section-title-input"
+                  style={{ width: `${Math.max(sectionTitles.incomeSchedule.length, 8)}ch` }}
                 />
               </h2>
               <div style={{ marginLeft: 'auto', marginRight: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>Month End Bank Balance</span>
+                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>Month End Bal</span>
                 <span style={{ fontSize: '0.92rem', color: '#0f766e', fontWeight: 700 }}>{currency(totalMonthEndBalanceMinusDues)}</span>
               </div>
               <div className="section-header-actions">
@@ -8878,6 +9050,7 @@ export default function App() {
                     width={76}
                   />
                   <Tooltip
+                    {...COMPACT_CHART_TOOLTIP_PROPS}
                     formatter={(value: unknown, name: string) => {
                       if (typeof value !== 'number' || Number.isNaN(value)) {
                         return ['—', name]
@@ -8889,7 +9062,6 @@ export default function App() {
                       const matchingCycle = bankBalanceChartCycles.find((cycle) => getCyclePeriodKey(cycle.cycle) === firstPoint?.cycleKey)
                       return matchingCycle ? formatCycleRangeLabel(matchingCycle.cycle) : ''
                     }}
-                    contentStyle={{ borderRadius: 8, border: '1px solid rgba(148,163,184,0.28)', fontSize: 13 }}
                   />
                   <Legend wrapperStyle={{ fontSize: 13, paddingTop: 8 }} />
                   {bankComparisonSeriesWithTotal.map((bank, index) => (

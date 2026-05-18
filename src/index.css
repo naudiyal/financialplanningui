@@ -2469,9 +2469,9 @@ tbody tr:hover {
 }
 
 .bank-threshold-settings-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.25rem;
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
 }
 
@@ -2482,15 +2482,10 @@ tbody tr:hover {
   color: #0f172a;
 }
 
-.bank-threshold-settings-hint {
-  margin: 0.18rem 0 0;
-  font-size: 0.75rem;
-  color: #64748b;
-}
-
 .bank-threshold-settings-input {
-  width: 8.5rem;
+  width: 4.25rem;
   flex: 0 0 auto;
+  justify-self: end;
 }
 
 .currency-input-wrap {
@@ -3188,6 +3183,10 @@ input.section-title-input {
   }
 
 @media (max-width: 560px) {
+  .bank-section-title-input {
+    max-width: 11ch;
+  }
+
   .modal-backdrop {
     place-items: start center;
     padding: 0.75rem;
