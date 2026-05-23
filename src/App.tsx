@@ -889,7 +889,7 @@ type ExpenseRow = {
 }
 
 const DEFAULT_CREDIT_SORT: SortState<CreditSortKey> = {
-  key: 'lastStatementDate',
+  key: 'nextPaymentDate',
   direction: 'asc',
 }
 
@@ -1844,6 +1844,44 @@ export default function App() {
   const skipNextCarryoverResetRef = useRef(false)
   const bankBalanceHistoryRequestIdRef = useRef(0)
   const pinSetupInitiatedRef = useRef(false)
+  const previousAuthenticatedIdentityRef = useRef<string | null>(null)
+
+  const resetEncryptionSessionState = () => {
+    setPinKey(null)
+    setViewerEncryptionKey(null)
+    setPendingEncryptedPlanResponse(null)
+    setPendingEncryptedViewerPlanResponse(null)
+    setPendingEncryptedViewerUserSub(null)
+    setStoredPinVerify(null)
+    setStoredPinVerifyIv(null)
+    setPinInput('')
+    setPinModalError('')
+    setIsPinModalOpen(false)
+  }
+
+  useEffect(() => {
+    const authenticatedIdentity = authenticatedUser?.email?.trim().toLowerCase() ?? null
+    const previousAuthenticatedIdentity = previousAuthenticatedIdentityRef.current
+
+    if (authState !== 'authenticated') {
+      previousAuthenticatedIdentityRef.current = null
+      resetEncryptionSessionState()
+      return
+    }
+
+    if (!authenticatedIdentity) {
+      return
+    }
+
+    if (previousAuthenticatedIdentity && previousAuthenticatedIdentity !== authenticatedIdentity) {
+      resetEncryptionSessionState()
+      setSelectedSharedViewerUserSub('')
+      setLoadedSharedViewerUserSub('')
+      setBankBalanceHistoryCycles([])
+    }
+
+    previousAuthenticatedIdentityRef.current = authenticatedIdentity
+  }, [authState, authenticatedUser?.email])
 
   useEffect(() => {
     localBankBalanceHistoryCyclesRef.current.clear()
@@ -5652,8 +5690,7 @@ export default function App() {
     }
 
     setAuthenticatedUser(null)
-    setPinKey(null)
-    setViewerEncryptionKey(null)
+  resetEncryptionSessionState()
     pinSetupInitiatedRef.current = false
     setAuthState('unauthenticated')
     setAuthScreenMode('default')
@@ -5664,8 +5701,6 @@ export default function App() {
     setPlanViewMode('personal')
     setPinModalTimelineType('START_TO_END')
     setPinModalExiting(false)
-    setPendingEncryptedViewerPlanResponse(null)
-    setPendingEncryptedViewerUserSub(null)
     setSharedViewerUsers([])
     setSelectedSharedViewerUserSub('')
     setLoadedSharedViewerUserSub('')
