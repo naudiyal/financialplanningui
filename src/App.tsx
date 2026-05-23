@@ -91,9 +91,14 @@ type AuthStatusResponse = {
   requiredTermsVersion: string | null
   acceptedTermsVersion: string | null
   acceptedTermsAt: string | null
+  userSub: string | null
   email: string | null
   name: string | null
   pictureUrl: string | null
+}
+
+type TabAuthTokenResponse = {
+  token: string
 }
 
 type SharedViewerUserSummary = {
@@ -289,6 +294,7 @@ const SUPPORTED_CURRENCIES: readonly CurrencyConfig[] = [
 ]
 
 const CURRENCY_STORAGE_KEY = 'mbb_currency_code'
+const TAB_AUTH_TOKEN_STORAGE_KEY = 'mbb_tab_auth_token'
 
 let _activeCurrency: CurrencyConfig =
   SUPPORTED_CURRENCIES.find(c => c.code === (localStorage.getItem(CURRENCY_STORAGE_KEY) ?? 'USD'))
@@ -1752,10 +1758,18 @@ export default function App() {
   const [sharedViewerUsers, setSharedViewerUsers] = useState<SharedViewerUserSummary[]>([])
   const [selectedSharedViewerUserSub, setSelectedSharedViewerUserSub] = useState('')
   const [personalPlanSnapshot, setPersonalPlanSnapshot] = useState<PersonalPlanSnapshot | null>(null)
+  const [personalPlanOwnerIdentity, setPersonalPlanOwnerIdentity] = useState<string | null>(null)
   const [samplePlanSnapshot, setSamplePlanSnapshot] = useState<PersonalPlanSnapshot | null>(null)
   const [hasSavedPersonalPlan, setHasSavedPersonalPlan] = useState(false)
   const [authState, setAuthState] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking')
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthStatusResponse | null>(null)
+  const [tabAuthToken, setTabAuthToken] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem(TAB_AUTH_TOKEN_STORAGE_KEY)
+    } catch {
+      return null
+    }
+  })
   const [authMessage, setAuthMessage] = useState('Checking sign-in status...')
   const [authScreenMode, setAuthScreenMode] = useState<'default' | 'goodbye'>('default')
   const [termsAcceptedChecked, setTermsAcceptedChecked] = useState(false)
@@ -1775,6 +1789,7 @@ export default function App() {
   const [isBankWarningSettingsDialogOpen, setIsBankWarningSettingsDialogOpen] = useState(false)
   const [bankWarningThresholdDrafts, setBankWarningThresholdDrafts] = useState<Record<string, number>>({})
   const [pinKey, setPinKey] = useState<CryptoKey | null>(null)
+  const [pinKeyIdentity, setPinKeyIdentity] = useState<string | null>(null)
   const [isPinModalOpen, setIsPinModalOpen] = useState(false)
   const [pinModalMode, setPinModalMode] = useState<'new' | 'verify' | 'migrate' | 'change' | 'reset-confirm'>('new')
   const [pinModalError, setPinModalError] = useState('')
@@ -1845,9 +1860,11 @@ export default function App() {
   const bankBalanceHistoryRequestIdRef = useRef(0)
   const pinSetupInitiatedRef = useRef(false)
   const previousAuthenticatedIdentityRef = useRef<string | null>(null)
+  const currentAuthenticatedIdentityRef = useRef<string | null>(null)
 
   const resetEncryptionSessionState = () => {
     setPinKey(null)
+    setPinKeyIdentity(null)
     setViewerEncryptionKey(null)
     setPendingEncryptedPlanResponse(null)
     setPendingEncryptedViewerPlanResponse(null)
@@ -1859,13 +1876,26 @@ export default function App() {
     setIsPinModalOpen(false)
   }
 
+  const resetPersonalPlanState = () => {
+    applyFinancialPlan(emptyFinancialPlanData)
+    setLoadedPlanSignature(getFinancialPlanSignature(emptyFinancialPlanData))
+    setPersonalPlanSnapshot(null)
+    setPersonalPlanOwnerIdentity(null)
+    setHasSavedPersonalPlan(false)
+    setShowSamplePrompt(false)
+    setHasCurrentCycleUserEdits(false)
+    setPlanReady(false)
+  }
+
   useEffect(() => {
     const authenticatedIdentity = authenticatedUser?.email?.trim().toLowerCase() ?? null
     const previousAuthenticatedIdentity = previousAuthenticatedIdentityRef.current
+    currentAuthenticatedIdentityRef.current = authenticatedIdentity
 
     if (authState !== 'authenticated') {
       previousAuthenticatedIdentityRef.current = null
       resetEncryptionSessionState()
+      resetPersonalPlanState()
       return
     }
 
@@ -1875,6 +1905,7 @@ export default function App() {
 
     if (previousAuthenticatedIdentity && previousAuthenticatedIdentity !== authenticatedIdentity) {
       resetEncryptionSessionState()
+      resetPersonalPlanState()
       setSelectedSharedViewerUserSub('')
       setLoadedSharedViewerUserSub('')
       setBankBalanceHistoryCycles([])
@@ -1882,6 +1913,101 @@ export default function App() {
 
     previousAuthenticatedIdentityRef.current = authenticatedIdentity
   }, [authState, authenticatedUser?.email])
+
+  const getValidatedPersonalPinKey = () => {
+    const authenticatedIdentity = authenticatedUser?.email?.trim().toLowerCase() ?? null
+
+    if (!pinKey) {
+      return null
+    }
+
+    if (!authenticatedIdentity || !pinKeyIdentity || pinKeyIdentity !== authenticatedIdentity) {
+      setPinKey(null)
+      setPinKeyIdentity(null)
+      setPendingEncryptedPlanResponse(null)
+      return null
+    }
+
+    return pinKey
+  }
+
+  const canPersistCurrentPersonalPlan = (showError = true) => {
+    const authenticatedIdentity = authenticatedUser?.email?.trim().toLowerCase() ?? null
+
+    if (authenticatedIdentity && personalPlanOwnerIdentity && personalPlanOwnerIdentity === authenticatedIdentity) {
+      return true
+    }
+
+    if (showError) {
+      setSaveState('error')
+      setSaveMessage(
+        authenticatedIdentity && !personalPlanOwnerIdentity
+          ? 'Plan ownership is still being established for this signed-in user. Wait for the load to finish before saving.'
+          : 'Loaded plan belongs to a different signed-in user. Reload your plan before saving.',
+      )
+    }
+
+    return false
+  }
+
+  const isCurrentAuthenticatedIdentity = (identity: string | null) => currentAuthenticatedIdentityRef.current === identity
+
+  const persistTabAuthToken = (token: string | null) => {
+    try {
+      if (token) {
+        sessionStorage.setItem(TAB_AUTH_TOKEN_STORAGE_KEY, token)
+      } else {
+        sessionStorage.removeItem(TAB_AUTH_TOKEN_STORAGE_KEY)
+      }
+    } catch {
+      // sessionStorage unavailable - keep the token only in memory
+    }
+
+    setTabAuthToken(token)
+  }
+
+  const fetch: typeof window.fetch = async (input, init) => {
+    const headers = new Headers(init?.headers ?? undefined)
+    if (tabAuthToken && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${tabAuthToken}`)
+    }
+
+    const response = await window.fetch(input, {
+      ...init,
+      credentials: init?.credentials ?? 'include',
+      headers,
+    })
+
+    if (response.status === 401 && tabAuthToken) {
+      persistTabAuthToken(null)
+    }
+
+    return response
+  }
+
+  const getExpectedUserSubHeaders = (headers: Record<string, string> = {}) => ({
+    ...headers,
+    'X-Expected-User-Sub': authenticatedUser?.userSub?.trim() ?? '',
+  })
+
+  const ensureTabAuthToken = async () => {
+    if (tabAuthToken) {
+      return tabAuthToken
+    }
+
+    const response = await window.fetch(`${API_BASE_URL}/api/auth/tab-token`, {
+      method: 'POST',
+      credentials: 'include',
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to issue tab auth token: ${response.status}`)
+    }
+
+    const tokenResponse: TabAuthTokenResponse = await response.json()
+    persistTabAuthToken(tokenResponse.token)
+    return tokenResponse.token
+  }
 
   useEffect(() => {
     localBankBalanceHistoryCyclesRef.current.clear()
@@ -1973,9 +2099,16 @@ export default function App() {
 
     const loadAuthAndPlan = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+        let response = await fetch(`${API_BASE_URL}/api/auth/me`, {
           credentials: 'include',
         })
+
+        if (response.status === 401 && tabAuthToken) {
+          persistTabAuthToken(null)
+          response = await window.fetch(`${API_BASE_URL}/api/auth/me`, {
+            credentials: 'include',
+          })
+        }
 
         if (!response.ok) {
           throw new Error(`Failed to check authentication: ${response.status}`)
@@ -1987,6 +2120,7 @@ export default function App() {
         }
 
         if (!authData.authenticated) {
+          persistTabAuthToken(null)
           setAuthenticatedUser(null)
           setHasSavedPersonalPlan(false)
           setShowSamplePrompt(false)
@@ -2000,6 +2134,8 @@ export default function App() {
           setSaveMessage('')
           return
         }
+
+        await ensureTabAuthToken()
 
         setAuthenticatedUser(authData)
         setTermsAcceptedChecked(false)
@@ -2580,12 +2716,23 @@ export default function App() {
     setSaveMessage('Saving thresholds...')
 
     try {
-      const isEncryptionActive = !!pinKey && !(authenticatedUser?.encryptionExempt ?? false)
-      const bodyPayload = isEncryptionActive ? await buildEncryptedWrapper(thresholdOnlyPayload, pinKey) : thresholdOnlyPayload
+      if (!canPersistCurrentPersonalPlan()) {
+        return
+      }
+
+      const activePinKey = getValidatedPersonalPinKey()
+      const isEncryptionActive = !!activePinKey && !(authenticatedUser?.encryptionExempt ?? false)
+      if (!!pinKey && !(authenticatedUser?.encryptionExempt ?? false) && !activePinKey) {
+        setSaveState('error')
+        setSaveMessage('Encryption Key is no longer valid for this signed-in user. Re-enter it and save again.')
+        return
+      }
+      const bodyPayload = isEncryptionActive ? await buildEncryptedWrapper(thresholdOnlyPayload, activePinKey) : thresholdOnlyPayload
       const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=current`, {
         method: 'PUT',
         credentials: 'include',
         headers: {
+          ...getExpectedUserSubHeaders(),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(bodyPayload),
@@ -2618,6 +2765,7 @@ export default function App() {
         saveState: 'saved',
         saveMessage: 'Thresholds saved to server',
       })
+      setPersonalPlanOwnerIdentity(authenticatedUser?.email?.trim().toLowerCase() ?? null)
       setHasSavedPersonalPlan(savedResponse.hasSavedPlan)
       setShowSamplePrompt(!savedResponse.hasSavedPlan)
       setDefaultBankWarningThreshold(nextDefaultBankWarningThreshold)
@@ -4247,16 +4395,32 @@ export default function App() {
       || isTrackerReadOnly
       || selectedCycle !== 'current'
       || !hasSavedPersonalPlan
+      || !canPersistCurrentPersonalPlan(false)
     ) {
       return
     }
 
-    void fetch(`${API_BASE_URL}/api/financial-plan?cycle=current`, {
-      method: 'PUT',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildPayload({ viewModes: nextViewModes })),
-    }).catch(() => {
+    void (async () => {
+      const payload = buildPayload({ viewModes: nextViewModes })
+      const activePinKey = getValidatedPersonalPinKey()
+      const isEncryptionActive = !!activePinKey && !(authenticatedUser?.encryptionExempt ?? false)
+
+      if (!!pinKey && !(authenticatedUser?.encryptionExempt ?? false) && !activePinKey) {
+        return
+      }
+
+      const bodyPayload = isEncryptionActive ? await buildEncryptedWrapper(payload, activePinKey) : payload
+
+      return fetch(`${API_BASE_URL}/api/financial-plan?cycle=current`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          ...getExpectedUserSubHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(bodyPayload),
+      })
+    })().catch(() => {
       // silent fail — view mode preference is non-critical
     })
   }
@@ -4366,7 +4530,10 @@ export default function App() {
           void fetch(`${API_BASE_URL}/api/financial-plan/history/bulk-encrypt`, {
             method: 'PUT',
             credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              ...getExpectedUserSubHeaders(),
+              'Content-Type': 'application/json',
+            },
             body: JSON.stringify(processed.cyclesToEncrypt),
           })
         }
@@ -4501,6 +4668,7 @@ export default function App() {
     successMessage = '',
     preserveCloseCycleBankData = false,
     decryptedData?: FinancialPlanData,
+    ownerIdentity?: string | null,
   ) => {
     if (response.data.pinVerify) {
       setStoredPinVerify(response.data.pinVerify)
@@ -4529,7 +4697,7 @@ export default function App() {
     } else {
       setCloseCycleCarryoverBankData(null)
     }
-
+    setPersonalPlanOwnerIdentity(ownerIdentity ?? authenticatedUser?.email?.trim().toLowerCase() ?? null)
     applyFinancialPlan(normalizedData)
     setSelectedCycle(getResponseCycleSelection(response))
     setTimelineType(response.timelineType)
@@ -4613,6 +4781,7 @@ export default function App() {
     const normalizedData = normalizeFinancialPlanData(decryptedData ?? response.data)
 
     applyFinancialPlan(normalizedData)
+  setPersonalPlanOwnerIdentity(null)
     setSelectedSharedViewerUserSub(userSub)
     setLoadedSharedViewerUserSub(userSub)
     setSelectedCycle(getResponseCycleSelection(response))
@@ -4645,6 +4814,7 @@ export default function App() {
   }
 
   const loadPersonalPlan = async (cycle: CycleSelection = 'current', loadingMessage = 'Loading your plan...') => {
+    const requestIdentity = currentAuthenticatedIdentityRef.current
     setSaveState('loading')
     setSaveMessage(loadingMessage)
 
@@ -4652,6 +4822,10 @@ export default function App() {
       const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${encodeURIComponent(cycle)}`, {
         credentials: 'include',
       })
+
+      if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+        return false
+      }
 
       if (response.status === 401) {
         setAuthenticatedUser(null)
@@ -4668,6 +4842,9 @@ export default function App() {
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+        return false
+      }
       const isEncryptionExempt = authenticatedUser?.encryptionExempt ?? false
       const hasEncryptedData = !!cycleResponse.data.encryptedData
       if (!isEncryptionExempt && hasEncryptedData) {
@@ -4678,11 +4855,18 @@ export default function App() {
         if (pinKey) {
           try {
             const decryptedData = await decryptJson<FinancialPlanData>(pinKey, cycleResponse.data.encryptedData!, cycleResponse.data.encryptionIv!)
-            applyPersonalCycleResponse(cycleResponse, '', false, decryptedData)
+            if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+              return false
+            }
+            applyPersonalCycleResponse(cycleResponse, '', false, decryptedData, requestIdentity)
             void refreshBankBalanceHistory()
           } catch {
+            if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+              return false
+            }
             applyFinancialPlan(defaultFinancialPlanData)
             setPersonalPlanSnapshot(null)
+            setPersonalPlanOwnerIdentity(null)
             setBankBalanceHistoryCycles([])
             setPendingEncryptedPlanResponse(cycleResponse)
             setPinInput('')
@@ -4691,8 +4875,12 @@ export default function App() {
             setIsPinModalOpen(true)
           }
         } else {
+          if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+            return false
+          }
           applyFinancialPlan(defaultFinancialPlanData)
           setPersonalPlanSnapshot(null)
+          setPersonalPlanOwnerIdentity(null)
           setBankBalanceHistoryCycles([])
           setPendingEncryptedPlanResponse(cycleResponse)
           setPinInput('')
@@ -4704,8 +4892,12 @@ export default function App() {
         return true
       }
       if (isEncryptionExempt && hasEncryptedData) {
+        if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+          return false
+        }
         applyFinancialPlan(defaultFinancialPlanData)
         setPersonalPlanSnapshot(null)
+        setPersonalPlanOwnerIdentity(null)
         setBankBalanceHistoryCycles([])
         setPendingEncryptedPlanResponse(cycleResponse)
         setPinInput('')
@@ -4715,7 +4907,7 @@ export default function App() {
         setAuthState('authenticated')
         return true
       }
-      applyPersonalCycleResponse(cycleResponse)
+      applyPersonalCycleResponse(cycleResponse, '', false, undefined, requestIdentity)
       void refreshBankBalanceHistory()
       setAuthState('authenticated')
       if (!isEncryptionExempt && !pinKey && !pinSetupInitiatedRef.current) {
@@ -5107,6 +5299,7 @@ export default function App() {
     successMessage = 'Saved to server',
     onSuccess?: () => void,
   ) => {
+    const requestIdentity = currentAuthenticatedIdentityRef.current
     if (isSampleMode) {
       if (!canEditSamplePlan) {
         setSaveState('idle')
@@ -5166,16 +5359,31 @@ export default function App() {
     setSaveMessage('Saving...')
 
     try {
-      const isEncryptionActive = !!pinKey && !(authenticatedUser?.encryptionExempt ?? false)
-      const bodyPayload = isEncryptionActive ? await buildEncryptedWrapper(payload, pinKey) : payload
+      if (!canPersistCurrentPersonalPlan()) {
+        return false
+      }
+
+      const activePinKey = getValidatedPersonalPinKey()
+      const isEncryptionActive = !!activePinKey && !(authenticatedUser?.encryptionExempt ?? false)
+      if (!!pinKey && !(authenticatedUser?.encryptionExempt ?? false) && !activePinKey) {
+        setSaveState('error')
+        setSaveMessage('Encryption Key is no longer valid for this signed-in user. Re-enter it and save again.')
+        return false
+      }
+      const bodyPayload = isEncryptionActive ? await buildEncryptedWrapper(payload, activePinKey) : payload
       const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=current`, {
         method: 'PUT',
         credentials: 'include',
         headers: {
+          ...getExpectedUserSubHeaders(),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(bodyPayload),
       })
+
+      if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+        return false
+      }
 
       if (response.status === 401) {
         setAuthenticatedUser(null)
@@ -5192,7 +5400,10 @@ export default function App() {
       }
 
       const savedResponse: FinancialPlanCycleResponse = await response.json()
-      applyPersonalCycleResponse(savedResponse, successMessage, false, isEncryptionActive ? payload : undefined)
+      if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+        return false
+      }
+      applyPersonalCycleResponse(savedResponse, successMessage, false, isEncryptionActive ? payload : undefined, requestIdentity)
       void refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
       setSuppressCycleSwitchWarning(false)
@@ -5347,6 +5558,7 @@ export default function App() {
   }
 
   const handleCloseCycleConfirm = async () => {
+    const requestIdentity = currentAuthenticatedIdentityRef.current
     setSaveState('saving')
     setSaveMessage('Closing cycle...')
 
@@ -5359,6 +5571,7 @@ export default function App() {
         method: 'POST',
         credentials: 'include',
         headers: {
+          ...getExpectedUserSubHeaders(),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -5366,6 +5579,11 @@ export default function App() {
           expectedCurrentCycle: currentCyclePeriod,
         }),
       })
+
+      if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+        setIsCloseCycleDialogOpen(false)
+        return
+      }
 
       if (response.status === 401) {
         setAuthenticatedUser(null)
@@ -5390,14 +5608,24 @@ export default function App() {
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+        setIsCloseCycleDialogOpen(false)
+        return
+      }
       const archivedCurrentData = buildPayload()
 
-      if (pinKey && !isSampleMode) {
+      const activePinKey = getValidatedPersonalPinKey()
+      if (!!pinKey && !isSampleMode && !activePinKey) {
+        setSaveState('error')
+        setSaveMessage('Cycle closed, but your Encryption Key is no longer valid for this signed-in user. Re-enter it and secure the cycle again.')
+      }
+
+      if (activePinKey && !isSampleMode) {
         setSaveMessage('Securing your data...')
         try {
-          await saveCycleEncrypted(cycleResponse.data, pinKey, 'current')
+          await saveCycleEncrypted(cycleResponse.data, activePinKey, 'current')
           if (cycleResponse.previousCycle) {
-            await saveCycleEncrypted(archivedCurrentData, pinKey, 'previous')
+            await saveCycleEncrypted(archivedCurrentData, activePinKey, 'previous')
           }
         } catch (error) {
           if ((error as any)?.status === 401) {
@@ -5419,7 +5647,7 @@ export default function App() {
       if (isSampleMode) {
         applySampleCycleResponse(cycleResponse, 'Cycle closed. Started a new current cycle.', true)
       } else {
-        applyPersonalCycleResponse(cycleResponse, 'Cycle closed. Started a new current cycle.', true)
+        applyPersonalCycleResponse(cycleResponse, 'Cycle closed. Started a new current cycle.', true, undefined, requestIdentity)
       }
       void refreshBankBalanceHistory()
       setSuppressCycleSwitchWarning(true)
@@ -5495,6 +5723,7 @@ export default function App() {
   }
 
   const handleRevertCycleConfirm = async () => {
+    const requestIdentity = currentAuthenticatedIdentityRef.current
     const expectedCurrentCycle = pendingCloseCycleReset?.currentCycle ?? currentCyclePeriod
     const expectedPreviousCycle = pendingCloseCycleReset?.previousCycle ?? previousCyclePeriod
 
@@ -5509,7 +5738,14 @@ export default function App() {
     try {
       let restoredCurrentData: FinancialPlanData | undefined = pendingCloseCycleReset?.previousData
 
-      if (pinKey && !isSampleMode && !restoredCurrentData) {
+      const activePinKey = getValidatedPersonalPinKey()
+      if (!!pinKey && !isSampleMode && !activePinKey) {
+        setSaveState('error')
+        setSaveMessage('Encryption Key is no longer valid for this signed-in user. Re-enter it before reverting the cycle.')
+        return
+      }
+
+      if (activePinKey && !isSampleMode && !restoredCurrentData) {
         const rawPrevious = await fetchRawCycleData('previous')
         if (!rawPrevious?.hasPreviousCycle) {
           throw new Error('Previous cycle data is unavailable for encrypted revert.')
@@ -5517,7 +5753,7 @@ export default function App() {
 
         if (rawPrevious.data.encryptedData && rawPrevious.data.encryptionIv) {
           restoredCurrentData = await decryptJson<FinancialPlanData>(
-            pinKey,
+            activePinKey,
             rawPrevious.data.encryptedData,
             rawPrevious.data.encryptionIv,
           )
@@ -5534,6 +5770,7 @@ export default function App() {
         method: 'POST',
         credentials: 'include',
         headers: {
+          ...getExpectedUserSubHeaders(),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -5541,6 +5778,11 @@ export default function App() {
           expectedPreviousCycle,
         }),
       })
+
+      if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+        setIsRevertCycleDialogOpen(false)
+        return
+      }
 
       if (response.status === 401) {
         setAuthenticatedUser(null)
@@ -5565,14 +5807,18 @@ export default function App() {
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+        setIsRevertCycleDialogOpen(false)
+        return
+      }
 
-      if (pinKey && !isSampleMode) {
+      if (activePinKey && !isSampleMode) {
         setSaveMessage('Securing your data...')
         try {
           if (!restoredCurrentData) {
             throw new Error('Previous cycle data is unavailable for encrypted revert.')
           }
-          await saveCycleEncrypted(restoredCurrentData, pinKey, 'current')
+          await saveCycleEncrypted(restoredCurrentData, activePinKey, 'current')
         } catch (error) {
           if ((error as any)?.status === 401) {
             setAuthenticatedUser(null)
@@ -5592,7 +5838,7 @@ export default function App() {
       if (isSampleMode) {
         applySampleCycleResponse(cycleResponse, 'Reverted to previous cycle.')
       } else {
-        applyPersonalCycleResponse(cycleResponse, 'Reverted to previous cycle.', false, restoredCurrentData)
+        applyPersonalCycleResponse(cycleResponse, 'Reverted to previous cycle.', false, restoredCurrentData, requestIdentity)
       }
       void refreshBankBalanceHistory()
       setPendingCloseCycleReset(null)
@@ -5651,6 +5897,7 @@ export default function App() {
       }
 
       const authData: AuthStatusResponse = await response.json()
+      await ensureTabAuthToken()
       setAuthenticatedUser(authData)
       setTermsAcceptedChecked(false)
       setPlanReady(false)
@@ -5689,8 +5936,10 @@ export default function App() {
       // Logout should still clear local auth state even if the network fails.
     }
 
+    persistTabAuthToken(null)
     setAuthenticatedUser(null)
-  resetEncryptionSessionState()
+    resetEncryptionSessionState()
+    resetPersonalPlanState()
     pinSetupInitiatedRef.current = false
     setAuthState('unauthenticated')
     setAuthScreenMode('default')
@@ -6116,14 +6365,21 @@ export default function App() {
       const restoreCurrentCycle = importedCurrentCycle ?? buildCurrentCycleForTimeline(new Date(), timelineType)
       const restorePreviousCycle = importedPreviousCycle
 
-      const isEncryptionActive = !!pinKey && !(authenticatedUser?.encryptionExempt ?? false)
-      const currentBody = isEncryptionActive && pinKey ? await buildEncryptedWrapper(restorePayload, pinKey) : restorePayload
-      const previousBody = isEncryptionActive && pinKey && restorePreviousPayload ? await buildEncryptedWrapper(restorePreviousPayload, pinKey) : restorePreviousPayload
+      const activePinKey = getValidatedPersonalPinKey()
+      const isEncryptionActive = !!activePinKey && !(authenticatedUser?.encryptionExempt ?? false)
+      if (!!pinKey && !(authenticatedUser?.encryptionExempt ?? false) && !activePinKey) {
+        setSaveState('error')
+        setSaveMessage('Encryption Key is no longer valid for this signed-in user. Re-enter it before importing the backup.')
+        return
+      }
+      const currentBody = isEncryptionActive && activePinKey ? await buildEncryptedWrapper(restorePayload, activePinKey) : restorePayload
+      const previousBody = isEncryptionActive && activePinKey && restorePreviousPayload ? await buildEncryptedWrapper(restorePreviousPayload, activePinKey) : restorePreviousPayload
 
       const response = await fetch(`${API_BASE_URL}/api/financial-plan/restore-backup`, {
         method: 'POST',
         credentials: 'include',
         headers: {
+          ...getExpectedUserSubHeaders(),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -6196,10 +6452,17 @@ export default function App() {
     setSaveMessage('Switching timeline...')
 
     try {
+      const requestIdentity = currentAuthenticatedIdentityRef.current
       const encryptionExempt = authenticatedUser?.encryptionExempt ?? false
-      const isEncryptionActive = !!pinKey && !encryptionExempt && !isSampleMode
+      const activePinKey = getValidatedPersonalPinKey()
+      const isEncryptionActive = !!activePinKey && !encryptionExempt && !isSampleMode
+      if (!!pinKey && !encryptionExempt && !isSampleMode && !activePinKey) {
+        setSaveState('error')
+        setSaveMessage('Encryption Key is no longer valid for this signed-in user. Re-enter it before switching timeline.')
+        return
+      }
       const currentCycleData = buildPayload()
-      const requestPlanData = isEncryptionActive && pinKey ? await buildEncryptedWrapper(currentCycleData, pinKey) : currentCycleData
+      const requestPlanData = isEncryptionActive && activePinKey ? await buildEncryptedWrapper(currentCycleData, activePinKey) : currentCycleData
 
       const endpoint = isSampleMode
         ? `${API_BASE_URL}/api/financial-plan/sample/switch-timeline?timelineType=${timelineType}`
@@ -6209,6 +6472,7 @@ export default function App() {
         method: 'POST',
         credentials: 'include',
         headers: {
+          ...getExpectedUserSubHeaders(),
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -6217,6 +6481,12 @@ export default function App() {
           targetTimelineType: pendingTimelineTypeSwitch,
         }),
       })
+
+      if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+        setIsTimelineSwitchDialogOpen(false)
+        setPendingTimelineTypeSwitch(null)
+        return
+      }
 
       if (response.status === 401) {
         setAuthenticatedUser(null)
@@ -6243,6 +6513,11 @@ export default function App() {
       }
 
       const cycleResponse: FinancialPlanCycleResponse = await response.json()
+      if (!isCurrentAuthenticatedIdentity(requestIdentity)) {
+        setIsTimelineSwitchDialogOpen(false)
+        setPendingTimelineTypeSwitch(null)
+        return
+      }
 
       if (isSampleMode) {
         applySampleCycleResponse(cycleResponse, `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`)
@@ -6252,6 +6527,7 @@ export default function App() {
           `Timeline switched to ${formatTimelineTypeLabel(cycleResponse.timelineType)}.`,
           false,
           isEncryptionActive ? currentCycleData : undefined,
+          requestIdentity,
         )
       }
       void refreshBankBalanceHistory()
@@ -6293,11 +6569,18 @@ export default function App() {
   }
 
   const saveCycleEncrypted = async (data: FinancialPlanData, key: CryptoKey, cycle: 'current' | 'previous'): Promise<void> => {
+    if (cycle === 'current' && !canPersistCurrentPersonalPlan()) {
+      throw new Error('Loaded plan belongs to a different signed-in user.')
+    }
+
     const wrapper = await buildEncryptedWrapper(data, key)
     const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${cycle}`, {
       method: 'PUT',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        ...getExpectedUserSubHeaders(),
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(wrapper),
     })
     if (!response.ok) {
@@ -6376,7 +6659,7 @@ export default function App() {
           return
         }
         applyCurrencySelection(pinModalCurrency)
-        const userSub = authenticatedUser?.email ?? 'unknown'
+        const userSub = authenticatedUser?.email?.trim().toLowerCase() ?? 'unknown'
         const key = await deriveKey(pinInput, userSub)
         const currentCycleData = buildPayload()
         if (pinModalTimelineType !== timelineType) {
@@ -6385,6 +6668,7 @@ export default function App() {
             method: 'POST',
             credentials: 'include',
             headers: {
+              ...getExpectedUserSubHeaders(),
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
@@ -6397,7 +6681,10 @@ export default function App() {
             throw new Error(`Failed to switch timeline during PIN setup: ${response.status}`)
           }
           const cycleResponse: FinancialPlanCycleResponse = await response.json()
-          applyPersonalCycleResponse(cycleResponse, 'Encryption Key created and data encrypted.', false, currentCycleData)
+          if (!isCurrentAuthenticatedIdentity(userSub)) {
+            return
+          }
+          applyPersonalCycleResponse(cycleResponse, 'Encryption Key created and data encrypted.', false, currentCycleData, userSub)
           void refreshBankBalanceHistory()
         } else {
           await saveCycleEncrypted(currentCycleData, key, 'current')
@@ -6409,6 +6696,7 @@ export default function App() {
           setSaveMessage('Encryption Key created and data encrypted.')
         }
         setPinKey(key)
+        setPinKeyIdentity(userSub)
         setIsPinModalOpen(false)
         setPinInput('')
         setPinConfirmInput('')
@@ -6448,7 +6736,7 @@ export default function App() {
           setIsPinModalOpen(false)
           return
         }
-        const userSub = authenticatedUser?.email ?? 'unknown'
+        const userSub = authenticatedUser?.email?.trim().toLowerCase() ?? 'unknown'
         const key = await deriveKey(pinInput, userSub)
         const pinVerifyVal = pendingEncryptedPlanResponse.data.pinVerify ?? storedPinVerify
         const pinVerifyIvVal = pendingEncryptedPlanResponse.data.pinVerifyIv ?? storedPinVerifyIv
@@ -6468,7 +6756,11 @@ export default function App() {
           pendingEncryptedPlanResponse.data.encryptionIv!,
         )
         setPinKey(key)
-        applyPersonalCycleResponse(pendingEncryptedPlanResponse, '', false, decryptedData)
+        setPinKeyIdentity(userSub)
+        if (!isCurrentAuthenticatedIdentity(userSub)) {
+          return
+        }
+        applyPersonalCycleResponse(pendingEncryptedPlanResponse, '', false, decryptedData, userSub)
         void refreshBankBalanceHistory(undefined, key)
         setPendingEncryptedPlanResponse(null)
         setIsPinModalOpen(false)
@@ -6482,7 +6774,7 @@ export default function App() {
           setIsPinModalOpen(false)
           return
         }
-        const userSub = authenticatedUser?.email ?? 'unknown'
+        const userSub = authenticatedUser?.email?.trim().toLowerCase() ?? 'unknown'
         const key = await deriveKey(pinInput, userSub)
         const pinVerifyVal = pendingEncryptedPlanResponse.data.pinVerify
         const pinVerifyIvVal = pendingEncryptedPlanResponse.data.pinVerifyIv
@@ -6501,7 +6793,10 @@ export default function App() {
           pendingEncryptedPlanResponse.data.encryptedData!,
           pendingEncryptedPlanResponse.data.encryptionIv!,
         )
-        applyPersonalCycleResponse(pendingEncryptedPlanResponse, '', false, decryptedData)
+        if (!isCurrentAuthenticatedIdentity(userSub)) {
+          return
+        }
+        applyPersonalCycleResponse(pendingEncryptedPlanResponse, '', false, decryptedData, userSub)
         setPendingEncryptedPlanResponse(null)
         setIsPinModalOpen(false)
         setPinInput('')
@@ -6521,7 +6816,7 @@ export default function App() {
           setPinModalError('Could not load current plan data. Please reload and try again.')
           return
         }
-        const userSub = authenticatedUser?.email ?? 'unknown'
+        const userSub = authenticatedUser?.email?.trim().toLowerCase() ?? 'unknown'
         const currentKey = await deriveKey(pinCurrentInput, userSub)
         const pinVerifyVal = pendingEncryptedPlanResponse.data.pinVerify
         const pinVerifyIvVal = pendingEncryptedPlanResponse.data.pinVerifyIv
@@ -6548,6 +6843,7 @@ export default function App() {
           }
         }
         setPinKey(newKey)
+        setPinKeyIdentity(userSub)
         setIsPinModalOpen(false)
         setPinCurrentInput('')
         setPinNewInput('')

@@ -32,6 +32,9 @@ Open http://localhost:5173 in your browser.
 
 - The default unauthenticated card now uses `Register or Sign-in with Google` wording.
 - Session-expired messages use the same `Register or Sign-in with Google` wording for consistency.
+- After Google sign-in, the UI now exchanges the browser session for a tab-scoped auth token and stores it in `sessionStorage`.
+- Authenticated API requests now send `Authorization: Bearer <tab token>`, so separate tabs or windows in the same browser profile can stay signed into different accounts.
+- Personal save and cycle-mutation requests also send the signed-in Google `userSub`; if the backend detects that the tab is trying to write for a different identity, it rejects the request instead of saving into the wrong account.
 - When a user deletes their own tracker, they are signed out and shown a goodbye screen with an option to register or sign in again.
 
 ## Recent UI Updates
