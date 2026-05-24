@@ -14,6 +14,41 @@ npm run dev
 
 Open http://localhost:5173 in your browser.
 
+A local run helper is also available:
+
+```powershell
+.\run-local-ui.bat
+```
+
+This script stops any existing process on port 5173, runs `npm run build`, then starts the Vite dev server.
+
+## PWA (Progressive Web App)
+
+The UI is configured as an installable PWA using `vite-plugin-pwa`. The generated service worker precaches all static assets for offline support and faster repeat loads.
+
+**Installing on a phone:**
+
+- **iPhone:** Open `https://mybetterbudget.com` in Safari, tap Share → "Add to Home Screen" → "Add". The app opens full-screen like a native app.
+- **Android:** Open in Chrome, tap the install banner or menu → "Install app". The app appears on the home screen and in the app drawer.
+
+**PWA assets (in `public/`):**
+
+| File | Purpose |
+|------|---------|
+| `favicon.svg` | Browser tab icon |
+| `manifest.json` | PWA manifest (name, icons, theme color, display mode) |
+| `pwa-192x192.png` | Small home-screen icon |
+| `pwa-512x512.png` | Large home-screen icon |
+| `pwa-icon-source.svg` | Source SVG for regenerating icons |
+
+To regenerate the PNG icons, run:
+
+```powershell
+node scripts/create-pwa-icons.js
+```
+
+For production-quality icons, upload `public/pwa-icon-source.svg` to [maskable.app](https://maskable.app/) and replace the generated PNGs.
+
 ## What this app tracks
 
 - Credit card available credit, statement dates, and due amounts
