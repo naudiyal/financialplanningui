@@ -1835,7 +1835,7 @@ export default function App() {
   const localBankBalanceHistoryCyclesRef = useRef<Map<string, BankBalanceHistoryCycle>>(new Map())
   const [localBankBalanceHistoryVersion, setLocalBankBalanceHistoryVersion] = useState(0)
   const timelineTypeHydratedRef = useRef(false)
-  const prefetchedClosedCycleKeysRef = useRef<Set<string>>(new Set())
+  const previousCyclePrefetchKeyRef = useRef<string | null>(null)
   const [pendingTimelineTypeSwitch, setPendingTimelineTypeSwitch] = useState<TimelineType | null>(null)
   const [isTimelineSwitchDialogOpen, setIsTimelineSwitchDialogOpen] = useState(false)
   const [pendingCloseCycleReset, setPendingCloseCycleReset] = useState<PendingCloseCycleReset | null>(null)
@@ -2013,7 +2013,7 @@ export default function App() {
     localBankBalanceHistoryCyclesRef.current.clear()
     setLocalBankBalanceHistoryVersion((version) => version + 1)
     timelineTypeHydratedRef.current = false
-    prefetchedClosedCycleKeysRef.current.clear()
+    previousCyclePrefetchKeyRef.current = null
   }, [authenticatedUser?.email, planViewMode])
 
   useEffect(() => {
@@ -2024,7 +2024,7 @@ export default function App() {
 
     localBankBalanceHistoryCyclesRef.current.clear()
     setLocalBankBalanceHistoryVersion((version) => version + 1)
-    prefetchedClosedCycleKeysRef.current.clear()
+    previousCyclePrefetchKeyRef.current = null
   }, [timelineType])
 
   const expensePayFromOptions = useMemo<BankPayFromOption[]>(() => [
@@ -4521,10 +4521,9 @@ export default function App() {
         displayCycles = processed.displayCycles
       }
     } else {
-      const effectivePinKey = decryptionKey ?? pinKey
-      const isEncryptionActive = !!effectivePinKey && !(authenticatedUser?.encryptionExempt ?? false) && planViewMode !== 'sample'
-      if (isEncryptionActive && effectivePinKey) {
-        const processed = await processHistoryCycles(rawCycles, effectivePinKey)
+      const isEncryptionActive = !!pinKey && !(authenticatedUser?.encryptionExempt ?? false) && planViewMode !== 'sample'
+      if (isEncryptionActive && pinKey) {
+        const processed = await processHistoryCycles(rawCycles, pinKey)
         displayCycles = processed.displayCycles
         if (processed.cyclesToEncrypt.length > 0) {
           void fetch(`${API_BASE_URL}/api/financial-plan/history/bulk-encrypt`, {
@@ -4582,11 +4581,11 @@ export default function App() {
     }
 
     void refreshBankBalanceHistory()
-  }, [appRoute, authState, authenticatedUser?.termsAccepted, loadedSharedViewerUserSub, pinKey, planReady, planViewMode, selectedSharedViewerUser, timelineType, viewerEncryptionKey])
+  }, [appRoute, authState, authenticatedUser?.termsAccepted, loadedSharedViewerUserSub, planReady, planViewMode, selectedSharedViewerUser, timelineType, viewerEncryptionKey])
 
   useEffect(() => {
     if (authState !== 'authenticated') {
-      prefetchedClosedCycleKeysRef.current.clear()
+      previousCyclePrefetchKeyRef.current = null
       return
     }
 
@@ -4598,70 +4597,59 @@ export default function App() {
       return
     }
 
-    if (closedCyclePeriods.length === 0) {
-      prefetchedClosedCycleKeysRef.current.clear()
+    if (!previousCyclePeriod) {
+      previousCyclePrefetchKeyRef.current = null
       return
     }
 
-    const cyclesToPrefetch = closedCyclePeriods.filter((cyclePeriod) => {
-      const cycleKey = getCyclePeriodKey(cyclePeriod)
-      return !localBankBalanceHistoryCyclesRef.current.has(cycleKey) && !prefetchedClosedCycleKeysRef.current.has(cycleKey)
-    })
-
-    if (cyclesToPrefetch.length === 0) {
+    const previousKey = getCyclePeriodKey(previousCyclePeriod)
+    if (localBankBalanceHistoryCyclesRef.current.has(previousKey)) {
       return
     }
 
-    cyclesToPrefetch.forEach((cyclePeriod) => {
-      prefetchedClosedCycleKeysRef.current.add(getCyclePeriodKey(cyclePeriod))
-    })
+    if (previousCyclePrefetchKeyRef.current === previousKey) {
+      return
+    }
+    previousCyclePrefetchKeyRef.current = previousKey
 
     void (async () => {
-      let didCacheCycle = false
-
-      for (const targetCyclePeriod of cyclesToPrefetch) {
-        const rawCycle = await fetchRawCycleData(getClosedCycleSelectionValue(targetCyclePeriod))
-        if (!rawCycle?.hasPreviousCycle) {
-          continue
-        }
-
-        const cyclePeriod = rawCycle.selectedClosedCycle ?? rawCycle.previousCycle ?? targetCyclePeriod
-        const cycleKey = getCyclePeriodKey(cyclePeriod)
-        if (localBankBalanceHistoryCyclesRef.current.has(cycleKey)) {
-          continue
-        }
-
-        const rawCycleData = rawCycle.data
-        let decodedCycleData: FinancialPlanData | null = rawCycleData
-        if (rawCycleData.encryptedData && rawCycleData.encryptionIv) {
-          if (!pinKey) {
-            continue
-          }
-
-          try {
-            decodedCycleData = await decryptJson<FinancialPlanData>(pinKey, rawCycleData.encryptedData, rawCycleData.encryptionIv)
-          } catch {
-            continue
-          }
-        }
-
-        if (!decodedCycleData) {
-          continue
-        }
-
-        const normalized = normalizeFinancialPlanData(decodedCycleData)
-        localBankBalanceHistoryCyclesRef.current.set(cycleKey, {
-          cycle: cyclePeriod,
-          banks: buildBankBalanceComparisonPoints(normalized),
-        })
-        didCacheCycle = true
+      const rawPrevious = await fetchRawCycleData('previous')
+      if (!rawPrevious?.hasPreviousCycle) {
+        return
       }
 
-      if (didCacheCycle) {
-        setLocalBankBalanceHistoryVersion((version) => version + 1)
+      const cyclePeriod = rawPrevious.previousCycle ?? previousCyclePeriod
+      const cycleKey = getCyclePeriodKey(cyclePeriod)
+      if (localBankBalanceHistoryCyclesRef.current.has(cycleKey)) {
+        return
       }
+
+      const rawPreviousData = rawPrevious.data
+      let decodedPreviousData: FinancialPlanData | null = rawPreviousData
+      if (rawPreviousData.encryptedData && rawPreviousData.encryptionIv) {
+        if (!pinKey) {
+          return
+        }
+
+        try {
+          decodedPreviousData = await decryptJson<FinancialPlanData>(pinKey, rawPreviousData.encryptedData, rawPreviousData.encryptionIv)
+        } catch {
+          return
+        }
+      }
+
+      if (!decodedPreviousData) {
+        return
+      }
+
+      const normalized = normalizeFinancialPlanData(decodedPreviousData)
+      localBankBalanceHistoryCyclesRef.current.set(cycleKey, {
+        cycle: cyclePeriod,
+        banks: buildBankBalanceComparisonPoints(normalized),
+      })
+      setLocalBankBalanceHistoryVersion((version) => version + 1)
     })()
-  }, [appRoute, authState, authenticatedUser?.termsAccepted, closedCyclePeriods, pinKey, planReady, planViewMode, timelineType])
+  }, [appRoute, authState, authenticatedUser?.termsAccepted, pinKey, planReady, planViewMode, previousCyclePeriod, timelineType])
 
   const applyPersonalCycleResponse = (
     response: FinancialPlanCycleResponse,
@@ -6588,9 +6576,9 @@ export default function App() {
     }
   }
 
-  const fetchRawCycleData = async (cycle: CycleSelection): Promise<FinancialPlanCycleResponse | null> => {
+  const fetchRawCycleData = async (cycle: 'current' | 'previous'): Promise<FinancialPlanCycleResponse | null> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${encodeURIComponent(cycle)}`, { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${cycle}`, { credentials: 'include' })
       if (!response.ok) return null
       return response.json() as Promise<FinancialPlanCycleResponse>
     } catch {
@@ -6761,7 +6749,7 @@ export default function App() {
           return
         }
         applyPersonalCycleResponse(pendingEncryptedPlanResponse, '', false, decryptedData, userSub)
-        void refreshBankBalanceHistory(undefined, key)
+        void refreshBankBalanceHistory()
         setPendingEncryptedPlanResponse(null)
         setIsPinModalOpen(false)
         setPinInput('')
