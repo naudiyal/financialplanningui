@@ -29,6 +29,11 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff,woff2}'],
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /^\/oauth2\//,
+          /^\/login\/oauth2\//,
+        ],
       },
     }),
   ],

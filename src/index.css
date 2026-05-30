@@ -2243,6 +2243,35 @@ tbody tr:hover {
   vertical-align: middle;
 }
 
+.credit-accounts-table .copy-col {
+  width: 2.4rem;
+  text-align: center;
+  vertical-align: middle;
+  padding: 0 0.25rem;
+}
+
+.copy-row-button {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 2px 4px;
+  line-height: 1;
+  opacity: 0.5;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+
+.copy-row-button:hover {
+  opacity: 1;
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+}
+
+.copy-row-button:active {
+  background: #e2e8f0;
+}
+
 .credit-accounts-table th:nth-child(5),
 .credit-accounts-table td:nth-child(5),
 .credit-accounts-table th:nth-child(6),
