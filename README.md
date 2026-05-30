@@ -20,6 +20,12 @@ A local run helper is also available:
 .\run-local-ui.bat
 ```
 
+A clean-install-and-run helper is also available:
+
+```powershell
+.\clean-install-run-ui.bat
+```
+
 This script stops any existing process on port 5173, runs `npm run build`, then starts the Vite dev server.
 
 ## PWA (Progressive Web App)

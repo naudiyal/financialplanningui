@@ -6249,31 +6249,22 @@ export default function App() {
       if (authenticatedUser?.premium) {
         // Always include current
         allCycles.push({ cycle: currentCycleForBackup, data: stripBackupData(buildPayload()) })
-        // Add previous if available
+        // Fetch previous fresh from API
         if (previousCycleForBackup) {
-          allCycles.push({ cycle: previousCycleForBackup, data: previousFinancialPlanData })
-        }
-        // Add all closed cycles
-        for (const closed of closedCyclePeriods) {
           try {
-            const rawClosed = await fetchRawCycleData(`closed:${closed.startDate}-${closed.endDate}`)
-            let closedData: FinancialPlanData | null = null
-            if (rawClosed?.data) {
-              if (rawClosed.data.encryptedData && rawClosed.data.encryptionIv) {
-                if (pinKey) {
-                  try {
-                    closedData = stripBackupData(await decryptJson<FinancialPlanData>(pinKey, rawClosed.data.encryptedData, rawClosed.data.encryptionIv))
-                  } catch {
-                    closedData = null
-                  }
-                }
-              } else {
-                closedData = stripBackupData(rawClosed.data)
-              }
+            const rawPrev = await fetchRawCycleData('previous')
+            if (rawPrev?.data) {
+              allCycles.push({ cycle: previousCycleForBackup, data: stripBackupData(rawPrev.data) })
             }
-            // Avoid duplicates (skip if already in allCycles)
-            if (!allCycles.some((c) => c.cycle.startDate === closed.startDate && c.cycle.endDate === closed.endDate)) {
-              allCycles.push({ cycle: closed, data: closedData })
+          } catch {}
+        }
+        // Add remaining closed cycles (skip if same as previous)
+        for (const closed of closedCyclePeriods) {
+          if (previousCycleForBackup && closed.startDate === previousCycleForBackup.startDate && closed.endDate === previousCycleForBackup.endDate) continue
+          try {
+            const raw = await fetchRawCycleData(`closed:${closed.startDate}-${closed.endDate}`)
+            if (raw?.data) {
+              allCycles.push({ cycle: closed, data: stripBackupData(raw.data) })
             }
           } catch {}
         }
@@ -6350,6 +6341,7 @@ export default function App() {
       const fileText = await selectedFile.text()
       const parsedBackup = JSON.parse(fileText) as unknown
       const importedBackup = isDecryptedDashboardBackup(parsedBackup) ? parsedBackup : null
+      let effectiveBackup = importedBackup
       const legacyPayload = importedBackup ? null : readLegacyBackupPayload(parsedBackup)
 
       // --- BEGIN PATCH: Restore all cycles for premium users if allCycles is present ---
@@ -6361,92 +6353,28 @@ export default function App() {
       const allCycles = importedBackup && Array.isArray(importedBackup.allCycles) ? importedBackup.allCycles : null
 
       if (allCycles && allCycles.length > 0) {
-        const shouldReplaceAll = window.confirm('This backup contains multiple cycles. Importing will replace ALL your cycles. Continue?')
-        if (!shouldReplaceAll) {
-          setSaveState('idle')
-          setSaveMessage('')
-          return
+        // Use allCycles only to determine correct cycle ordering, but keep original backup data
+        const sortedCycles = [...allCycles].filter((c: any) => c.data != null).sort((a: any, b: any) => b.cycle.startDate.localeCompare(a.cycle.startDate))
+        if (sortedCycles.length >= 1) {
+          effectiveBackup = {
+            ...effectiveBackup,
+            currentCycle: sortedCycles[0].cycle,
+            previousCycle: sortedCycles.length >= 2 ? sortedCycles[1].cycle : effectiveBackup.previousCycle,
+          }
         }
-
-        setSaveState('saving')
-        setSaveMessage('Importing all cycles from backup...')
-
-        const activePinKey = getValidatedPersonalPinKey()
-        const isEncryptionActive = !!activePinKey && !(authenticatedUser?.encryptionExempt ?? false)
-        if (!!pinKey && !(authenticatedUser?.encryptionExempt ?? false) && !activePinKey) {
-          setSaveState('error')
-          setSaveMessage('Encryption Key is no longer valid for this signed-in user. Re-enter it before importing the backup.')
-          return
-        }
-
-        // Prepare payloads for all cycles
-        const cyclesPayload = await Promise.all(
-          allCycles.map(async ({ cycle, data }) => {
-            if (!data) return null
-            const normalized = normalizeFinancialPlanData(data)
-            const payload = {
-              ...normalized,
-              summary: undefined,
-              encryptionIv: undefined,
-              pinVerify: undefined,
-              pinVerifyIv: undefined,
-            }
-            if (isEncryptionActive && activePinKey) {
-              return {
-                cycle,
-                data: await buildEncryptedWrapper(payload, activePinKey),
-              }
-            }
-            return { cycle, data: payload }
-          })
-        )
-        // Remove any nulls (missing data)
-        const filteredCycles = cyclesPayload.filter(Boolean)
-
-        const response = await fetch(`${API_BASE_URL}/api/financial-plan/restore-multi-cycle-backup`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            ...getExpectedUserSubHeaders(),
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            timelineType,
-            cycles: filteredCycles,
-          }),
-        })
-
-        if (response.status === 401) {
-          setAuthenticatedUser(null)
-          setPinKey(null)
-          setAuthState('unauthenticated')
-          setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
-          setSaveState('idle')
-          setSaveMessage('')
-          return
-        }
-
-        if (!response.ok) {
-          throw new Error(`Failed to restore all cycles: ${response.status}`)
-        }
-
-        const cycleResponse: FinancialPlanCycleResponse = await response.json()
-        applyPersonalCycleResponse(cycleResponse, 'All cycles imported and saved.', false)
-        void refreshBankBalanceHistory()
-        return
       }
       // --- END PATCH ---
 
       // Fallback: legacy/old backup logic (current/previous only)
-      const importedPlan = importedBackup
-        ? importedBackup.financialPlanData
+      const importedPlan = effectiveBackup
+        ? effectiveBackup.financialPlanData
         : isFinancialPlanData(parsedBackup)
           ? parsedBackup
           : legacyPayload?.financialPlanData ?? null
 
-      const importedCurrentCycle = importedBackup?.currentCycle ?? legacyPayload?.currentCycle ?? null
-      const importedPreviousCycle = importedBackup?.previousCycle ?? legacyPayload?.previousCycle ?? null
-      const importedPreviousPlan = importedBackup?.previousFinancialPlanData ?? legacyPayload?.previousFinancialPlanData ?? null
+      const importedCurrentCycle = effectiveBackup?.currentCycle ?? legacyPayload?.currentCycle ?? null
+      const importedPreviousCycle = effectiveBackup?.previousCycle ?? legacyPayload?.previousCycle ?? null
+      const importedPreviousPlan = effectiveBackup?.previousFinancialPlanData ?? legacyPayload?.previousFinancialPlanData ?? null
 
       if (!importedPlan) {
         const legacyCandidate = parsedBackup && typeof parsedBackup === 'object'
@@ -6535,6 +6463,12 @@ export default function App() {
           financialPlanData: currentBody,
           previousCycle: restorePreviousCycle,
           previousFinancialPlanData: previousBody,
+          allCycles: (allCycles?.filter((c: any) => c.data != null).length ?? 0) > 2
+            ? allCycles?.filter((c: any) => c.data != null).map((c: any) => ({
+                cycle: c.cycle,
+                data: (() => { const { summary, encryptionIv, pinVerify, pinVerifyIv, ...rest } = c.data; return rest; })(),
+              })) ?? null
+            : null,
         }),
       })
 
