@@ -64,7 +64,6 @@ type FinancialPlanData = {
   secondPaycheckDate?: string
   defaultBankWarningThreshold?: number
   incomeSubsections?: IncomeSubsection[]
-  summary?: Record<string, number>
   encryptedData?: string
   encryptionIv?: string
   pinVerify?: string
@@ -1079,7 +1078,9 @@ const getCreditMetrics = (account: CreditAccount, cycleStartDate: string) => {
         nextMonthStatementBalance = totalDueForCard
       }
     } else if (statementDateBeforePaymentDate) {
-      nextMonthStatementBalance = totalDueForCard - account.lastStatementBalance
+      nextMonthStatementBalance = account.paidThisMonth
+        ? totalDueForCard
+        : totalDueForCard - account.lastStatementBalance
     } else if (account.statementCycledAfterPayment) {
       nextMonthStatementBalance = totalDueForCard
     } else {
@@ -1259,15 +1260,11 @@ const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData 
       ? data.defaultBankWarningThreshold
       : DEFAULT_WARNING_THRESHOLD,
     incomeSubsections: normalizedIncomeSubsections,
-    summary: data.summary,
   }
 }
 
 const getFinancialPlanSignature = (data: FinancialPlanData) =>
-  JSON.stringify(normalizeFinancialPlanData({
-    ...data,
-    summary: undefined,
-  }))
+  JSON.stringify(normalizeFinancialPlanData(data))
 
 const chartCurrency = (value: number) =>
   new Intl.NumberFormat(_activeCurrency.locale, {
@@ -1835,7 +1832,7 @@ export default function App() {
   const localBankBalanceHistoryCyclesRef = useRef<Map<string, BankBalanceHistoryCycle>>(new Map())
   const [localBankBalanceHistoryVersion, setLocalBankBalanceHistoryVersion] = useState(0)
   const timelineTypeHydratedRef = useRef(false)
-  const previousCyclePrefetchKeyRef = useRef<string | null>(null)
+  const prefetchedClosedCycleKeysRef = useRef<Set<string>>(new Set())
   const [pendingTimelineTypeSwitch, setPendingTimelineTypeSwitch] = useState<TimelineType | null>(null)
   const [isTimelineSwitchDialogOpen, setIsTimelineSwitchDialogOpen] = useState(false)
   const [pendingCloseCycleReset, setPendingCloseCycleReset] = useState<PendingCloseCycleReset | null>(null)
@@ -2013,7 +2010,7 @@ export default function App() {
     localBankBalanceHistoryCyclesRef.current.clear()
     setLocalBankBalanceHistoryVersion((version) => version + 1)
     timelineTypeHydratedRef.current = false
-    previousCyclePrefetchKeyRef.current = null
+    prefetchedClosedCycleKeysRef.current.clear()
   }, [authenticatedUser?.email, planViewMode])
 
   useEffect(() => {
@@ -2024,7 +2021,7 @@ export default function App() {
 
     localBankBalanceHistoryCyclesRef.current.clear()
     setLocalBankBalanceHistoryVersion((version) => version + 1)
-    previousCyclePrefetchKeyRef.current = null
+    prefetchedClosedCycleKeysRef.current.clear()
   }, [timelineType])
 
   const expensePayFromOptions = useMemo<BankPayFromOption[]>(() => [
@@ -4199,6 +4196,25 @@ export default function App() {
     : undefined
   const creditWidthMaxStyle = creditTableWidth ? { maxWidth: `${creditTableWidth}px` } : undefined
   const creditSectionStyle = creditWidthCapStyle ?? { marginLeft: 'auto', marginRight: 'auto' }
+  const copyCreditRow = (account: CreditAccount) => {
+    const metrics = getCreditMetrics(account, activeCycleStartDate)
+    const lines = [
+      `Credit Card: ${account.name}`,
+      `  Cycle: ${activeCyclePeriod.startDate} — ${activeCyclePeriod.endDate}`,
+      `  Available Credit: ${currency(account.availableCredit)}`,
+      `  Last Statement Date: ${account.lastStatementDate || '—'}`,
+      `  Next Payment Date: ${account.nextPaymentDate || '—'}`,
+      `  Paid This Month: ${account.paidThisMonth ? 'Yes' : 'No'}`,
+      `  Statement Cycled After Payment: ${account.statementCycledAfterPayment ? 'Yes' : 'No'}`,
+      `  Last Statement Balance: ${currency(account.lastStatementBalance)}`,
+      `  Credit Limit: ${currency(account.creditLimit)}`,
+      `  Total Due: ${currency(metrics.totalDueForCard)}`,
+      `  Current Month Payment: ${currency(metrics.currentMonthPayment)}`,
+      `  Next Stmt Balance: ${currency(metrics.nextMonthStatementBalance)}`,
+      `  Utilization: ${metrics.utilizationPercent.toFixed(1)}%`,
+    ]
+    void navigator.clipboard.writeText(lines.join('\n'))
+  }
   const renderCreditAccountsTable = (tableWrapperClassName: string) => (
     <div className={tableWrapperClassName} aria-hidden={tableWrapperClassName.includes('measurement') ? 'true' : undefined}>
       <table className="credit-accounts-table">
@@ -4236,6 +4252,7 @@ export default function App() {
                 </th>
               )
             })}
+            {authenticatedUser?.admin ? <th className="copy-col"></th> : null}
           </tr>
         </thead>
         <tbody>
@@ -4310,6 +4327,20 @@ export default function App() {
                 <td>{currency(currentMonthPayment)}</td>
                 <td>{currency(nextMonthStatementBalance)}</td>
                 <td>{utilizationPercent.toFixed(1)}%</td>
+                {authenticatedUser?.admin ? (
+                  <td className="copy-col">
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="copy-row-button"
+                      onClick={() => copyCreditRow(account)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); copyCreditRow(account) } }}
+                      title="Copy row as text"
+                    >
+                      📋
+                    </span>
+                  </td>
+                ) : null}
               </tr>
             )
           })}
@@ -4327,6 +4358,7 @@ export default function App() {
             <td>{currency(creditCardCurrentMonthPayments)}</td>
             <td>{currency(creditCardNextMonthBalance)}</td>
             <td>{totalUtilization.toFixed(1)}%</td>
+            {authenticatedUser?.admin ? <td></td> : null}
           </tr>
         </tbody>
       </table>
@@ -4521,9 +4553,10 @@ export default function App() {
         displayCycles = processed.displayCycles
       }
     } else {
-      const isEncryptionActive = !!pinKey && !(authenticatedUser?.encryptionExempt ?? false) && planViewMode !== 'sample'
-      if (isEncryptionActive && pinKey) {
-        const processed = await processHistoryCycles(rawCycles, pinKey)
+      const effectivePinKey = decryptionKey ?? pinKey
+      const isEncryptionActive = !!effectivePinKey && !(authenticatedUser?.encryptionExempt ?? false) && planViewMode !== 'sample'
+      if (isEncryptionActive && effectivePinKey) {
+        const processed = await processHistoryCycles(rawCycles, effectivePinKey)
         displayCycles = processed.displayCycles
         if (processed.cyclesToEncrypt.length > 0) {
           void fetch(`${API_BASE_URL}/api/financial-plan/history/bulk-encrypt`, {
@@ -4581,11 +4614,11 @@ export default function App() {
     }
 
     void refreshBankBalanceHistory()
-  }, [appRoute, authState, authenticatedUser?.termsAccepted, loadedSharedViewerUserSub, planReady, planViewMode, selectedSharedViewerUser, timelineType, viewerEncryptionKey])
+  }, [appRoute, authState, authenticatedUser?.termsAccepted, loadedSharedViewerUserSub, pinKey, planReady, planViewMode, selectedSharedViewerUser, timelineType, viewerEncryptionKey])
 
   useEffect(() => {
     if (authState !== 'authenticated') {
-      previousCyclePrefetchKeyRef.current = null
+      prefetchedClosedCycleKeysRef.current.clear()
       return
     }
 
@@ -4597,59 +4630,70 @@ export default function App() {
       return
     }
 
-    if (!previousCyclePeriod) {
-      previousCyclePrefetchKeyRef.current = null
+    if (closedCyclePeriods.length === 0) {
+      prefetchedClosedCycleKeysRef.current.clear()
       return
     }
 
-    const previousKey = getCyclePeriodKey(previousCyclePeriod)
-    if (localBankBalanceHistoryCyclesRef.current.has(previousKey)) {
+    const cyclesToPrefetch = closedCyclePeriods.filter((cyclePeriod) => {
+      const cycleKey = getCyclePeriodKey(cyclePeriod)
+      return !localBankBalanceHistoryCyclesRef.current.has(cycleKey) && !prefetchedClosedCycleKeysRef.current.has(cycleKey)
+    })
+
+    if (cyclesToPrefetch.length === 0) {
       return
     }
 
-    if (previousCyclePrefetchKeyRef.current === previousKey) {
-      return
-    }
-    previousCyclePrefetchKeyRef.current = previousKey
+    cyclesToPrefetch.forEach((cyclePeriod) => {
+      prefetchedClosedCycleKeysRef.current.add(getCyclePeriodKey(cyclePeriod))
+    })
 
     void (async () => {
-      const rawPrevious = await fetchRawCycleData('previous')
-      if (!rawPrevious?.hasPreviousCycle) {
-        return
-      }
+      let didCacheCycle = false
 
-      const cyclePeriod = rawPrevious.previousCycle ?? previousCyclePeriod
-      const cycleKey = getCyclePeriodKey(cyclePeriod)
-      if (localBankBalanceHistoryCyclesRef.current.has(cycleKey)) {
-        return
-      }
-
-      const rawPreviousData = rawPrevious.data
-      let decodedPreviousData: FinancialPlanData | null = rawPreviousData
-      if (rawPreviousData.encryptedData && rawPreviousData.encryptionIv) {
-        if (!pinKey) {
-          return
+      for (const targetCyclePeriod of cyclesToPrefetch) {
+        const rawCycle = await fetchRawCycleData(getClosedCycleSelectionValue(targetCyclePeriod))
+        if (!rawCycle?.hasPreviousCycle) {
+          continue
         }
 
-        try {
-          decodedPreviousData = await decryptJson<FinancialPlanData>(pinKey, rawPreviousData.encryptedData, rawPreviousData.encryptionIv)
-        } catch {
-          return
+        const cyclePeriod = rawCycle.selectedClosedCycle ?? rawCycle.previousCycle ?? targetCyclePeriod
+        const cycleKey = getCyclePeriodKey(cyclePeriod)
+        if (localBankBalanceHistoryCyclesRef.current.has(cycleKey)) {
+          continue
         }
+
+        const rawCycleData = rawCycle.data
+        let decodedCycleData: FinancialPlanData | null = rawCycleData
+        if (rawCycleData.encryptedData && rawCycleData.encryptionIv) {
+          if (!pinKey) {
+            continue
+          }
+
+          try {
+            decodedCycleData = await decryptJson<FinancialPlanData>(pinKey, rawCycleData.encryptedData, rawCycleData.encryptionIv)
+          } catch {
+            continue
+          }
+        }
+
+        if (!decodedCycleData) {
+          continue
+        }
+
+        const normalized = normalizeFinancialPlanData(decodedCycleData)
+        localBankBalanceHistoryCyclesRef.current.set(cycleKey, {
+          cycle: cyclePeriod,
+          banks: buildBankBalanceComparisonPoints(normalized),
+        })
+        didCacheCycle = true
       }
 
-      if (!decodedPreviousData) {
-        return
+      if (didCacheCycle) {
+        setLocalBankBalanceHistoryVersion((version) => version + 1)
       }
-
-      const normalized = normalizeFinancialPlanData(decodedPreviousData)
-      localBankBalanceHistoryCyclesRef.current.set(cycleKey, {
-        cycle: cyclePeriod,
-        banks: buildBankBalanceComparisonPoints(normalized),
-      })
-      setLocalBankBalanceHistoryVersion((version) => version + 1)
     })()
-  }, [appRoute, authState, authenticatedUser?.termsAccepted, pinKey, planReady, planViewMode, previousCyclePeriod, timelineType])
+  }, [appRoute, authState, authenticatedUser?.termsAccepted, closedCyclePeriods, pinKey, planReady, planViewMode, timelineType])
 
   const applyPersonalCycleResponse = (
     response: FinancialPlanCycleResponse,
@@ -5841,10 +5885,10 @@ export default function App() {
 
   const handleLogin = async () => {
     setAuthScreenMode('default')
-    await handleLogout()
+    persistTabAuthToken(null)
     setAuthState('checking')
     setAuthMessage('Redirecting to Google sign-in...')
-    window.location.href = LOGIN_URL
+    window.location.assign(LOGIN_URL)
   }
 
   const handleAcceptTerms = async () => {
@@ -6162,7 +6206,6 @@ export default function App() {
       const stripBackupData = (plan: FinancialPlanData): FinancialPlanData => ({
         ...normalizeFinancialPlanData(plan),
         summary: undefined,
-        encryptedData: undefined,
         encryptionIv: undefined,
         pinVerify: undefined,
         pinVerifyIv: undefined,
@@ -6323,7 +6366,6 @@ export default function App() {
       const restorePayload: FinancialPlanData = {
         ...normalizedImportedPlan,
         summary: undefined,
-        encryptedData: undefined,
         encryptionIv: undefined,
         pinVerify: undefined,
         pinVerifyIv: undefined,
@@ -6333,7 +6375,6 @@ export default function App() {
       const restorePreviousPayload: FinancialPlanData | null = normalizedImportedPreviousPlan
         ? {
           ...normalizedImportedPreviousPlan,
-          summary: undefined,
           encryptedData: undefined,
           encryptionIv: undefined,
           pinVerify: undefined,
@@ -6576,9 +6617,9 @@ export default function App() {
     }
   }
 
-  const fetchRawCycleData = async (cycle: 'current' | 'previous'): Promise<FinancialPlanCycleResponse | null> => {
+  const fetchRawCycleData = async (cycle: CycleSelection): Promise<FinancialPlanCycleResponse | null> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${cycle}`, { credentials: 'include' })
+      const response = await fetch(`${API_BASE_URL}/api/financial-plan?cycle=${encodeURIComponent(cycle)}`, { credentials: 'include' })
       if (!response.ok) return null
       return response.json() as Promise<FinancialPlanCycleResponse>
     } catch {
@@ -6749,7 +6790,7 @@ export default function App() {
           return
         }
         applyPersonalCycleResponse(pendingEncryptedPlanResponse, '', false, decryptedData, userSub)
-        void refreshBankBalanceHistory()
+        void refreshBankBalanceHistory(undefined, key)
         setPendingEncryptedPlanResponse(null)
         setIsPinModalOpen(false)
         setPinInput('')
@@ -7535,20 +7576,23 @@ export default function App() {
                 {hasSharedViewerUsers ? (
                   <>
                     <option value="">Select a user</option>
-                    {sharedViewerUsers.map((user) => (
-                      <option key={user.userSub} value={user.userSub}>
-                        {formatEncryptedViewerUserLabel(user)}
-                      </option>
-                    ))}
+                    {(authenticatedUser?.admin && authenticatedUser?.email !== 'naudiyal@gmail.com')
+                      ? [1, 2, 3].map((n) => (
+                          <option key={`user${n}`} value={sharedViewerUsers[n - 1]?.userSub || `user${n}`} disabled>
+                            {`User ${n}`}
+                          </option>
+                        ))
+                      : sharedViewerUsers.map((user) => (
+                          <option key={user.userSub} value={user.userSub}>
+                            {formatEncryptedViewerUserLabel(user)}
+                          </option>
+                        ))}
                   </>
                 ) : (
                   <option value="">No other trackers available</option>
                 )}
               </select>
             </label>
-            <button type="button" className="toolbar-button" onClick={handleReturnToMyPlan}>
-              Back to My Plan
-            </button>
           </div>
         </section>
       ) : null}

@@ -3,66 +3,77 @@
 ## Source Of Truth
 
 - UI implementation owner: `src/App.tsx`
-- Main helper: `getCreditMetrics(account, cycleStartDate)`
+- Main helper: `getCreditMetrics(account, cycleStartDate)` — **this file must match the code exactly**
 - Reused by sorting, totals, charts, table rows, and tab rendering so all credit views stay on the same calculation path.
 
-## Exact Rule Provided By The User
+## Variables
 
-```text
-If statementDate >= cycle start date
-(if paymentDate < statementDate:
-    (if paidThisMonth and not statementHasCycled:
-        nextBalance = totalDueForCard
-    else if paidThisMonth and statementHasCycled:
-        nextBalance = totalDueForCard - lastStatementBalance
-    else if not paidThisMonth and not statementHasCycled:
-        nextBalance = totalDueForCard
+| Variable | Source |
+|---|---|
+| `totalDueForCard` | `creditLimit - availableCredit` |
+| `currentMonthPayment` | `paidThisMonth ? 0 : lastStatementBalance` |
+| `statementDateInCurrentCycle` | `lastStatementDate >= cycleStartDate` |
+| `paymentDateBeforeStatementDate` | `nextPaymentDate < lastStatementDate` |
+| `statementDateBeforePaymentDate` | `lastStatementDate < nextPaymentDate` |
+
+## Current Implementation (matches code)
+
+```
+totalDueForCard = creditLimit - availableCredit
+
+// === CASE 1: statementDate >= cycleStartDate ===
+if statementDateInCurrentCycle:
+
+    // --- paymentDate < statementDate ---
+    if paymentDateBeforeStatementDate:
+        if paidThisMonth AND statementCycledAfterPayment:
+            → totalDueForCard - lastStatementBalance
+        else if NOT paidThisMonth AND statementCycledAfterPayment:
+            // contradictory input — fall back safely
+            → totalDueForCard
+        else:
+            // paidThisMonth + NOT cycled / NOT paid + NOT cycled
+            → totalDueForCard
+
+    // --- statementDate < paymentDate ---
+    else if statementDateBeforePaymentDate:
+        → totalDueForCard - lastStatementBalance          // unconditional
+
+    // --- paymentDate == statementDate ---
+    else if statementCycledAfterPayment:
+        → totalDueForCard
     else:
-        # impossible state in your model
-        nextBalance = INVALID)
-else if statementDate < paymentDate:
-    (if statementHasCycled and not paidThisMonth:
-        nextBalance = totalDueForCard - lastStatementBalance
-    else if statementHasCycled and paidThisMonth:
-        nextBalance = totalDueForCard
-    else if not statementHasCycled and not paidThisMonth:
-        nextBalance = 0
+        → totalDueForCard - lastStatementBalance
+
+// === CASE 2: statementDate < cycleStartDate ===
+else if statementDateBeforePaymentDate:      // implies paymentDate > statementDate
+    if NOT cycled AND NOT paid:
+        → totalDueForCard - lastStatementBalance
+    else if NOT cycled AND paid:
+        → totalDueForCard
+    else if cycled AND paid:
+        → totalDueForCard - lastStatementBalance
+    else if cycled AND NOT paid:
+        → totalDueForCard - lastStatementBalance
     else:
-        # impossible state in your model
-        nextBalance = INVALID)
+        // catch-all safety
+        → totalDueForCard
+
+// === CASE 3: fallback (paymentDate <= statementDate, pre-cycle) ===
 else:
-    (# paymentDate == statementDate
-    if statementHasCycled and paidThisMonth:
-        nextBalance = totalDueForCard
-    else if not statementHasCycled and not paidThisMonth:
-        nextBalance = totalDueForCard - lastStatementBalance
-    else if statementHasCycled and not paidThisMonth:
-        nextBalance = totalDueForCard
-    else:
-        # not statementHasCycled and paidThisMonth
-        nextBalance = totalDueForCard - lastStatementBalance)
-)
-else If statementDate < cycle start date
-(
-if statementDate < paymentDate:
-    (if statementHasCycled = false and paidThisMonth = false:
-        nextBalance = totalDueForCard - lastStatementBalance
-    else if paidThisMonth = true and statementHasCycled = false:
-        nextBalance = totalDueForCard
-    else if statementHasCycled = true and paidThisMonth = true:
-        nextBalance = totalDueForCard - lastStatementBalance
-    else if paidThisMonth = false and statementHasCycled = true:
-        nextBalance = totalDueForCard
-)
-else if paymentDate < statementDate: Not possible as statement date is before cycle start
-else paymentDate = statementDate: Not possible as statement date is before cycle start
-)
+    → totalDueForCard
 ```
 
-## Current Implementation Notes
+## Known Bug: Negative Next Stmt Balance
 
-- `totalDueForCard` is calculated as `creditLimit - availableCredit`.
-- `currentCycleStmtCycled` is the preferred domain term in this document; the current code field is still named `statementCycledAfterPayment`.
-- `paidThisCycle` is the preferred domain term in this document; the current code field is still named `paidThisMonth`.
-- The current UI keeps numeric fallbacks for impossible manual-input combinations so the app always renders safely.
-- The latest accepted change in this rule set is that the current-cycle `statementDate < paymentDate` branch now always returns `totalDueForCard - lastStatementBalance`, and the pre-cycle non-cycled paid case now returns `totalDueForCard`.
+When `statementDate >= cycleStartDate` AND `statementDate < paymentDate`, the formula is `totalDueForCard - lastStatementBalance` unconditionally. This produces a negative value when `totalDueForCard < lastStatementBalance` — which happens when the user has already paid, reducing `totalDueForCard` below the statement balance. See the Chase Slate example where $905.79 − $1,047.33 = −$141.54.
+
+To fix, clamp to `Math.max(0, totalDueForCard - lastStatementBalance)` or check `paidThisMonth` before subtracting.
+
+## Implementation Notes
+
+- `totalDueForCard` = `creditLimit - availableCredit`
+- The code field `statementCycledAfterPayment` corresponds to the doc concept `statementHasCycled`
+- The code field `paidThisMonth` corresponds to the doc concept `paidThisCycle`
+- `else` branches provide safe numeric fallbacks for contradictory manual-input combinations
+- This doc was last synced with the code on May 30, 2026
