@@ -13,6 +13,7 @@ import {
   LineChart,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -519,6 +520,52 @@ const buildBankBalanceComparisonPoints = (data: FinancialPlanData): BankBalanceC
       ),
     })),
   ]
+}
+
+type CashFlowPoint = {
+  label: string
+  date: string | null
+  sortDate: string
+  balance: number
+}
+
+const buildBankCashFlowData = (data: FinancialPlanData): Map<string, CashFlowPoint[]> => {
+  const nd = normalizeFinancialPlanData(data)
+  const subs = nd.incomeSubsections ?? defaultIncomeSubsections
+  const titles = normalizeSectionTitles(nd.sectionTitles)
+  const validIds = new Set([DEFAULT_BANK_EXPENSE_SOURCE_ID, ...subs.map((s) => s.id)])
+  const exps = [...nd.planoExpenses, ...nd.sanfordExpenses, ...nd.otherExpenses].map((e) => ({ ...e, payFromBankId: normalizeExpensePayFromBankId(e.payFromBankId, validIds) }))
+  const bms = nd.incomeItems.find((i) => i.id === 'bi-monthly-salary')?.amount ?? 0
+  const fpArrived = (nd.incomeItems.find((i) => i.id === FIRST_PAYCHECK_ID)?.amount ?? 0) !== 0
+  const spArrived = (nd.incomeItems.find((i) => i.id === SECOND_PAYCHECK_ID)?.amount ?? 0) !== 0
+  const ccPymts = nd.creditAccounts.reduce((s, a) => s + (a.paidThisMonth ? 0 : a.lastStatementBalance), 0)
+  const result = new Map<string, CashFlowPoint[]>()
+  const defDt = '9999-99-99'
+
+  const build = (bid: string, currentBal: number, pc1Amt: number, pc2Amt: number, addlInc: number, addlPmt: number, pcDate1: string | null, pcDate2: string | null, pc1Arrived: boolean, pc2Arrived: boolean) => {
+    const evts: { label: string; date: string | null; sortDate: string; amount: number }[] = []
+    if (!pc1Arrived && pcDate1 && pc1Amt > 0) evts.push({ label: 'Paycheck 1 In', date: pcDate1, sortDate: pcDate1, amount: pc1Amt })
+    if (!pc2Arrived && pcDate2 && pc2Amt > 0) evts.push({ label: 'Paycheck 2 In', date: pcDate2, sortDate: pcDate2, amount: pc2Amt })
+    if (addlInc > 0.004) evts.push({ label: 'Additional Income', date: null, sortDate: defDt, amount: addlInc })
+    const bankExps = exps.filter((e) => e.payFromBankId === bid && !e.paid && e.current > 0.004)
+    for (const e of bankExps) evts.push({ label: e.label, date: e.payDate || null, sortDate: e.payDate || defDt, amount: -e.current })
+    if (bid === DEFAULT_BANK_EXPENSE_SOURCE_ID) {
+      if (ccPymts > 0.004) evts.push({ label: 'Credit Card Pymts', date: null, sortDate: defDt, amount: -ccPymts })
+      if (addlPmt > 0.004) evts.push({ label: 'Additional Pymts', date: null, sortDate: defDt, amount: -addlPmt })
+    }
+    evts.sort((a, b) => a.sortDate.localeCompare(b.sortDate))
+    const pts: CashFlowPoint[] = [{ label: 'Start', date: null, sortDate: '0000-00-00', balance: roundCurrencyAmount(currentBal) }]
+    let running = currentBal
+    for (const e of evts) { running += e.amount; pts.push({ label: e.label, date: e.date, sortDate: e.sortDate, balance: roundCurrencyAmount(running) }) }
+    result.set(bid, pts)
+  }
+
+  const cb = nd.balanceItems.find((b) => b.id === 'checking-balance-chase')?.amount ?? 0
+  const ap = nd.balanceItems.find((b) => b.id === 'additional-payments-chase')?.amount ?? 0
+  const ai = nd.balanceItems.find((b) => b.id === 'additional-income-chase')?.amount ?? 0
+  build(DEFAULT_BANK_EXPENSE_SOURCE_ID, cb, bms, bms, ai, ap, nd.firstPaycheckDate || null, nd.secondPaycheckDate || null, fpArrived, spArrived)
+  for (const s of subs) build(s.id, s.checkingBalance, s.biMonthlySalary, s.biMonthlySalary, s.additionalIncome, s.additionalPayments, s.firstPaycheckDate || null, s.secondPaycheckDate || null, s.midMonthSalaryArrived, s.monthEndSalaryArrived)
+  return result
 }
 
 const formatLocalDateTime = (value: string | Date) => {
@@ -3688,6 +3735,37 @@ export default function App() {
       }),
     ),
   }))
+
+  const bankCashFlowData = useMemo(() => buildBankCashFlowData(liveBankComparisonData), [liveBankComparisonData])
+  const cashFlowBankIds = Array.from(bankCashFlowData.keys())
+  const cashFlowChartData = useMemo(() => {
+    const labelMap = new Map<string, { date: string | null; label: string; banks: Record<string, number | null>; deltas: Record<string, number | null> }>()
+    for (const [bankId, points] of bankCashFlowData) {
+      for (let i = 0; i < points.length; i++) {
+        const pt = points[i]
+        const prev = i > 0 ? points[i - 1].balance : points[0].balance
+        const delta = i === 0 ? null : roundCurrencyAmount(pt.balance - prev)
+        const key = `${pt.sortDate}|${pt.label}`
+        if (!labelMap.has(key)) labelMap.set(key, { date: pt.date, label: pt.label, banks: {}, deltas: {} })
+        labelMap.get(key)!.banks[bankId] = pt.balance
+        labelMap.get(key)!.deltas[bankId] = delta
+      }
+    }
+    return Array.from(labelMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, { date, label, banks, deltas }]) => {
+        const shortDate = date && date !== '9999-99-99' ? formatShortDate(date) : ''
+        const axisLabel = shortDate || label
+        return { key, label, date, dateLabel: axisLabel, ...banks, _deltas: deltas }
+      })
+  }, [bankCashFlowData])
+
+  const cashFlowBankNames = useMemo(() => new Map(cashFlowBankIds.map((bid) => {
+    const name = bid === DEFAULT_BANK_EXPENSE_SOURCE_ID
+      ? normalizeSectionTitles(liveBankComparisonData.sectionTitles).defaultBank || 'Default Bank'
+      : (liveBankComparisonData.incomeSubsections ?? defaultIncomeSubsections).find((s) => s.id === bid)?.title || 'Bank'
+    return [bid, name]
+  })), [cashFlowBankIds, liveBankComparisonData])
 
   const displayedIncomeItems = bankSectionIncomeItems.filter(
     (item) => item.id !== 'salary-transfer-pnc-home-loans' && item.id !== 'salary-transfer-chase-month',
@@ -9753,6 +9831,70 @@ export default function App() {
                       dot={{ r: 5, strokeWidth: 2, fill: '#ffffff', stroke: bank.stroke ?? BANK_COLORS[index % BANK_COLORS.length] }}
                       activeDot={{ r: 7 }}
                       connectNulls={false}
+                      isAnimationActive={false}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </article>
+
+        <article className="chart-card compact-section cashflow-side-panel">
+          <div className="chart-card-header">
+            <div>
+              <h3>Cash Flow This Cycle</h3>
+              <span>Starting balance → money in → money out. Tracks how close you get to $0.</span>
+            </div>
+          </div>
+          <div className="chart-shell chart-shell-bank">
+            {cashFlowChartData.length === 0 ? (
+              <div className="chart-empty-state">No cash flow data available.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={cashFlowChartData} margin={{ top: 16, right: 24, bottom: 8, left: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} vertical={false} />
+                  <ReferenceLine y={0} stroke="#dc2626" strokeDasharray="4 4" strokeWidth={1.5} />
+                  <XAxis
+                    dataKey="dateLabel"
+                    tick={{ fill: CHART_COLORS.text, fontSize: 11, fontWeight: 600 }}
+                    tickLine={false}
+                    axisLine={false}
+                    angle={-25}
+                    textAnchor="end"
+                    height={50}
+                  />
+                  <YAxis
+                    tickFormatter={(v: number) => chartCurrency(v)}
+                    tick={{ fill: CHART_COLORS.muted, fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={76}
+                  />
+                  <Tooltip
+                    {...COMPACT_CHART_TOOLTIP_PROPS}
+                    formatter={(value: unknown, name: string, props: any) => {
+                      if (typeof value !== 'number' || Number.isNaN(value)) return ['—', name]
+                      const delta = props?.payload?._deltas?.[name]
+                      const deltaStr = delta != null && delta !== 0 ? ` (${delta > 0 ? '+' : ''}${currency(delta)})` : ''
+                      return [`${currency(value)}${deltaStr}`, name]
+                    }}
+                    labelFormatter={(_axisLabel: string, payload: any) => {
+                      return payload?.[0]?.payload?.label ?? ''
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                  {cashFlowBankIds.map((bankId, index) => (
+                    <Line
+                      key={bankId}
+                      type="linear"
+                      dataKey={bankId}
+                      name={cashFlowBankNames.get(bankId) ?? 'Bank'}
+                      stroke={BANK_COLORS[index % BANK_COLORS.length]}
+                      strokeWidth={2.5}
+                      dot={{ r: 4, strokeWidth: 2, fill: '#ffffff', stroke: BANK_COLORS[index % BANK_COLORS.length] }}
+                      activeDot={{ r: 7 }}
+                      connectNulls={true}
                       isAnimationActive={false}
                     />
                   ))}

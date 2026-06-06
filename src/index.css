@@ -1213,6 +1213,25 @@ section {
   color: #64748b;
 }
 
+/* Cash flow bank selector */
+.cashflow-bank-select {
+  padding: 0.25rem 0.45rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.35rem;
+  background: #ffffff;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.cashflow-bank-select:focus {
+  outline: none;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 2px rgba(147, 197, 253, 0.3);
+}
+
 .chart-shell {
   width: 100%;
   height: 240px;
