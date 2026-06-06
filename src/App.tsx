@@ -200,6 +200,127 @@ type BankCashflowEvent = {
   kind: 'inflow' | 'outflow'
 }
 
+type NotificationItem = {
+  id: string
+  kind: 'credit-payment-due' | 'debit-expense-due' | 'bank-negative-balance' | 'cycle-close-reminder'
+  title: string
+  detail: string
+  severity: 'info' | 'warning' | 'danger'
+  date?: string
+  amount?: number
+}
+
+const deriveNotifications = (
+  creditAccounts: CreditAccount[],
+  expenseItems: ExpenseItem[],
+  bankNegativeWarnings: Map<string, BankNegativeBalanceWarning>,
+  incomeSubsections: IncomeSubsection[],
+  currentCycle: CyclePeriod,
+  canCloseCycle: boolean,
+  defaultBankWarningThreshold: number,
+  todayIso: string,
+): NotificationItem[] => {
+  const notifications: NotificationItem[] = []
+  const today = new Date(`${todayIso}T12:00:00`)
+  const fiveDaysFromNow = new Date(today)
+  fiveDaysFromNow.setDate(fiveDaysFromNow.getDate() + 5)
+  const threeDaysFromNow = new Date(today)
+  threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3)
+
+  // Credit card payment due notifications
+  for (const account of creditAccounts) {
+    if (account.paidThisMonth) continue
+    if (account.lastStatementBalance < 0.004) continue
+    const payDate = new Date(`${account.nextPaymentDate}T12:00:00`)
+    const daysUntilDue = Math.ceil((payDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+
+    if (payDate <= fiveDaysFromNow) {
+      const overdue = payDate < today
+      notifications.push({
+        id: `credit-due-${account.id}`,
+        kind: 'credit-payment-due',
+        title: `${account.name}`,
+        detail: overdue
+          ? `Payment overdue! Was due ${formatShortDate(account.nextPaymentDate)}`
+          : `Payment due in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'} (${formatShortDate(account.nextPaymentDate)})`,
+        severity: overdue ? 'danger' : daysUntilDue <= 2 ? 'warning' : 'info',
+        date: account.nextPaymentDate,
+        amount: account.lastStatementBalance,
+      })
+    }
+  }
+
+  // Debit expense due notifications
+  for (const item of expenseItems) {
+    if (item.paid || item.current < 0.004) continue
+    const payDate = new Date(`${item.payDate}T12:00:00`)
+    const daysUntilDue = Math.ceil((payDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+
+    if (payDate <= fiveDaysFromNow) {
+      const overdue = payDate < today
+      notifications.push({
+        id: `expense-due-${item.id}`,
+        kind: 'debit-expense-due',
+        title: `${item.label}`,
+        detail: overdue
+          ? `Expense overdue! Was due ${formatShortDate(item.payDate)}`
+          : `Expense due in ${daysUntilDue} day${daysUntilDue === 1 ? '' : 's'} (${formatShortDate(item.payDate)})`,
+        severity: overdue ? 'danger' : daysUntilDue <= 2 ? 'warning' : 'info',
+        date: item.payDate,
+        amount: item.current,
+      })
+    }
+  }
+
+  // Bank negative balance warnings
+  for (const [bankId, warning] of bankNegativeWarnings) {
+    const subsection = bankId === DEFAULT_BANK_EXPENSE_SOURCE_ID
+      ? null
+      : incomeSubsections.find((s) => s.id === bankId)
+    const bankName = subsection?.title || (bankId === DEFAULT_BANK_EXPENSE_SOURCE_ID ? 'Default Bank' : `Bank ${bankId}`)
+
+    notifications.push({
+      id: `bank-warning-${bankId}`,
+      kind: 'bank-negative-balance',
+      title: bankName,
+      detail: warning.severity === 'negative'
+        ? `Balance will be ${_activeCurrency.symbol}${Math.abs(warning.projectedBalance).toFixed(2)} negative on ${formatShortDate(warning.date)}`
+        : `Balance will drop below ${_activeCurrency.symbol}${defaultBankWarningThreshold} on ${formatShortDate(warning.date)}`,
+      severity: warning.severity === 'negative' ? 'danger' : 'warning',
+      date: warning.date,
+      amount: warning.projectedBalance,
+    })
+  }
+
+  // Cycle close reminder
+  const cycleEnd = new Date(`${currentCycle.endDate}T12:00:00`)
+  const daysUntilCycleEnd = Math.ceil((cycleEnd.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+
+  if (daysUntilCycleEnd <= 3 && daysUntilCycleEnd >= 0 && canCloseCycle) {
+    notifications.push({
+      id: 'cycle-close-reminder',
+      kind: 'cycle-close-reminder',
+      title: 'Time to Close Cycle',
+      detail: daysUntilCycleEnd === 0
+        ? 'Cycle ends today! Close the cycle after all payments are marked.'
+        : `Cycle ends in ${daysUntilCycleEnd} day${daysUntilCycleEnd === 1 ? '' : 's'} (${formatCycleBoundaryDate(currentCycle.endDate)}). Prepare to close.`,
+      severity: daysUntilCycleEnd <= 1 ? 'warning' : 'info',
+      date: currentCycle.endDate,
+    })
+  } else if (daysUntilCycleEnd <= 3 && daysUntilCycleEnd >= 0 && !canCloseCycle) {
+    notifications.push({
+      id: 'cycle-close-blocked',
+      kind: 'cycle-close-reminder',
+      title: 'Cycle Ending Soon — Action Needed',
+      detail: `Cycle ends in ${daysUntilCycleEnd} day${daysUntilCycleEnd === 1 ? '' : 's'} but close is blocked. Ensure all cards paid, statements cycled, and debit expenses cleared.`,
+      severity: 'warning',
+      date: currentCycle.endDate,
+    })
+  }
+
+  return notifications
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8080' : '')
 const LOGIN_URL = `${API_BASE_URL}/oauth2/authorization/google`
 const BUILD_VERSION_LABEL = `Build v${__APP_VERSION__}`
@@ -1784,6 +1905,8 @@ export default function App() {
   const [isCloseCycleDialogOpen, setIsCloseCycleDialogOpen] = useState(false)
   const [isRevertCycleDialogOpen, setIsRevertCycleDialogOpen] = useState(false)
   const [isBankWarningSettingsDialogOpen, setIsBankWarningSettingsDialogOpen] = useState(false)
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false)
+  const notificationPanelRef = useRef<HTMLDivElement | null>(null)
   const [bankWarningThresholdDrafts, setBankWarningThresholdDrafts] = useState<Record<string, number>>({})
   const [pinKey, setPinKey] = useState<CryptoKey | null>(null)
   const [pinKeyIdentity, setPinKeyIdentity] = useState<string | null>(null)
@@ -3056,7 +3179,7 @@ export default function App() {
   const bankSectionBalanceItems = selectedCycle === 'current' && closeCycleCarryoverBankData
     ? closeCycleCarryoverBankData.balanceItems
     : adjustedBalanceItems
-  const todayIsoDate = new Date().toISOString().slice(0, 10)
+  const todayIsoDate = new Date().toLocaleDateString('en-CA')
   const defaultBankBiMonthlySalary = bankSectionIncomeItems.find((item) => item.id === 'bi-monthly-salary')?.amount ?? 0
   const defaultBankFirstPaycheckArrived = defaultBankBiMonthlySalary > 0
     && Math.abs(bankSectionIncomeItems.find((item) => item.id === FIRST_PAYCHECK_ID)?.amount ?? 0) < 0.004
@@ -3159,7 +3282,7 @@ export default function App() {
   }
 
   const overdueCreditAccounts = creditAccounts.filter(
-    (account) => isPastDate(account.nextPaymentDate) && !account.paidThisMonth,
+    (account) => isPastDate(account.nextPaymentDate) && !account.paidThisMonth && account.lastStatementBalance > 0.004,
   )
   const overdueExpenses = debitCardExpenseItems.filter(
     (item) => isPastDate(item.payDate) && Math.abs(item.current) > 0.004,
@@ -3991,6 +4114,33 @@ export default function App() {
       met: hasRequiredDefaultBankPaycheckDates && allBanksHaveRequiredPaycheckDates,
     },
   ]
+
+  const notifications = useMemo(
+    () =>
+      deriveNotifications(
+        creditAccounts,
+        debitCardExpenseItems,
+        bankNegativeBalanceWarnings,
+        incomeSubsections,
+        currentCyclePeriod,
+        canCloseCurrentCycle,
+        defaultBankWarningThreshold,
+        todayIsoDate,
+      ),
+    [
+      creditAccounts,
+      debitCardExpenseItems,
+      bankNegativeBalanceWarnings,
+      incomeSubsections,
+      currentCyclePeriod,
+      canCloseCurrentCycle,
+      defaultBankWarningThreshold,
+      todayIsoDate,
+    ],
+  )
+
+  const notificationCount = notifications.length
+  const hasOverdueNotifications = notifications.some((n) => n.severity === 'danger')
 
   const budgetCycleButtonTooltip =
     isClosedCycleSelection(selectedCycle)
@@ -7476,6 +7626,11 @@ export default function App() {
                     <span>{authenticatedUser.email}</span>
                   </div>
                 </div>
+                {notificationCount > 0 ? (
+                  <span className={joinClassNames('notification-badge', hasOverdueNotifications ? 'notification-badge-danger' : 'notification-badge-warning')} aria-label={`${notificationCount} notification${notificationCount === 1 ? '' : 's'}`}>
+                    {notificationCount}
+                  </span>
+                ) : null}
               </button>
               {isUserMenuOpen ? (
                 <div className="user-menu-dropdown" role="menu">
@@ -7559,6 +7714,14 @@ export default function App() {
                       </button>
                     </>
                   ) : null}
+                  <button
+                    type="button"
+                    className={joinClassNames('user-menu-item', notificationCount > 0 ? 'user-menu-item-highlight' : undefined)}
+                    onClick={() => { setIsNotificationPanelOpen(true); setIsUserMenuOpen(false) }}
+                    role="menuitem"
+                  >
+                    Notifications{notificationCount > 0 ? ` (${notificationCount})` : ''}
+                  </button>
                   <button type="button" className="user-menu-item" onClick={handleLogout} role="menuitem">
                     Sign Out
                   </button>
@@ -7646,6 +7809,46 @@ export default function App() {
               </select>
             </label>
           </div>
+        </section>
+      ) : null}
+
+      {notificationCount > 0 && !isTrackersRoute ? (
+        <section
+          className={joinClassNames('notification-banner', hasOverdueNotifications ? 'notification-banner-danger' : 'notification-banner-collapsed')}
+          aria-label="Notifications"
+          style={creditWidthCapStyle}
+        >
+          <div className="notification-banner-header">
+            <strong>
+              {hasOverdueNotifications
+                ? `⚠️ ${notifications.filter(n => n.severity === 'danger').length} overdue — ${notificationCount} notification${notificationCount === 1 ? '' : 's'}`
+                : `🔔 ${notificationCount} notification${notificationCount === 1 ? '' : 's'}`}
+            </strong>
+            <button
+              type="button"
+              className={joinClassNames('notification-banner-dismiss', hasOverdueNotifications ? 'notification-banner-dismiss-danger' : undefined)}
+              onClick={() => setIsNotificationPanelOpen(true)}
+              aria-label="View all notifications"
+            >
+              View All →
+            </button>
+          </div>
+          {hasOverdueNotifications ? (
+            <div className="notification-banner-list">
+              {notifications.filter(n => n.severity === 'danger').slice(0, 3).map((n) => (
+                <div key={n.id} className={joinClassNames('notification-banner-item', `notification-severity-${n.severity}`)}>
+                  <span className="notification-banner-item-icon">🚨</span>
+                  <div className="notification-banner-item-body">
+                    <strong>{n.title}</strong>
+                    <span>{n.detail}</span>
+                  </div>
+                </div>
+              ))}
+              {notifications.filter(n => n.severity === 'danger').length > 3 ? (
+                <p className="notification-banner-more">+{notifications.filter(n => n.severity === 'danger').length - 3} more overdue</p>
+              ) : null}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -9521,6 +9724,55 @@ export default function App() {
         </article>
 
       </div>
+
+      {isNotificationPanelOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setIsNotificationPanelOpen(false)}>
+          <section
+            className="modal-card notification-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="notification-panel-title"
+            ref={notificationPanelRef}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="notification-panel-header">
+              <h2 id="notification-panel-title">🔔 Notifications</h2>
+              <button type="button" className="toolbar-button" onClick={() => setIsNotificationPanelOpen(false)}>
+                Close
+              </button>
+            </div>
+            {notifications.length === 0 ? (
+              <p className="notification-panel-empty">No notifications at this time. You're all caught up!</p>
+            ) : (
+              <div className="notification-panel-list">
+                {notifications.map((n) => (
+                  <div key={n.id} className={joinClassNames('notification-panel-item', `notification-severity-${n.severity}`, n.severity === 'danger' ? 'notification-panel-item-danger' : undefined)}>
+                    <span className="notification-panel-item-icon">
+                      {n.severity === 'danger'
+                        ? '🚨'
+                        : n.kind === 'credit-payment-due' ? '💳' : n.kind === 'debit-expense-due' ? '📋' : n.kind === 'bank-negative-balance' ? '🏦' : '🔄'}
+                    </span>
+                    <div className="notification-panel-item-body">
+                      <strong className={n.severity === 'danger' ? 'notification-panel-item-title-danger' : undefined}>{n.title}</strong>
+                      <span>{n.detail}</span>
+                      {n.amount !== undefined && n.amount !== 0 ? (
+                        <span className="notification-panel-item-amount">
+                          {n.kind === 'bank-negative-balance' && n.amount < 0
+                            ? `Projected: -${_activeCurrency.symbol}${Math.abs(n.amount).toFixed(2)}`
+                            : `Amount: ${_activeCurrency.symbol}${n.amount.toFixed(2)}`}
+                        </span>
+                      ) : null}
+                    </div>
+                    <span className={joinClassNames('notification-panel-item-badge', `notification-badge-${n.severity}`)}>
+                      {n.severity === 'danger' ? 'OVERDUE' : n.severity === 'warning' ? '⚡' : 'ℹ️'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }
