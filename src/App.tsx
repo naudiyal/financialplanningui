@@ -7828,7 +7828,7 @@ export default function App() {
         </section>
       ) : null}
 
-      {notificationCount > 0 && !isTrackersRoute ? (
+      {notificationCount > 0 ? (
         <section
           className={joinClassNames('notification-banner', hasOverdueNotifications ? 'notification-banner-danger' : 'notification-banner-collapsed')}
           aria-label="Notifications"
@@ -7868,7 +7868,7 @@ export default function App() {
         </section>
       ) : null}
 
-      {!isTrackersRoute && planReady ? (
+      {planReady ? (
         <section className="notification-banner notification-banner-collapsed" aria-label="Personal notes" style={creditWidthCapStyle}>
           <div className="notification-banner-header">
             <strong>
