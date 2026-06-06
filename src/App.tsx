@@ -9843,8 +9843,8 @@ export default function App() {
         <article className="chart-card compact-section cashflow-side-panel">
           <div className="chart-card-header">
             <div>
-              <h3>Cash Flow This Cycle</h3>
-              <span>Starting balance → money in → money out. Tracks how close you get to $0.</span>
+              <h3>Remaining Cash Flow This Cycle</h3>
+              <span>Current balance projected through remaining payments and income.</span>
             </div>
           </div>
           <div className="chart-shell chart-shell-bank">
