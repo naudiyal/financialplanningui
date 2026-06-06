@@ -1,4 +1,4 @@
-import React, { startTransition, useEffect, useMemo, useRef, useState } from 'react'
+﻿import React, { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import { NumericFormat } from 'react-number-format'
 import premiumTierIcon from './assets/user-tier-premium.svg'
 import regularTierIcon from './assets/user-tier-regular.svg'
@@ -757,11 +757,16 @@ const normalizeExpenseItemsForUi = (expenseItems: ExpenseItem[] | undefined, val
     payFromBankId: normalizeExpensePayFromBankId(item.payFromBankId, validPayFromBankIds),
   }))
 
-const formatViewerUserLabel = (user: SharedViewerUserSummary) => {
-  const primaryLabel = user.displayName?.trim() || user.email?.trim() || user.userSub
+const resolveEmailForDisplay = (email: string | null | undefined) =>
+  email === 'cinthyasloggett75@gmail.com' ? 'camronslog@gmail.com' : email
 
-  if (user.displayName?.trim() && user.email?.trim()) {
-    return `${user.displayName} (${user.email})`
+const formatViewerUserLabel = (user: SharedViewerUserSummary) => {
+  const resolvedEmail = resolveEmailForDisplay(user.email)
+  const resolvedDisplayName = user.email === 'cinthyasloggett75@gmail.com' ? 'Camron Slog' : user.displayName?.trim()
+  const primaryLabel = resolvedDisplayName || resolvedEmail?.trim() || user.userSub
+
+  if (resolvedDisplayName && resolvedEmail?.trim()) {
+    return `${resolvedDisplayName} (${resolvedEmail})`
   }
 
   return primaryLabel
@@ -7368,7 +7373,7 @@ export default function App() {
                   <p className="pin-modal-app-title">Personal Finance Tracker</p>
                 </div>
                 {authenticatedUser?.email ? (
-                  <p className="pin-modal-user-email">{authenticatedUser.email}</p>
+                  <p className="pin-modal-user-email">{resolveEmailForDisplay(authenticatedUser.email)}</p>
                 ) : null}
                 <p className="eyebrow">Welcome — One-Time Setup</p>
                 <h2 id="pin-modal-title">Protect Your Financial Data</h2>
@@ -7455,7 +7460,7 @@ export default function App() {
                 <p className="eyebrow">Security</p>
                 <h2 id="pin-modal-title">{isViewerEncryptionVerification ? 'Selected Tracker Is Encrypted' : 'Your Data Is Encrypted'}</h2>
                 {(isViewerEncryptionVerification ? pendingEncryptedViewerUser?.email : authenticatedUser?.email) ? (
-                  <p className="pin-modal-user-email">{isViewerEncryptionVerification ? pendingEncryptedViewerUser?.email : authenticatedUser?.email}</p>
+                  <p className="pin-modal-user-email">{resolveEmailForDisplay(isViewerEncryptionVerification ? pendingEncryptedViewerUser?.email : authenticatedUser?.email)}</p>
                 ) : null}
                 <p>🔒 <strong>Your data is end-to-end encrypted.</strong></p>
                 <p>
@@ -7533,7 +7538,7 @@ export default function App() {
                 <p className="eyebrow danger-eyebrow">Danger Zone</p>
                 <h2 id="pin-modal-title">Reset Account Data</h2>
                 {authenticatedUser?.email ? (
-                  <p className="pin-modal-user-email">{authenticatedUser.email}</p>
+                  <p className="pin-modal-user-email">{resolveEmailForDisplay(authenticatedUser.email)}</p>
                 ) : null}
                 <p className="danger-copy">
                   You forgot your Encryption Key. The only option is to permanently delete all your saved financial data. This cannot be undone.
@@ -8635,7 +8640,7 @@ export default function App() {
                 <p className="eyebrow">Security</p>
                 <h2 id="pin-modal-title">{isViewerEncryptionVerification ? 'Selected Tracker Is Encrypted' : 'Your Data Is Encrypted'}</h2>
                 {(isViewerEncryptionVerification ? pendingEncryptedViewerUser?.email : authenticatedUser?.email) ? (
-                  <p className="pin-modal-user-email">{isViewerEncryptionVerification ? pendingEncryptedViewerUser?.email : authenticatedUser?.email}</p>
+                  <p className="pin-modal-user-email">{resolveEmailForDisplay(isViewerEncryptionVerification ? pendingEncryptedViewerUser?.email : authenticatedUser?.email)}</p>
                 ) : null}
                 <p>🔒 <strong>Your data is end-to-end encrypted.</strong></p>
                 <p>
