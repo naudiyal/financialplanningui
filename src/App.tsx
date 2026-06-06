@@ -64,6 +64,7 @@ type FinancialPlanData = {
   secondPaycheckDate?: string
   defaultBankWarningThreshold?: number
   incomeSubsections?: IncomeSubsection[]
+  notes?: string
   encryptedData?: string
   encryptionIv?: string
   pinVerify?: string
@@ -1381,6 +1382,7 @@ const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData 
       ? data.defaultBankWarningThreshold
       : DEFAULT_WARNING_THRESHOLD,
     incomeSubsections: normalizedIncomeSubsections,
+    notes: data.notes,
   }
 }
 
@@ -1841,6 +1843,7 @@ export default function App() {
   const [defaultBankFirstPaycheckDate, setDefaultBankFirstPaycheckDate] = useState(defaultFinancialPlanData.firstPaycheckDate ?? '')
   const [defaultBankSecondPaycheckDate, setDefaultBankSecondPaycheckDate] = useState(defaultFinancialPlanData.secondPaycheckDate ?? '')
   const [defaultBankWarningThreshold, setDefaultBankWarningThreshold] = useState(defaultFinancialPlanData.defaultBankWarningThreshold ?? DEFAULT_WARNING_THRESHOLD)
+  const [notes, setNotes] = useState('')
   const [newBankSubsectionIds, setNewBankSubsectionIds] = useState<Set<string>>(new Set())
   const [selectedBankSubsectionIds, setSelectedBankSubsectionIds] = useState<Set<string>>(new Set())
   const [selectedCreditIds, setSelectedCreditIds] = useState<Set<string>>(new Set())
@@ -1907,6 +1910,9 @@ export default function App() {
   const [isBankWarningSettingsDialogOpen, setIsBankWarningSettingsDialogOpen] = useState(false)
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false)
   const notificationPanelRef = useRef<HTMLDivElement | null>(null)
+  const [isNotesModalOpen, setIsNotesModalOpen] = useState(false)
+  const [notesDraft, setNotesDraft] = useState('')
+  const notesModalRef = useRef<HTMLDivElement | null>(null)
   const [bankWarningThresholdDrafts, setBankWarningThresholdDrafts] = useState<Record<string, number>>({})
   const [pinKey, setPinKey] = useState<CryptoKey | null>(null)
   const [pinKeyIdentity, setPinKeyIdentity] = useState<string | null>(null)
@@ -4086,6 +4092,7 @@ export default function App() {
       defaultBankWarningThreshold: overrides.defaultBankWarningThreshold ?? defaultBankWarningThreshold,
       incomeSubsections: nextIncomeSubsections,
       summary: overrides.summary,
+      notes: overrides.notes ?? notes,
     }
   }
 
@@ -4565,6 +4572,7 @@ export default function App() {
     setDefaultBankSecondPaycheckDate(normalizedData.secondPaycheckDate ?? '')
     setDefaultBankWarningThreshold(normalizedData.defaultBankWarningThreshold ?? DEFAULT_WARNING_THRESHOLD)
     setIncomeSubsections(normalizedData.incomeSubsections ?? defaultIncomeSubsections)
+    setNotes(normalizedData.notes ?? '')
     setNewBankSubsectionIds(new Set())
     setSelectedBankSubsectionIds(new Set())
     setSelectedCreditIds(new Set())
@@ -7716,6 +7724,14 @@ export default function App() {
                   ) : null}
                   <button
                     type="button"
+                    className="user-menu-item"
+                    onClick={() => { setNotesDraft(notes); setIsNotesModalOpen(true); setIsUserMenuOpen(false) }}
+                    role="menuitem"
+                  >
+                    Notes{notes ? ` (${notes.length})` : ''}
+                  </button>
+                  <button
+                    type="button"
                     className={joinClassNames('user-menu-item', notificationCount > 0 ? 'user-menu-item-highlight' : undefined)}
                     onClick={() => { setIsNotificationPanelOpen(true); setIsUserMenuOpen(false) }}
                     role="menuitem"
@@ -7849,6 +7865,24 @@ export default function App() {
               ) : null}
             </div>
           ) : null}
+        </section>
+      ) : null}
+
+      {!isTrackersRoute && planReady ? (
+        <section className="notification-banner notification-banner-collapsed" aria-label="Personal notes" style={creditWidthCapStyle}>
+          <div className="notification-banner-header">
+            <strong>
+              📝 Notes{notes ? ` (${notes.length} character${notes.length === 1 ? '' : 's'})` : ''}
+            </strong>
+            <button
+              type="button"
+              className="notification-banner-dismiss"
+              onClick={() => { setNotesDraft(notes); setIsNotesModalOpen(true) }}
+              aria-label={notes ? 'View or edit notes' : 'Add a note'}
+            >
+              {notes ? 'View / Edit' : 'Add Note'} →
+            </button>
+          </div>
         </section>
       ) : null}
 
@@ -9724,6 +9758,56 @@ export default function App() {
         </article>
 
       </div>
+
+      {isNotesModalOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setIsNotesModalOpen(false)}>
+          <section
+            className="modal-card notes-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="notes-modal-title"
+            ref={notesModalRef}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="notes-modal-header">
+              <h2 id="notes-modal-title">📝 Personal Notes</h2>
+              <button type="button" className="toolbar-button" onClick={() => setIsNotesModalOpen(false)}>
+                Close
+              </button>
+            </div>
+            <textarea
+              className="notes-modal-textarea"
+              value={notesDraft}
+              onChange={(event) => setNotesDraft(event.target.value)}
+              placeholder="Write your personal notes here... These are saved with your financial plan and only visible to you."
+              rows={12}
+              maxLength={2000}
+              disabled={isPlanReadOnly}
+              aria-label="Personal notes"
+            />
+            <div className="notes-modal-footer">
+              <span className={joinClassNames('notes-modal-char-count', notesDraft.length >= 2000 ? 'notes-modal-char-count-limit' : undefined)}>{notesDraft.length} / 2000 character{notesDraft.length === 1 ? '' : 's'}</span>
+              <div className="notes-modal-actions">
+                <button
+                  type="button"
+                  className="toolbar-button"
+                  onClick={() => setIsNotesModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="toolbar-button"
+                  disabled={isPlanReadOnly || notesDraft === notes}
+                  onClick={() => { setNotes(notesDraft); markCurrentCycleEdited(); setIsNotesModalOpen(false) }}
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {isNotificationPanelOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setIsNotificationPanelOpen(false)}>

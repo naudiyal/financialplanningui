@@ -3673,6 +3673,137 @@ input.section-title-input {
   border-left: 3px solid #dc2626;
 }
 
+/* ── Notes Banner ── */
+.notes-banner {
+  margin: 0 0 0.55rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.7rem;
+  background: #ffffff;
+}
+
+.notes-banner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.notes-banner-header strong {
+  font-size: 0.78rem;
+  color: #374151;
+}
+
+.notes-banner-open {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid #93c5fd;
+  border-radius: 0.35rem;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 0.68rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.notes-banner-open:hover {
+  background: #dbeafe;
+  border-color: #60a5fa;
+}
+
+.notes-banner-open:disabled {
+  border-color: #e5e7eb;
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.notes-banner-preview {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  color: #6b7280;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Notes Modal ── */
+.notes-modal {
+  width: min(36rem, 100%);
+  max-height: calc(100dvh - 2rem);
+  display: flex;
+  flex-direction: column;
+}
+
+.notes-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.notes-modal-header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.notes-modal-textarea {
+  display: block;
+  width: 100%;
+  flex: 1;
+  min-height: 14rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  background: #f9fafb;
+  font-family: inherit;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: #0f172a;
+  resize: vertical;
+}
+
+.notes-modal-textarea:focus {
+  outline: none;
+  border-color: #93c5fd;
+  background: #ffffff;
+  box-shadow: 0 0 0 2.5px rgba(147, 197, 253, 0.35);
+}
+
+.notes-modal-textarea:disabled {
+  color: #9ca3af;
+  background: #f3f4f6;
+  cursor: not-allowed;
+}
+
+.notes-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.notes-modal-char-count {
+  font-size: 0.68rem;
+  color: #9ca3af;
+}
+
+.notes-modal-char-count-limit {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.notes-modal-actions {
+  display: flex;
+  gap: 0.45rem;
+}
+
 /* ── Notification Panel Modal ── */
 .notification-panel {
   width: min(38rem, 100%);
