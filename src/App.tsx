@@ -598,6 +598,18 @@ const buildBankCashFlowData = (data: FinancialPlanData, todayIso: string, cycleE
         eventAmount: roundCurrencyAmount(event.amount),
       })
     })
+
+    const lastPoint = pts[pts.length - 1]
+    if (cycleEnd > lastPoint.sortDate.slice(0, 10)) {
+      pts.push({
+        label: 'Cycle End',
+        date: cycleEnd,
+        sortDate: `${cycleEnd}|99|Cycle End`,
+        balance: roundCurrencyAmount(running),
+        eventAmount: null,
+      })
+    }
+
     result.set(bid, pts)
   }
 

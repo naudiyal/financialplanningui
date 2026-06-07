@@ -46,6 +46,12 @@ Past-due dated events are clamped to `today` for projection purposes.
 - For the same date, inflows are applied before outflows.
 - This keeps paycheck deposits from appearing after same-day payments.
 
+## Cycle End Carry-Forward
+
+- If a bank has no later events after its last paycheck, expense, or payment event, the chart carries that bank's final available balance forward to the cycle end.
+- This means the line stays flat through the cycle end date instead of stopping early.
+- If a bank has no remaining events at all, the cycle-end point will match its current available balance.
+
 ## Tooltip
 
 Hovering a dot shows:
