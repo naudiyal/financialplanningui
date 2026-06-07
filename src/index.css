@@ -2762,8 +2762,7 @@ input.section-title-input {
   gap: 0.4rem;
   align-items: start;
   margin-top: 0.45rem;
-  padding-top: 0.225rem;
-  padding-bottom: 0.225rem;
+  padding: 0.15rem 0.45rem;
   overflow: hidden;
 }
 
