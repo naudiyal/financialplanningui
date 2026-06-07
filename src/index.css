@@ -2043,6 +2043,13 @@ table {
   table-layout: auto;
 }
 
+@media (min-width: 861px) {
+  .credit-accounts-table {
+    width: 100%;
+    table-layout: fixed;
+  }
+}
+
 .credit-accounts-table th,
 .credit-accounts-table td {
   width: auto !important;
