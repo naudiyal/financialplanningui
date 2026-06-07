@@ -2745,8 +2745,8 @@ input.section-title-input {
 
 .finance-overview-row {
   display: flex;
-  flex-wrap: nowrap;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.3rem;
   align-items: start;
   margin-top: 0.625rem;
 }
@@ -2772,7 +2772,7 @@ input.section-title-input {
 }
 
 .finance-overview-row.section-cluster {
-  padding: 0.75rem;
+  padding: 0.4rem;
   overflow: hidden;
   border-width: 2px;
   background: #f1f5f9;
@@ -2783,13 +2783,15 @@ input.section-title-input {
 }
 
 .finance-overview-row > .expense-section {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 1 32rem;
+  min-width: min(100%, 32rem);
+  order: 1;
 }
 
 .finance-overview-row > .compact-side-panel {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 1 32rem;
+  min-width: min(100%, 32rem);
+  order: 2;
 }
 
 .expense-analytics-stack {
@@ -3489,11 +3491,13 @@ input.section-title-input {
   }
 
   .finance-overview-row {
-    grid-template-columns: 1fr;
+    gap: 0.25rem;
   }
 
-  .finance-overview-row > .compact-side-panel {
-    grid-column: auto;
+  .finance-overview-row > .compact-side-panel,
+  .finance-overview-row > .expense-section {
+    flex-basis: 100%;
+    min-width: 0;
   }
 
   .credit-accounts-section,
@@ -3503,10 +3507,6 @@ input.section-title-input {
 
   .section-content-fit {
     display: block;
-    width: 100%;
-  }
-
-  .finance-overview-row > .expense-section {
     width: 100%;
   }
 
