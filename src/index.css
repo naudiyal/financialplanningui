@@ -2775,6 +2775,7 @@ input.section-title-input {
   padding: 0.75rem;
   overflow: hidden;
   border-width: 2px;
+  background: #f1f5f9;
 }
 
 .finance-overview-row > .compact-section {
