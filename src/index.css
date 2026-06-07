@@ -1106,7 +1106,7 @@ section {
 }
 
 .credit-accounts-section {
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
 }
 
