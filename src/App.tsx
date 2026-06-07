@@ -9506,76 +9506,6 @@ export default function App() {
         </section>
 
         <div className="compact-side-panel expense-analytics-stack">
-          <article className="chart-card compact-section expense-category-side-panel">
-            <div className="chart-card-header">
-              <h3>Debit Card Expense Category</h3>
-              <span>Grouped by label prefix with separate current and next month views</span>
-            </div>
-            <div className="expense-category-comparison-grid">
-              <section className="expense-category-panel" aria-label="Current month debit expense categories">
-                <div className="expense-category-panel-header">
-                  <h4>Current Month Expense</h4>
-                </div>
-                <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
-                  {hasExpenseCategoryCurrentShareData ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={expenseCategoryCurrentShareData}
-                          dataKey="value"
-                          nameKey="name"
-                          innerRadius="46%"
-                          outerRadius="77%"
-                          paddingAngle={2}
-                          isAnimationActive={false}
-                        >
-                          {expenseCategoryCurrentShareData.map((entry) => (
-                            <Cell key={entry.name} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip {...COMPACT_CHART_TOOLTIP_PROPS} formatter={(value: number) => currency(value)} />
-                        <Legend wrapperStyle={{ fontSize: '11px' }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="chart-empty-state">No current month debit expenses</div>
-                  )}
-                </div>
-              </section>
-
-              <section className="expense-category-panel" aria-label="Next month debit expense categories">
-                <div className="expense-category-panel-header">
-                  <h4>Next Month Expense</h4>
-                </div>
-                <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
-                  {hasExpenseCategoryNextShareData ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={expenseCategoryNextShareData}
-                          dataKey="value"
-                          nameKey="name"
-                          innerRadius="46%"
-                          outerRadius="77%"
-                          paddingAngle={2}
-                          isAnimationActive={false}
-                        >
-                          {expenseCategoryNextShareData.map((entry) => (
-                            <Cell key={entry.name} fill={entry.color} />
-                          ))}
-                        </Pie>
-                        <Tooltip {...COMPACT_CHART_TOOLTIP_PROPS} formatter={(value: number) => currency(value)} />
-                        <Legend wrapperStyle={{ fontSize: '11px' }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="chart-empty-state">No next month debit expenses</div>
-                  )}
-                </div>
-              </section>
-            </div>
-          </article>
-
           <article className="chart-card compact-section expense-pay-from-side-panel">
             <div className="chart-card-header">
               <h3>Debit Card Expense Pay From</h3>
@@ -9919,7 +9849,78 @@ export default function App() {
               <button type="button" className="toolbar-button" onClick={() => setIsNotesModalOpen(false)}>
                 Close
               </button>
+            
+
+          <article className="chart-card compact-section expense-category-side-panel">
+            <div className="chart-card-header">
+              <h3>Debit Card Expense Category</h3>
+              <span>Grouped by label prefix with separate current and next month views</span>
             </div>
+            <div className="expense-category-comparison-grid">
+              <section className="expense-category-panel" aria-label="Current month debit expense categories">
+                <div className="expense-category-panel-header">
+                  <h4>Current Month Expense</h4>
+                </div>
+                <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
+                  {hasExpenseCategoryCurrentShareData ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={expenseCategoryCurrentShareData}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius="46%"
+                          outerRadius="77%"
+                          paddingAngle={2}
+                          isAnimationActive={false}
+                        >
+                          {expenseCategoryCurrentShareData.map((entry) => (
+                            <Cell key={entry.name} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip {...COMPACT_CHART_TOOLTIP_PROPS} formatter={(value: number) => currency(value)} />
+                        <Legend wrapperStyle={{ fontSize: '11px' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="chart-empty-state">No current month debit expenses</div>
+                  )}
+                </div>
+              </section>
+
+              <section className="expense-category-panel" aria-label="Next month debit expense categories">
+                <div className="expense-category-panel-header">
+                  <h4>Next Month Expense</h4>
+                </div>
+                <div className="chart-shell expense-category-chart-shell" style={{ height: `${overviewChartHeight}px` }}>
+                  {hasExpenseCategoryNextShareData ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={expenseCategoryNextShareData}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius="46%"
+                          outerRadius="77%"
+                          paddingAngle={2}
+                          isAnimationActive={false}
+                        >
+                          {expenseCategoryNextShareData.map((entry) => (
+                            <Cell key={entry.name} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip {...COMPACT_CHART_TOOLTIP_PROPS} formatter={(value: number) => currency(value)} />
+                        <Legend wrapperStyle={{ fontSize: '11px' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="chart-empty-state">No next month debit expenses</div>
+                  )}
+                </div>
+              </section>
+            </div>
+          </article>
+</div>
             <textarea
               className="notes-modal-textarea"
               value={notesDraft}

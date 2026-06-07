@@ -2744,11 +2744,16 @@ input.section-title-input {
 }
 
 .finance-overview-row {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
-  grid-template-columns: minmax(0, 67%) minmax(0, 33%);
   align-items: start;
   margin-top: 0.625rem;
+}
+
+.finance-overview-row > .chart-card.compact-section {
+  flex: 1 1 280px;
+  min-width: 0;
 }
 
 .finance-overview-row.section-cluster {
