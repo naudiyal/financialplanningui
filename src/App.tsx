@@ -9864,11 +9864,9 @@ export default function App() {
           )}
         </section>
 
-
-
       </div>
 
-            {isNotesModalOpen ? (
+      {isNotesModalOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setIsNotesModalOpen(false)}>
           <section
             className="modal-card notes-modal"
