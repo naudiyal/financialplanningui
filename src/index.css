@@ -2038,11 +2038,12 @@ table {
 }
 
 .credit-accounts-table {
-  width: 100%;
+  width: max-content;
   max-width: 100%;
-  table-layout: fixed;
+  table-layout: auto;
 }
 
+.credit-accounts-table th,
 .credit-accounts-table td {
   width: auto !important;
   white-space: nowrap;
