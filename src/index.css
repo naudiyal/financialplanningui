@@ -2759,9 +2759,9 @@ input.section-title-input {
 .charts-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.4rem;
   align-items: start;
-  margin-top: 0.3125rem;
+  margin-top: 0.45rem;
   overflow: hidden;
 }
 
