@@ -2783,15 +2783,12 @@ input.section-title-input {
 }
 
 .finance-overview-row > .expense-section {
-  width: 100%;
-  max-width: 100%;
+  flex: 1 1 0;
   min-width: 0;
-  justify-self: stretch;
 }
 
 .finance-overview-row > .compact-side-panel {
-  grid-column: auto;
-  width: 100%;
+  flex: 1 1 0;
   min-width: 0;
 }
 
