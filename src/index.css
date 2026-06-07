@@ -32,7 +32,8 @@ html, body, #root {
 }
 
 .app {
-  width: min(calc(100% - 1.25rem), 1465px);
+  width: calc(100% - 1.25rem);
+  max-width: none;
   margin: 0;
   padding: 0.625rem 0.625rem 1rem;
 }
