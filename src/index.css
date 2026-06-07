@@ -2756,6 +2756,21 @@ input.section-title-input {
   min-width: 0;
 }
 
+.charts-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: start;
+  margin-top: 0.625rem;
+  padding: 0.5rem;
+  overflow: hidden;
+}
+
+.charts-row > .chart-card.compact-section {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
 .finance-overview-row.section-cluster {
   padding: 0.5rem;
   overflow: hidden;

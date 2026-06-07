@@ -9668,6 +9668,10 @@ export default function App() {
           </div>
         </section>
 
+      </div>
+
+      <div className="section-cluster charts-row" style={creditWidthCapStyle}>
+
         <article className="chart-card compact-section cashflow-side-panel">
           <div className="chart-card-header">
             <div>
