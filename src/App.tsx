@@ -9418,7 +9418,7 @@ export default function App() {
 
       <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
 
-        <section className="compact-section compact-side-panel bank-accounts-section">
+        <section className="compact-section compact-side-panel bank-accounts-section section-cluster">
           <div className="section-content-fit">
             <div className="section-header bank-section-header">
               <h2>
