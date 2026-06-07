@@ -529,7 +529,7 @@ type CashFlowPoint = {
   balance: number
 }
 
-const buildBankCashFlowData = (data: FinancialPlanData): Map<string, CashFlowPoint[]> => {
+const buildBankCashFlowData = (data: FinancialPlanData, todayIso: string, cycleEnd: string): Map<string, CashFlowPoint[]> => {
   const nd = normalizeFinancialPlanData(data)
   const subs = nd.incomeSubsections ?? defaultIncomeSubsections
   const titles = normalizeSectionTitles(nd.sectionTitles)
@@ -546,15 +546,15 @@ const buildBankCashFlowData = (data: FinancialPlanData): Map<string, CashFlowPoi
     const evts: { label: string; date: string | null; sortDate: string; amount: number }[] = []
     if (!pc1Arrived && pcDate1 && pc1Amt > 0) evts.push({ label: 'Paycheck 1 In', date: pcDate1, sortDate: pcDate1, amount: pc1Amt })
     if (!pc2Arrived && pcDate2 && pc2Amt > 0) evts.push({ label: 'Paycheck 2 In', date: pcDate2, sortDate: pcDate2, amount: pc2Amt })
-    if (addlInc > 0.004) evts.push({ label: 'Additional Income', date: null, sortDate: defDt, amount: addlInc })
+    if (addlInc > 0.004) evts.push({ label: 'Additional Income', date: cycleEnd, sortDate: defDt, amount: addlInc })
     const bankExps = exps.filter((e) => e.payFromBankId === bid && !e.paid && e.current > 0.004)
-    for (const e of bankExps) evts.push({ label: e.label, date: e.payDate || null, sortDate: e.payDate || defDt, amount: -e.current })
+    for (const e of bankExps) evts.push({ label: e.label, date: e.payDate || cycleEnd, sortDate: e.payDate || defDt, amount: -e.current })
     if (bid === DEFAULT_BANK_EXPENSE_SOURCE_ID) {
-      if (ccPymts > 0.004) evts.push({ label: 'Credit Card Pymts', date: null, sortDate: defDt, amount: -ccPymts })
-      if (addlPmt > 0.004) evts.push({ label: 'Additional Pymts', date: null, sortDate: defDt, amount: -addlPmt })
+      if (ccPymts > 0.004) evts.push({ label: 'Card Payments', date: cycleEnd, sortDate: defDt, amount: -ccPymts })
+      if (addlPmt > 0.004) evts.push({ label: 'Other Pymts', date: cycleEnd, sortDate: defDt, amount: -addlPmt })
     }
     evts.sort((a, b) => a.sortDate.localeCompare(b.sortDate))
-    const pts: CashFlowPoint[] = [{ label: 'Start', date: null, sortDate: '0000-00-00', balance: roundCurrencyAmount(currentBal) }]
+    const pts: CashFlowPoint[] = [{ label: 'Start', date: todayIso, sortDate: todayIso, balance: roundCurrencyAmount(currentBal) }]
     let running = currentBal
     for (const e of evts) { running += e.amount; pts.push({ label: e.label, date: e.date, sortDate: e.sortDate, balance: roundCurrencyAmount(running) }) }
     result.set(bid, pts)
@@ -3736,7 +3736,7 @@ export default function App() {
     ),
   }))
 
-  const bankCashFlowData = useMemo(() => buildBankCashFlowData(liveBankComparisonData), [liveBankComparisonData])
+  const bankCashFlowData = useMemo(() => buildBankCashFlowData(liveBankComparisonData, todayIsoDate, currentCyclePeriod.endDate), [liveBankComparisonData, todayIsoDate, currentCyclePeriod.endDate])
   const cashFlowBankIds = Array.from(bankCashFlowData.keys())
   const cashFlowChartData = useMemo(() => {
     const labelMap = new Map<string, { date: string | null; label: string; banks: Record<string, number | null>; deltas: Record<string, number | null> }>()
@@ -3754,8 +3754,9 @@ export default function App() {
     return Array.from(labelMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, { date, label, banks, deltas }]) => {
-        const shortDate = date && date !== '9999-99-99' ? formatShortDate(date) : ''
-        const axisLabel = shortDate || label
+        const shortDate = date && date !== '9999-99-99' && date !== '' ? formatShortDate(date) : ''
+        const isStart = label === 'Start'
+        const axisLabel = shortDate || (isStart ? 'Start' : '')
         return { key, label, date, dateLabel: axisLabel, ...banks, _deltas: deltas }
       })
   }, [bankCashFlowData])
