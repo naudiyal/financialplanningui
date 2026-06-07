@@ -9410,15 +9410,9 @@ export default function App() {
               </div>
             </section>
           </div>
-        </article>
+        </article><div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
 
-      </div>
-
-
-
-      <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
-
-        <section className="compact-section compact-side-panel bank-accounts-section section-cluster">
+        <section className="compact-section compact-side-panel bank-accounts-section">
           <div className="section-content-fit">
             <div className="section-header bank-section-header">
               <h2>
@@ -9579,8 +9573,7 @@ export default function App() {
 
 
 
-      <div className="section-cluster expense-overview-row" style={creditWidthCapStyle}>
-        <section className="expense-section compact-section section-cluster">
+      <section className="expense-section compact-section section-cluster">
           <div className="section-header">
             <h2>
               <input
