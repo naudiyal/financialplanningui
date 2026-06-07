@@ -9249,7 +9249,6 @@ export default function App() {
           <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
             <div
               className="table-wrapper compact-expense-table"
-              style={creditWidthMaxStyle}
             >
               <table className="debit-expenses-table">
               <thead>
