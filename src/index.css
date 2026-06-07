@@ -2761,7 +2761,7 @@ input.section-title-input {
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: start;
-  margin-top: 0.625rem;
+  margin-top: 0.3125rem;
   padding: 0.5rem;
   overflow: hidden;
 }
