@@ -9410,7 +9410,11 @@ export default function App() {
               </div>
             </section>
           </div>
-        </article><div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
+        </article>
+
+      </div>
+
+      <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
 
         <section className="compact-section compact-side-panel bank-accounts-section">
           <div className="section-content-fit">
@@ -9863,8 +9867,6 @@ export default function App() {
             </div>
           )}
         </section>
-
-      </div>
 
       {isNotesModalOpen ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setIsNotesModalOpen(false)}>
