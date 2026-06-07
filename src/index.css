@@ -1301,8 +1301,8 @@ table {
 }
 
 .compact-credit-table {
-  display: inline-block;
-  width: fit-content;
+  display: block;
+  width: 100%;
   max-width: 100%;
   overflow-x: auto;
 }
