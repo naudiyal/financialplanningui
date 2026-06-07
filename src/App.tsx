@@ -4433,7 +4433,7 @@ export default function App() {
 
   const statusClassName = `status-text status-${isSampleMode ? 'saved' : hasUnsavedChanges && saveState === 'idle' ? 'saved' : saveState}`
   const creditWidthCapStyle = creditTableWidth
-    ? { width: `min(100%, ${creditTableWidth}px)`, marginLeft: 'auto', marginRight: 'auto' }
+    ? { maxWidth: `${creditTableWidth}px`, marginLeft: 'auto', marginRight: 'auto', width: '100%' }
     : undefined
   const creditWidthMaxStyle = creditTableWidth ? { maxWidth: `${creditTableWidth}px` } : undefined
   const creditSectionStyle = creditWidthCapStyle ?? { marginLeft: 'auto', marginRight: 'auto' }
