@@ -2040,7 +2040,7 @@ table {
 .credit-accounts-table {
   width: 100%;
   max-width: 100%;
-  table-layout: auto;
+  table-layout: fixed;
 }
 
 .credit-accounts-table td {
