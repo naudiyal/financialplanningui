@@ -9579,7 +9579,7 @@ export default function App() {
 
 
 
-      <div className="section-cluster finance-overview-row expense-overview-row" style={creditWidthCapStyle}>
+      <div className="section-cluster expense-overview-row" style={creditWidthCapStyle}>
         <section className="expense-section compact-section">
           <div className="section-header">
             <h2>
