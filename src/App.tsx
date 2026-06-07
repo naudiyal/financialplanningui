@@ -9509,168 +9509,7 @@ export default function App() {
 
       </div>
 
-      <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
-
-        <section className="compact-section compact-side-panel bank-accounts-section">
-          <div className="section-content-fit">
-            <div className="section-header bank-section-header">
-              <h2>
-                <input
-                  type="text"
-                  value={sectionTitles.incomeSchedule}
-                  readOnly
-                  aria-readonly="true"
-                  className="label-input section-title-input bank-section-title-input"
-                  style={{ width: `${Math.max(sectionTitles.incomeSchedule.length, 8)}ch` }}
-                />
-              </h2>
-              <div style={{ marginLeft: 'auto', marginRight: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>Month End Bal</span>
-                <span style={{ fontSize: '0.92rem', color: '#0f766e', fontWeight: 700 }}>{currency(totalMonthEndBalanceMinusDues)}</span>
-              </div>
-              <div className="section-header-actions">
-                <button
-                  type="button"
-                  className="credit-view-toggle-button-primary"
-                  data-view-mode={bankViewMode}
-                  onClick={handleBankViewModeToggle}
-                  aria-label={bankViewMode === 'table' ? 'Switch to tab view' : 'Switch to table view'}
-                  title={bankViewMode === 'table' ? 'Switch to Tab View' : 'Switch to Table View'}
-                >
-                  <span className="view-toggle-track" aria-hidden="true">
-                    <span className="view-toggle-thumb" />
-                  </span>
-                  <span className="view-toggle-label">{bankViewMode === 'table' ? 'Tab' : 'Table'}</span>
-                </button>
-                {selectedBankSubsectionIds.size > 0 && (
-                  <button type="button" className="delete-row-button" onClick={deleteSelectedBankSubsections}>Delete ({selectedBankSubsectionIds.size})</button>
-                )}
-                <button
-                  type="button"
-                  className="bank-threshold-settings-button"
-                  onClick={handleBankWarningSettingsOpen}
-                  aria-label="Edit bank warning thresholds"
-                  title="Edit Bank Warning Thresholds"
-                >
-                  ⚙
-                </button>
-                <button type="button" className="add-row-button" onClick={addIncomeSubsection}>+ Add</button>
-              </div>
-            </div>
-            {bankViewMode === 'table' ? (
-              <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
-                <div className="income-subsection-grid">
-                  {renderDefaultBankSubsection()}
-                  {incomeSubsections.map(renderIncomeSubsection)}
-                </div>
-              </fieldset>
-            ) : (
-              <div className="bank-tab-shell">
-                <div className="bank-tab-strip" role="tablist" aria-label="Bank account tabs">
-                  {(() => {
-                    const defaultBankWarning = bankNegativeBalanceWarnings.get(DEFAULT_BANK_EXPENSE_SOURCE_ID)
-
-                    return (
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={expandedBankSectionId === DEFAULT_BANK_EXPENSE_SOURCE_ID}
-                    aria-controls={`bank-section-panel-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
-                    id={`bank-section-tab-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
-                    className={joinClassNames(
-                      'bank-tab',
-                      expandedBankSectionId === DEFAULT_BANK_EXPENSE_SOURCE_ID ? 'bank-tab-active' : undefined,
-                    )}
-                    onClick={() => setExpandedBankSectionId(DEFAULT_BANK_EXPENSE_SOURCE_ID)}
-                  >
-                    <span
-                      className={joinClassNames(
-                        'bank-tab-title',
-                        defaultBankWarning ? (defaultBankWarning.severity === 'negative' ? 'bank-name-warning-negative' : 'bank-name-warning-warning') : undefined,
-                      )}
-                    >
-                      {sectionTitles.defaultBank || 'Default Bank'}
-                    </span>
-                    <span className="bank-tab-summary">Month End - {currency(checkingAccountBalanceMonthEndChase)}</span>
-                  </button>
-                    )
-                  })()}
-                  {incomeSubsections.map((subsection, index) => {
-                    const totalBalance = getIncomeSubsectionTotalBalance(subsection)
-                    const monthEndBalance = getBankMonthEndBalance(subsection.id, totalBalance, subsection.additionalIncome)
-                    const isActive = expandedBankSectionId === subsection.id
-                    const warning = bankNegativeBalanceWarnings.get(subsection.id)
-
-                    return (
-                      <button
-                        key={subsection.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={isActive}
-                        aria-controls={`bank-section-panel-${subsection.id}`}
-                        id={`bank-section-tab-${subsection.id}`}
-                        className={joinClassNames(
-                          'bank-tab',
-                          isActive ? 'bank-tab-active' : undefined,
-                          selectedBankSubsectionIds.has(subsection.id) ? 'bank-tab-selected' : undefined,
-                        )}
-                        onClick={() => setExpandedBankSectionId(subsection.id)}
-                      >
-                        <span
-                          className={joinClassNames(
-                            'bank-tab-title',
-                            warning ? (warning.severity === 'negative' ? 'bank-name-warning-negative' : 'bank-name-warning-warning') : undefined,
-                          )}
-                        >
-                          {subsection.title || `Bank ${index + 1}`}
-                        </span>
-                        <span className="bank-tab-summary">Month End - {currency(monthEndBalance)}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
-                  {expandedBankSectionId === DEFAULT_BANK_EXPENSE_SOURCE_ID ? (
-                    <div
-                      id={`bank-section-panel-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
-                      role="tabpanel"
-                      aria-labelledby={`bank-section-tab-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
-                      className="bank-tab-panel"
-                    >
-                      {renderDefaultBankSubsection()}
-                    </div>
-                  ) : activeDisplayedBankSubsection ? (
-                    <div
-                      id={`bank-section-panel-${activeDisplayedBankSubsection.id}`}
-                      role="tabpanel"
-                      aria-labelledby={`bank-section-tab-${activeDisplayedBankSubsection.id}`}
-                      className="bank-tab-panel"
-                    >
-                      {renderIncomeSubsection(
-                        activeDisplayedBankSubsection,
-                        incomeSubsections.findIndex((subsection) => subsection.id === activeDisplayedBankSubsection.id),
-                      )}
-                    </div>
-                  ) : null}
-                </fieldset>
-              </div>
-            )}
-            {otherIncomeItems.length > 0 ? (
-              <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
-                <div className="subsection-block">
-                  <div className="card-list">
-                    {otherIncomeItems.map(renderIncomeCard)}
-                  </div>
-                </div>
-              </fieldset>
-            ) : null}
-          </div>
-        </section>
-
-      </div>
-
-      <div className="section-cluster charts-row" style={creditWidthCapStyle}>
+            <div className="section-cluster charts-row" style={creditWidthCapStyle}>
 
         <article className="chart-card compact-section cashflow-side-panel">
           <div className="chart-card-header">
@@ -9868,6 +9707,169 @@ export default function App() {
             </section>
           </div>
         </article>
+
+      </div>
+
+
+
+      <div className="section-cluster finance-overview-row" style={creditWidthCapStyle}>
+
+        <section className="compact-section compact-side-panel bank-accounts-section">
+          <div className="section-content-fit">
+            <div className="section-header bank-section-header">
+              <h2>
+                <input
+                  type="text"
+                  value={sectionTitles.incomeSchedule}
+                  readOnly
+                  aria-readonly="true"
+                  className="label-input section-title-input bank-section-title-input"
+                  style={{ width: `${Math.max(sectionTitles.incomeSchedule.length, 8)}ch` }}
+                />
+              </h2>
+              <div style={{ marginLeft: 'auto', marginRight: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>Month End Bal</span>
+                <span style={{ fontSize: '0.92rem', color: '#0f766e', fontWeight: 700 }}>{currency(totalMonthEndBalanceMinusDues)}</span>
+              </div>
+              <div className="section-header-actions">
+                <button
+                  type="button"
+                  className="credit-view-toggle-button-primary"
+                  data-view-mode={bankViewMode}
+                  onClick={handleBankViewModeToggle}
+                  aria-label={bankViewMode === 'table' ? 'Switch to tab view' : 'Switch to table view'}
+                  title={bankViewMode === 'table' ? 'Switch to Tab View' : 'Switch to Table View'}
+                >
+                  <span className="view-toggle-track" aria-hidden="true">
+                    <span className="view-toggle-thumb" />
+                  </span>
+                  <span className="view-toggle-label">{bankViewMode === 'table' ? 'Tab' : 'Table'}</span>
+                </button>
+                {selectedBankSubsectionIds.size > 0 && (
+                  <button type="button" className="delete-row-button" onClick={deleteSelectedBankSubsections}>Delete ({selectedBankSubsectionIds.size})</button>
+                )}
+                <button
+                  type="button"
+                  className="bank-threshold-settings-button"
+                  onClick={handleBankWarningSettingsOpen}
+                  aria-label="Edit bank warning thresholds"
+                  title="Edit Bank Warning Thresholds"
+                >
+                  ⚙
+                </button>
+                <button type="button" className="add-row-button" onClick={addIncomeSubsection}>+ Add</button>
+              </div>
+            </div>
+            {bankViewMode === 'table' ? (
+              <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
+                <div className="income-subsection-grid">
+                  {renderDefaultBankSubsection()}
+                  {incomeSubsections.map(renderIncomeSubsection)}
+                </div>
+              </fieldset>
+            ) : (
+              <div className="bank-tab-shell">
+                <div className="bank-tab-strip" role="tablist" aria-label="Bank account tabs">
+                  {(() => {
+                    const defaultBankWarning = bankNegativeBalanceWarnings.get(DEFAULT_BANK_EXPENSE_SOURCE_ID)
+
+                    return (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={expandedBankSectionId === DEFAULT_BANK_EXPENSE_SOURCE_ID}
+                    aria-controls={`bank-section-panel-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
+                    id={`bank-section-tab-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
+                    className={joinClassNames(
+                      'bank-tab',
+                      expandedBankSectionId === DEFAULT_BANK_EXPENSE_SOURCE_ID ? 'bank-tab-active' : undefined,
+                    )}
+                    onClick={() => setExpandedBankSectionId(DEFAULT_BANK_EXPENSE_SOURCE_ID)}
+                  >
+                    <span
+                      className={joinClassNames(
+                        'bank-tab-title',
+                        defaultBankWarning ? (defaultBankWarning.severity === 'negative' ? 'bank-name-warning-negative' : 'bank-name-warning-warning') : undefined,
+                      )}
+                    >
+                      {sectionTitles.defaultBank || 'Default Bank'}
+                    </span>
+                    <span className="bank-tab-summary">Month End - {currency(checkingAccountBalanceMonthEndChase)}</span>
+                  </button>
+                    )
+                  })()}
+                  {incomeSubsections.map((subsection, index) => {
+                    const totalBalance = getIncomeSubsectionTotalBalance(subsection)
+                    const monthEndBalance = getBankMonthEndBalance(subsection.id, totalBalance, subsection.additionalIncome)
+                    const isActive = expandedBankSectionId === subsection.id
+                    const warning = bankNegativeBalanceWarnings.get(subsection.id)
+
+                    return (
+                      <button
+                        key={subsection.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        aria-controls={`bank-section-panel-${subsection.id}`}
+                        id={`bank-section-tab-${subsection.id}`}
+                        className={joinClassNames(
+                          'bank-tab',
+                          isActive ? 'bank-tab-active' : undefined,
+                          selectedBankSubsectionIds.has(subsection.id) ? 'bank-tab-selected' : undefined,
+                        )}
+                        onClick={() => setExpandedBankSectionId(subsection.id)}
+                      >
+                        <span
+                          className={joinClassNames(
+                            'bank-tab-title',
+                            warning ? (warning.severity === 'negative' ? 'bank-name-warning-negative' : 'bank-name-warning-warning') : undefined,
+                          )}
+                        >
+                          {subsection.title || `Bank ${index + 1}`}
+                        </span>
+                        <span className="bank-tab-summary">Month End - {currency(monthEndBalance)}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
+                  {expandedBankSectionId === DEFAULT_BANK_EXPENSE_SOURCE_ID ? (
+                    <div
+                      id={`bank-section-panel-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
+                      role="tabpanel"
+                      aria-labelledby={`bank-section-tab-${DEFAULT_BANK_EXPENSE_SOURCE_ID}`}
+                      className="bank-tab-panel"
+                    >
+                      {renderDefaultBankSubsection()}
+                    </div>
+                  ) : activeDisplayedBankSubsection ? (
+                    <div
+                      id={`bank-section-panel-${activeDisplayedBankSubsection.id}`}
+                      role="tabpanel"
+                      aria-labelledby={`bank-section-tab-${activeDisplayedBankSubsection.id}`}
+                      className="bank-tab-panel"
+                    >
+                      {renderIncomeSubsection(
+                        activeDisplayedBankSubsection,
+                        incomeSubsections.findIndex((subsection) => subsection.id === activeDisplayedBankSubsection.id),
+                      )}
+                    </div>
+                  ) : null}
+                </fieldset>
+              </div>
+            )}
+            {otherIncomeItems.length > 0 ? (
+              <fieldset className="section-readonly-fieldset" disabled={isPlanReadOnly}>
+                <div className="subsection-block">
+                  <div className="card-list">
+                    {otherIncomeItems.map(renderIncomeCard)}
+                  </div>
+                </div>
+              </fieldset>
+            ) : null}
+          </div>
+        </section>
 
       </div>
 
