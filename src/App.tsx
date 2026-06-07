@@ -527,44 +527,85 @@ type CashFlowPoint = {
   date: string | null
   sortDate: string
   balance: number
+  eventAmount: number | null
 }
 
 const buildBankCashFlowData = (data: FinancialPlanData, todayIso: string, cycleEnd: string): Map<string, CashFlowPoint[]> => {
   const nd = normalizeFinancialPlanData(data)
   const subs = nd.incomeSubsections ?? defaultIncomeSubsections
-  const titles = normalizeSectionTitles(nd.sectionTitles)
   const validIds = new Set([DEFAULT_BANK_EXPENSE_SOURCE_ID, ...subs.map((s) => s.id)])
   const exps = [...nd.planoExpenses, ...nd.sanfordExpenses, ...nd.otherExpenses].map((e) => ({ ...e, payFromBankId: normalizeExpensePayFromBankId(e.payFromBankId, validIds) }))
-  const bms = nd.incomeItems.find((i) => i.id === 'bi-monthly-salary')?.amount ?? 0
-  const fpArrived = (nd.incomeItems.find((i) => i.id === FIRST_PAYCHECK_ID)?.amount ?? 0) !== 0
-  const spArrived = (nd.incomeItems.find((i) => i.id === SECOND_PAYCHECK_ID)?.amount ?? 0) !== 0
-  const ccPymts = nd.creditAccounts.reduce((s, a) => s + (a.paidThisMonth ? 0 : a.lastStatementBalance), 0)
+  const firstPaycheckAmount = Math.abs(nd.incomeItems.find((i) => i.id === FIRST_PAYCHECK_ID)?.amount ?? 0) > 0.004
+    ? (nd.incomeItems.find((i) => i.id === FIRST_PAYCHECK_ID)?.amount ?? 0)
+    : 0
+  const secondPaycheckAmount = Math.abs(nd.incomeItems.find((i) => i.id === SECOND_PAYCHECK_ID)?.amount ?? 0) > 0.004
+    ? (nd.incomeItems.find((i) => i.id === SECOND_PAYCHECK_ID)?.amount ?? 0)
+    : 0
   const result = new Map<string, CashFlowPoint[]>()
-  const defDt = '9999-99-99'
 
-  const build = (bid: string, currentBal: number, pc1Amt: number, pc2Amt: number, addlInc: number, addlPmt: number, pcDate1: string | null, pcDate2: string | null, pc1Arrived: boolean, pc2Arrived: boolean) => {
-    const evts: { label: string; date: string | null; sortDate: string; amount: number }[] = []
-    if (!pc1Arrived && pcDate1 && pc1Amt > 0) evts.push({ label: 'Paycheck 1 In', date: pcDate1, sortDate: pcDate1, amount: pc1Amt })
-    if (!pc2Arrived && pcDate2 && pc2Amt > 0) evts.push({ label: 'Paycheck 2 In', date: pcDate2, sortDate: pcDate2, amount: pc2Amt })
-    if (addlInc > 0.004) evts.push({ label: 'Additional Income', date: cycleEnd, sortDate: defDt, amount: addlInc })
-    const bankExps = exps.filter((e) => e.payFromBankId === bid && !e.paid && e.current > 0.004)
-    for (const e of bankExps) evts.push({ label: e.label, date: e.payDate || cycleEnd, sortDate: e.payDate || defDt, amount: -e.current })
-    if (bid === DEFAULT_BANK_EXPENSE_SOURCE_ID) {
-      if (ccPymts > 0.004) evts.push({ label: 'Card Payments', date: cycleEnd, sortDate: defDt, amount: -ccPymts })
-      if (addlPmt > 0.004) evts.push({ label: 'Other Pymts', date: cycleEnd, sortDate: defDt, amount: -addlPmt })
+  type CashFlowEvent = {
+    label: string
+    date: string
+    amount: number
+    kind: 'inflow' | 'outflow'
+  }
+
+  const build = (bid: string, currentBal: number, pc1Amt: number, pc2Amt: number, addlInc: number, addlPmt: number, pcDate1: string | null, pcDate2: string | null) => {
+    const evts: CashFlowEvent[] = []
+    if (pc1Amt > 0 && pcDate1 && isIsoDateValue(pcDate1)) {
+      const paycheckDate = coerceEventDateToProjectionDate(pcDate1, todayIso)
+      evts.push({ label: 'First Paycheck', date: paycheckDate, amount: pc1Amt, kind: 'inflow' })
     }
-    evts.sort((a, b) => a.sortDate.localeCompare(b.sortDate))
-    const pts: CashFlowPoint[] = [{ label: 'Start', date: todayIso, sortDate: todayIso, balance: roundCurrencyAmount(currentBal) }]
+    if (pc2Amt > 0 && pcDate2 && isIsoDateValue(pcDate2)) {
+      const paycheckDate = coerceEventDateToProjectionDate(pcDate2, todayIso)
+      evts.push({ label: 'Second Paycheck', date: paycheckDate, amount: pc2Amt, kind: 'inflow' })
+    }
+    if (addlInc > 0.004) evts.push({ label: 'Additional Income', date: cycleEnd, amount: addlInc, kind: 'inflow' })
+    const bankExps = exps.filter((e) => e.payFromBankId === bid && !e.paid && e.current > 0.004 && isIsoDateValue(e.payDate))
+    for (const e of bankExps) {
+      const expenseDate = coerceEventDateToProjectionDate(e.payDate, todayIso)
+      evts.push({ label: e.label, date: expenseDate, amount: e.current, kind: 'outflow' })
+    }
+    if (bid === DEFAULT_BANK_EXPENSE_SOURCE_ID) {
+      nd.creditAccounts.forEach((account) => {
+        if (account.paidThisMonth || account.lastStatementBalance <= 0.004 || !isIsoDateValue(account.nextPaymentDate)) {
+          return
+        }
+
+        const paymentDate = coerceEventDateToProjectionDate(account.nextPaymentDate, todayIso)
+        evts.push({ label: `${account.name || 'Card'} Payment`, date: paymentDate, amount: account.lastStatementBalance, kind: 'outflow' })
+      })
+
+      if (addlPmt > 0.004) {
+        evts.push({ label: 'Other Pymts', date: cycleEnd, amount: addlPmt, kind: 'outflow' })
+      }
+    }
+    const sortedEvents = [...evts].sort((left, right) => (
+      left.date.localeCompare(right.date) ||
+      (left.kind === right.kind ? 0 : left.kind === 'inflow' ? -1 : 1) ||
+      left.label.localeCompare(right.label)
+    ))
+    const pts: CashFlowPoint[] = [{ label: 'Start', date: todayIso, sortDate: `${todayIso}|00|Start`, balance: roundCurrencyAmount(currentBal), eventAmount: null }]
     let running = currentBal
-    for (const e of evts) { running += e.amount; pts.push({ label: e.label, date: e.date, sortDate: e.sortDate, balance: roundCurrencyAmount(running) }) }
+    sortedEvents.forEach((event, index) => {
+      running += event.kind === 'inflow' ? event.amount : -event.amount
+      const orderGroup = event.kind === 'inflow' ? '10' : '20'
+      pts.push({
+        label: event.label,
+        date: event.date,
+        sortDate: `${event.date}|${orderGroup}|${index.toString().padStart(3, '0')}|${event.label}`,
+        balance: roundCurrencyAmount(running),
+        eventAmount: roundCurrencyAmount(event.amount),
+      })
+    })
     result.set(bid, pts)
   }
 
   const cb = nd.balanceItems.find((b) => b.id === 'checking-balance-chase')?.amount ?? 0
   const ap = nd.balanceItems.find((b) => b.id === 'additional-payments-chase')?.amount ?? 0
   const ai = nd.balanceItems.find((b) => b.id === 'additional-income-chase')?.amount ?? 0
-  build(DEFAULT_BANK_EXPENSE_SOURCE_ID, cb, bms, bms, ai, ap, nd.firstPaycheckDate || null, nd.secondPaycheckDate || null, fpArrived, spArrived)
-  for (const s of subs) build(s.id, s.checkingBalance, s.biMonthlySalary, s.biMonthlySalary, s.additionalIncome, s.additionalPayments, s.firstPaycheckDate || null, s.secondPaycheckDate || null, s.midMonthSalaryArrived, s.monthEndSalaryArrived)
+  build(DEFAULT_BANK_EXPENSE_SOURCE_ID, cb, firstPaycheckAmount, secondPaycheckAmount, ai, ap, nd.firstPaycheckDate || null, nd.secondPaycheckDate || null)
+  for (const s of subs) build(s.id, s.checkingBalance, s.midMonthSalaryArrived ? 0 : s.biMonthlySalary, s.monthEndSalaryArrived ? 0 : s.biMonthlySalary, s.additionalIncome, s.additionalPayments, s.firstPaycheckDate || null, s.secondPaycheckDate || null)
   return result
 }
 
@@ -3626,6 +3667,8 @@ export default function App() {
     creditAccounts,
     incomeItems: bankSectionIncomeItems,
     balanceItems: bankSectionBalanceItems,
+    firstPaycheckDate: defaultBankFirstPaycheckDate,
+    secondPaycheckDate: defaultBankSecondPaycheckDate,
     planoExpenses,
     sanfordExpenses,
     otherExpenses,
@@ -3739,25 +3782,26 @@ export default function App() {
   const bankCashFlowData = useMemo(() => buildBankCashFlowData(liveBankComparisonData, todayIsoDate, currentCyclePeriod.endDate), [liveBankComparisonData, todayIsoDate, currentCyclePeriod.endDate])
   const cashFlowBankIds = Array.from(bankCashFlowData.keys())
   const cashFlowChartData = useMemo(() => {
-    const labelMap = new Map<string, { date: string | null; label: string; banks: Record<string, number | null>; deltas: Record<string, number | null> }>()
+    const labelMap = new Map<string, { date: string | null; label: string; banks: Record<string, number | null>; deltas: Record<string, number | null>; eventAmounts: Record<string, number | null> }>()
     for (const [bankId, points] of bankCashFlowData) {
       for (let i = 0; i < points.length; i++) {
         const pt = points[i]
         const prev = i > 0 ? points[i - 1].balance : points[0].balance
         const delta = i === 0 ? null : roundCurrencyAmount(pt.balance - prev)
         const key = `${pt.sortDate}|${pt.label}`
-        if (!labelMap.has(key)) labelMap.set(key, { date: pt.date, label: pt.label, banks: {}, deltas: {} })
+        if (!labelMap.has(key)) labelMap.set(key, { date: pt.date, label: pt.label, banks: {}, deltas: {}, eventAmounts: {} })
         labelMap.get(key)!.banks[bankId] = pt.balance
         labelMap.get(key)!.deltas[bankId] = delta
+        labelMap.get(key)!.eventAmounts[bankId] = pt.eventAmount
       }
     }
     return Array.from(labelMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, { date, label, banks, deltas }]) => {
+      .map(([key, { date, label, banks, deltas, eventAmounts }]) => {
         const shortDate = date && date !== '9999-99-99' && date !== '' ? formatShortDate(date) : ''
         const isStart = label === 'Start'
         const axisLabel = shortDate || (isStart ? 'Start' : '')
-        return { key, label, date, dateLabel: axisLabel, ...banks, _deltas: deltas }
+        return { key, label, date, dateLabel: axisLabel, ...banks, _deltas: deltas, _eventAmounts: eventAmounts }
       })
   }, [bankCashFlowData])
 
@@ -9313,19 +9357,27 @@ export default function App() {
                     {...COMPACT_CHART_TOOLTIP_PROPS}
                     formatter={(value: unknown, name: string, props: any) => {
                       if (typeof value !== 'number' || Number.isNaN(value)) return ['—', name]
-                      const delta = props?.payload?._deltas?.[name]
-                      const deltaStr = delta != null && delta !== 0 ? ` (${delta > 0 ? '+' : ''}${currency(delta)})` : ''
-                      return [`${currency(value)}${deltaStr}`, name]
+                      return [currency(value), name]
                     }}
                     labelFormatter={(_axisLabel: string, payload: any) => {
-                      return payload?.[0]?.payload?.label ?? ''
+                      const eventEntry = payload?.find((entry: any) => {
+                        const bankKey = entry?.dataKey
+                        const eventAmount = bankKey != null ? entry?.payload?._eventAmounts?.[bankKey] : null
+                        return eventAmount != null && eventAmount !== 0
+                      })
+                      const eventLabel = eventEntry?.payload?.label ?? payload?.[0]?.payload?.label ?? ''
+                      const bankKey = eventEntry?.dataKey
+                      const eventAmount = bankKey != null ? eventEntry?.payload?._eventAmounts?.[bankKey] : null
+                      return eventAmount != null && eventAmount !== 0
+                        ? `${eventLabel} | Amount: ${currency(eventAmount)}`
+                        : eventLabel
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
                   {cashFlowBankIds.map((bankId, index) => (
                     <Line
                       key={bankId}
-                      type="linear"
+                      type="monotone"
                       dataKey={bankId}
                       name={cashFlowBankNames.get(bankId) ?? 'Bank'}
                       stroke={BANK_COLORS[index % BANK_COLORS.length]}
