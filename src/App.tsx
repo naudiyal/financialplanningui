@@ -9580,7 +9580,7 @@ export default function App() {
 
 
       <div className="section-cluster expense-overview-row" style={creditWidthCapStyle}>
-        <section className="expense-section compact-section">
+        <section className="expense-section compact-section section-cluster">
           <div className="section-header">
             <h2>
               <input
