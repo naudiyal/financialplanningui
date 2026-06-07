@@ -2772,8 +2772,9 @@ input.section-title-input {
 }
 
 .finance-overview-row.section-cluster {
-  padding: 0.5rem;
+  padding: 0.75rem;
   overflow: hidden;
+  border-width: 2px;
 }
 
 .finance-overview-row > .compact-section {
