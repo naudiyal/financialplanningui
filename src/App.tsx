@@ -2011,6 +2011,7 @@ export default function App() {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isCloseCycleDialogOpen, setIsCloseCycleDialogOpen] = useState(false)
+  const [isCloseCycleDisabledDialogOpen, setIsCloseCycleDisabledDialogOpen] = useState(false)
   const [isRevertCycleDialogOpen, setIsRevertCycleDialogOpen] = useState(false)
   const [isBankWarningSettingsDialogOpen, setIsBankWarningSettingsDialogOpen] = useState(false)
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false)
@@ -3303,6 +3304,12 @@ export default function App() {
     subsection.biMonthlySalary <= 0
       || (isIsoDateValue(subsection.firstPaycheckDate) && isIsoDateValue(subsection.secondPaycheckDate))
   ))
+  const defaultBankPaychecksComplete = defaultBankBiMonthlySalary <= 0
+    || (defaultBankFirstPaycheckArrived && defaultBankSecondPaycheckArrived)
+  const allSalaryBanksHaveCompletedPaychecks = incomeSubsections.every((subsection) => (
+    subsection.biMonthlySalary <= 0
+      || (subsection.midMonthSalaryArrived && subsection.monthEndSalaryArrived)
+  ))
   const bankNegativeBalanceWarnings = new Map<string, BankNegativeBalanceWarning>()
 
   if (selectedCycle === 'current') {
@@ -4241,7 +4248,9 @@ export default function App() {
     creditAccounts.every((account) => account.paidThisMonth && account.statementCycledAfterPayment) &&
     hasRequiredDefaultBankPaycheckDates &&
     allBanksHaveRequiredPaycheckDates &&
-    debitCardExpenseItems.every((item) => Math.abs(item.current) < 0.004)
+    defaultBankPaychecksComplete &&
+    allSalaryBanksHaveCompletedPaychecks &&
+    debitCardExpenseItems.every((item) => item.paid || Math.abs(item.current) < 0.004)
 
   const closeCycleRequirements = [
     {
@@ -4249,16 +4258,20 @@ export default function App() {
       met: creditAccounts.length > 0 && creditAccounts.every((account) => account.paidThisMonth),
     },
     {
-      label: 'All statements are marked statement cycled',
+      label: 'All statements for next cycle payments must cycle i.e. Stmt for Next Cycle Pymnt Cycled? checkboxes should be checked',
       met: creditAccounts.length > 0 && creditAccounts.every((account) => account.statementCycledAfterPayment),
     },
     {
-      label: 'All current-month debit expenses are 0',
-      met: debitCardExpenseItems.every((item) => Math.abs(item.current) < 0.004),
+      label: 'All debit card expenses are marked paid',
+      met: debitCardExpenseItems.every((item) => item.paid || Math.abs(item.current) < 0.004),
     },
     {
       label: 'All banks with salary have both paycheck dates entered',
       met: hasRequiredDefaultBankPaycheckDates && allBanksHaveRequiredPaycheckDates,
+    },
+    {
+      label: 'All banks with bi-weekly salary have both paycheck checkboxes completed',
+      met: defaultBankPaychecksComplete && allSalaryBanksHaveCompletedPaychecks,
     },
   ]
 
@@ -4294,7 +4307,7 @@ export default function App() {
       ? 'Previous cycle is read only.'
       : canCloseCurrentCycle
         ? 'Close Cycle\n- Archives the current cycle as previous\n- Replaces any existing previous cycle\n- Applies the new-cycle rollover rules to the next current cycle'
-        : 'Close Cycle is disabled until:\n- All credit cards are marked paid\n- All statements are marked statement cycled\n- All debit card current month expenses are 0\n\nWhen enabled, it will:\n- Archive the current cycle as previous\n- Replace any existing previous cycle\n- Apply the new-cycle rollover rules to the next current cycle'
+        : 'Close Cycle is unavailable until:\n- All credit cards are marked paid\n- All statements for next cycle payments must cycle i.e. Stmt for Next Cycle Pymnt Cycled? checkboxes should be checked\n- All debit card expenses are marked paid\n- All banks with bi-weekly salary have both paycheck dates entered and both paycheck checkboxes completed\n\nWhen available, it will:\n- Archive the current cycle as previous\n- Replace any existing previous cycle\n- Apply the new-cycle rollover rules to the next current cycle'
 
   const currentPlanSignature = useMemo(
     () => getFinancialPlanSignature(buildPayload()),
@@ -4357,6 +4370,14 @@ export default function App() {
   const isTrackerReadOnly = isViewingPreviousCycle || isTrackersRoute
   const isSampleReadOnly = isSampleMode && !canEditSamplePlan
   const isPlanReadOnly = isTrackerReadOnly || isSampleReadOnly
+  const isCloseCycleButtonDisabled = isPlanReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle
+  const closeCycleDisabledReasons = [
+    ...(isViewingPreviousCycle ? ['Previous cycle is read only.'] : []),
+    ...(isTrackersRoute ? ['Trackers view is read only.'] : []),
+    ...(isSampleReadOnly ? ['Sample plan is read only for non-admin users.'] : []),
+    ...(saveState === 'loading' || saveState === 'saving' ? ['Please wait for the current load or save to finish.'] : []),
+    ...(!canCloseCurrentCycle ? closeCycleRequirements.filter((requirement) => !requirement.met).map((requirement) => requirement.label) : []),
+  ]
   const hasSharedViewerUsers = sharedViewerUsers.length > 0
   const selectedSharedViewerUser = sharedViewerUsers.find((user) => user.userSub === selectedSharedViewerUserSub) ?? null
   const selectedUserTypeDialogUser = userTypeDialogUsers.find((user) => user.userSub === selectedUserTypeUserSub) ?? null
@@ -5870,11 +5891,20 @@ export default function App() {
   const handleCloseCycleClick = () => {
     blurActiveFormControl()
 
-    if ((isSampleMode && !canEditSamplePlan) || isTrackerReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle) {
+    if (isCloseCycleButtonDisabled) {
+      setIsCloseCycleDisabledDialogOpen(true)
       return
     }
 
     setIsCloseCycleDialogOpen(true)
+  }
+
+  const handleCloseCycleDisabledDialogClose = () => {
+    if (saveState === 'loading' || saveState === 'saving') {
+      return
+    }
+
+    setIsCloseCycleDisabledDialogOpen(false)
   }
 
   const handleCloseCycleCancel = () => {
@@ -8064,7 +8094,7 @@ export default function App() {
                 className="toolbar-button budget-cycle-button"
                 onPointerDown={blurActiveFormControl}
                 onClick={handleCloseCycleClick}
-                disabled={isPlanReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle}
+                aria-disabled={isCloseCycleButtonDisabled}
               >
                 Close Cycle
               </button>
@@ -8380,7 +8410,7 @@ export default function App() {
                 <li>Revert Cycle undoes the most recent close-cycle action while it is still available in the current browser session. Do not confuse it with Reset, which discards unsaved edits but does not undo a cycle close.</li>
                 <li>When switching to sample mode or switching cycles with unsaved changes, a confirmation dialog asks whether to discard changes, save first, or cancel.</li>
                 <li>Viewing the previous cycle puts the tracker in read-only mode. All editing, save, reset, close cycle, and timeline switching are disabled. Switch back to the current cycle to make edits.</li>
-                <li>Close Cycle is only enabled when all credit cards are marked paid, all statements are marked statement cycled, and all debit card current month expenses are 0.</li>
+                <li>Close Cycle is only enabled when all credit cards are marked paid, all statements for next cycle payments are marked cycled, and all debit card expenses are marked paid.</li>
                 <li>Delete My Tracker removes only your saved tracker data and then starts you fresh with a new seeded tracker.</li>
               </ul>
             </div>
@@ -8581,6 +8611,27 @@ export default function App() {
               </button>
               <button type="button" className="toolbar-button" onClick={handleCloseCycleConfirm} disabled={saveState === 'saving'}>
                 {saveState === 'saving' ? 'Closing...' : 'Close Cycle'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {isCloseCycleDisabledDialogOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={handleCloseCycleDisabledDialogClose}>
+          <section className="modal-card help-modal" role="dialog" aria-modal="true" aria-labelledby="close-cycle-disabled-title" onClick={(event) => event.stopPropagation()}>
+            <h2 id="close-cycle-disabled-title">Close Cycle Not Available</h2>
+            <p className="help-intro">
+              Close Cycle is unavailable until the following items are resolved.
+            </p>
+            <ul className="help-list">
+              {closeCycleDisabledReasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+            <div className="modal-actions">
+              <button type="button" className="toolbar-button" onClick={handleCloseCycleDisabledDialogClose} disabled={saveState === 'saving'}>
+                OK
               </button>
             </div>
           </section>
