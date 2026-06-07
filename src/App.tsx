@@ -9505,44 +9505,7 @@ export default function App() {
           )}
         </section>
 
-        <div className="compact-side-panel expense-analytics-stack">
-          <article className="chart-card compact-section expense-pay-from-side-panel">
-            <div className="chart-card-header">
-              <h3>Debit Card Expense Pay From</h3>
-              <span>Totals by source for current and next month payments</span>
-            </div>
-            <div className="chart-shell" style={{ height: `${expensePayFromChartHeight}px` }}>
-              {hasExpensePayFromData ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={expensePayFromData} layout="vertical" barCategoryGap="12%" margin={{ top: 2, right: 10, left: 0, bottom: 2 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.grid} horizontal={false} />
-                    <XAxis type="number" tickFormatter={(value) => chartCurrency(Number(value))} stroke={CHART_COLORS.text} fontSize={10} />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={104}
-                      interval={0}
-                      tickLine={false}
-                      axisLine={false}
-                      stroke={CHART_COLORS.text}
-                      fontSize={10}
-                    />
-                    <Tooltip {...COMPACT_CHART_TOOLTIP_PROPS} formatter={(value: number) => currency(value)} />
-                    <Legend wrapperStyle={{ fontSize: '10px' }} />
-                    <Bar dataKey="current" name="Current Month Payment" stackId="payFromTotal" fill={CHART_COLORS.current} radius={[0, 0, 0, 0]} barSize={10} isAnimationActive={false}>
-                      <LabelList dataKey="current" content={renderCompactBarValueLabel} />
-                    </Bar>
-                    <Bar dataKey="next" name="Next Month Payment" stackId="payFromTotal" fill={CHART_COLORS.next} radius={[0, 6, 6, 0]} barSize={10} isAnimationActive={false}>
-                      <LabelList dataKey="next" content={renderCompactBarValueLabel} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="chart-empty-state">No pay from expense totals yet</div>
-              )}
-            </div>
-          </article>
-        </div>
+
 
       </div>
 
