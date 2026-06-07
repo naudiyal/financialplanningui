@@ -51,6 +51,7 @@ Past-due dated events are clamped to `today` for projection purposes.
 - If a bank has no later events after its last paycheck, expense, or payment event, the chart carries that bank's final available balance forward to the cycle end.
 - This means the line stays flat through the cycle end date instead of stopping early.
 - If a bank has no remaining events at all, the cycle-end point will match its current available balance.
+- Every bank also gets the final shared `Cycle End` chart point even when that bank already has a different event on the cycle end date, so all bank lines reach the last chart row consistently.
 
 ## Tooltip
 

@@ -600,7 +600,7 @@ const buildBankCashFlowData = (data: FinancialPlanData, todayIso: string, cycleE
     })
 
     const lastPoint = pts[pts.length - 1]
-    if (cycleEnd > lastPoint.sortDate.slice(0, 10)) {
+    if (lastPoint.label !== 'Cycle End') {
       pts.push({
         label: 'Cycle End',
         date: cycleEnd,
