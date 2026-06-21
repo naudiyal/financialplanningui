@@ -87,6 +87,7 @@ type AuthStatusResponse = {
   authenticated: boolean
   admin: boolean
   premium: boolean
+  allowAdminEdit: boolean
   encryptionExempt: boolean
   termsAccepted: boolean
   requiredTermsVersion: string | null
@@ -109,6 +110,7 @@ type SharedViewerUserSummary = {
   lastUpdatedAt: string | null
   encryptionExempt: boolean
   premium: boolean
+  allowAdminEdit: boolean
 }
 
 type TimelineType = 'MID_TO_MID' | 'START_TO_END'
@@ -2059,6 +2061,7 @@ export default function App() {
   const [lastCycleSavedAt, setLastCycleSavedAt] = useState<string | null>(null)
   const [pendingCycleSelection, setPendingCycleSelection] = useState<CycleSelection | null>(null)
   const [loadedSharedViewerUserSub, setLoadedSharedViewerUserSub] = useState('')
+  const [trackerReadOnly, setTrackerReadOnly] = useState(true)
   const [currentCyclePeriod, setCurrentCyclePeriod] = useState<CyclePeriod>(() => buildCurrentCycleForTimeline(new Date(), 'START_TO_END'))
   const [previousCyclePeriod, setPreviousCyclePeriod] = useState<CyclePeriod | null>(null)
   const [closedCyclePeriods, setClosedCyclePeriods] = useState<CyclePeriod[]>([])
@@ -4367,13 +4370,13 @@ export default function App() {
   const canAccessTrackersRoute = authenticatedUser?.admin === true
   const canEditSamplePlan = authenticatedUser?.admin === true
   const isViewingPreviousCycle = isClosedCycleSelection(selectedCycle)
-  const isTrackerReadOnly = isViewingPreviousCycle || isTrackersRoute
+  const isTrackerReadOnly = isViewingPreviousCycle || (isTrackersRoute && trackerReadOnly)
   const isSampleReadOnly = isSampleMode && !canEditSamplePlan
   const isPlanReadOnly = isTrackerReadOnly || isSampleReadOnly
   const isCloseCycleButtonDisabled = isPlanReadOnly || saveState === 'loading' || saveState === 'saving' || !canCloseCurrentCycle
   const closeCycleDisabledReasons = [
     ...(isViewingPreviousCycle ? ['Previous cycle is read only.'] : []),
-    ...(isTrackersRoute ? ['Trackers view is read only.'] : []),
+    ...(isTrackersRoute ? ['Close Cycle is not available in Trackers view.'] : []),
     ...(isSampleReadOnly ? ['Sample plan is read only for non-admin users.'] : []),
     ...(saveState === 'loading' || saveState === 'saving' ? ['Please wait for the current load or save to finish.'] : []),
     ...(!canCloseCurrentCycle ? closeCycleRequirements.filter((requirement) => !requirement.met).map((requirement) => requirement.label) : []),
@@ -5133,6 +5136,7 @@ export default function App() {
   setPersonalPlanOwnerIdentity(null)
     setSelectedSharedViewerUserSub(userSub)
     setLoadedSharedViewerUserSub(userSub)
+    setTrackerReadOnly(response.readOnly)
     setSelectedCycle(getResponseCycleSelection(response))
     setCurrentCyclePeriod(response.currentCycle)
     setPreviousCyclePeriod(response.previousCycle)
@@ -5345,6 +5349,7 @@ export default function App() {
     setPendingEncryptedViewerPlanResponse(null)
     setPendingEncryptedViewerUserSub(null)
     setLoadedSharedViewerUserSub('')
+    setTrackerReadOnly(true)
     setSelectedCycle('current')
     setPreviousCyclePeriod(null)
     setClosedCyclePeriods([])
@@ -5700,6 +5705,64 @@ export default function App() {
       }
     }
 
+    if (isTrackersRoute) {
+      if (!selectedSharedViewerUserSub || !loadedSharedViewerUserSub) {
+        setSaveState('idle')
+        setSaveMessage('')
+        return false
+      }
+
+      setSaveState('saving')
+      setSaveMessage('Saving tracker...')
+
+      try {
+        const bodyPayload = viewerEncryptionKey ? await buildEncryptedWrapper(payload, viewerEncryptionKey) : payload
+        const response = await fetch(`${API_BASE_URL}/api/financial-plan/viewer?userSub=${encodeURIComponent(selectedSharedViewerUserSub)}&cycle=current`, {
+          method: 'PUT',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(bodyPayload),
+        })
+
+        if (response.status === 401) {
+          setAuthenticatedUser(null)
+          setAuthState('unauthenticated')
+          setAuthMessage('Session expired. Register or Sign-in with Google to continue.')
+          setSaveState('idle')
+          setSaveMessage('')
+          return false
+        }
+
+        if (response.status === 403) {
+          setSaveState('error')
+          setSaveMessage('This user has not granted admin edit permission.')
+          return false
+        }
+
+        if (response.status === 409) {
+          setSaveState('error')
+          setSaveMessage('This tracker is encrypted. Unlock it with the user\'s Encryption Key before saving.')
+          return false
+        }
+
+        if (!response.ok) {
+          throw new Error(`Failed to save viewer financial plan: ${response.status}`)
+        }
+
+        const cycleResponse: FinancialPlanCycleResponse = await response.json()
+        applySharedViewerCycleResponse(cycleResponse, selectedSharedViewerUserSub, successMessage, viewerEncryptionKey ? payload : undefined)
+        void refreshBankBalanceHistory(selectedSharedViewerUserSub, viewerEncryptionKey)
+        onSuccess?.()
+        return true
+      } catch {
+        setSaveState('error')
+        setSaveMessage('Save failed. Check the API server.')
+        return false
+      }
+    }
+
     if (isViewingPreviousCycle) {
       return false
     }
@@ -5780,7 +5843,7 @@ export default function App() {
       return
     }
 
-    await persistFinancialPlan(buildPayload(), isSampleMode ? 'Sample saved to server' : 'Saved to server')
+    await persistFinancialPlan(buildPayload(), isSampleMode ? 'Sample saved to server' : isTrackersRoute ? 'Tracker saved' : 'Saved to server')
   }
 
   const switchToCycle = async (cycle: CycleSelection) => {
@@ -6284,6 +6347,30 @@ export default function App() {
     }
   }
 
+  const handleToggleAdminEdit = async () => {
+    if (!authenticatedUser) {
+      return
+    }
+
+    const nextState = !authenticatedUser.allowAdminEdit
+    const endpoint = nextState ? `${API_BASE_URL}/api/auth/admin-edit/enable` : `${API_BASE_URL}/api/auth/admin-edit/disable`
+
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'include',
+      })
+
+      if (response.ok) {
+        const updatedAuth: AuthStatusResponse = await response.json()
+        setAuthenticatedUser(updatedAuth)
+        setSaveMessage(nextState ? 'Admin edit access granted' : 'Admin edit access revoked')
+      }
+    } catch {
+      // Silently ignore toggle errors
+    }
+  }
+
   const handleLogout = async () => {
     try {
       await fetch(`${API_BASE_URL}/api/auth/logout`, {
@@ -6364,6 +6451,7 @@ export default function App() {
     if (!nextUserSub) {
       setSelectedSharedViewerUserSub('')
       setLoadedSharedViewerUserSub('')
+      setTrackerReadOnly(true)
       setClosedCyclePeriods([])
       setSelectedClosedCyclePeriod(null)
       setBankBalanceHistoryCycles([])
@@ -6418,6 +6506,7 @@ export default function App() {
     if (isTrackersRoute) {
       setSharedViewerUsers([])
       setSelectedSharedViewerUserSub('')
+      setTrackerReadOnly(true)
       navigateToRoute(PERSONAL_ROUTE)
       return
     }
@@ -7860,9 +7949,14 @@ export default function App() {
                       </button>
                     </>
                   ) : null}
-                  {!isTrackersRoute && (!isSampleMode || canEditSamplePlan) ? (
-                    <button type="button" className="user-menu-item user-menu-item-danger" onClick={handleDeleteTrackerClick} role="menuitem">
-                      {isSampleMode ? 'Delete Sample Tracker' : 'Delete My Tracker'}
+                  {!isTrackersRoute && !isSampleMode ? (
+                    <button
+                      type="button"
+                      className="user-menu-item"
+                      onClick={() => void handleToggleAdminEdit()}
+                      role="menuitem"
+                    >
+                      {authenticatedUser?.allowAdminEdit ? 'Revoke Admin Edit' : 'Allow Admin to Edit My Tracker'}
                     </button>
                   ) : null}
                   {pinKey ? (
@@ -7879,6 +7973,11 @@ export default function App() {
                         Upload Tracker
                       </button>
                     </>
+                  ) : null}
+                  {!isTrackersRoute && (!isSampleMode || canEditSamplePlan) ? (
+                    <button type="button" className="user-menu-item user-menu-item-danger" onClick={handleDeleteTrackerClick} role="menuitem">
+                      {isSampleMode ? 'Delete Sample Tracker' : 'Delete My Tracker'}
+                    </button>
                   ) : null}
                   {authenticatedUser?.admin ? (
                     <>
@@ -7992,6 +8091,14 @@ export default function App() {
                 )}
               </select>
             </label>
+            <button
+              type="button"
+              className="toolbar-button"
+              onClick={() => void loadSharedViewerPlan(selectedSharedViewerUserSub, selectedCycle, 'Refreshing tracker...')}
+              disabled={!selectedSharedViewerUserSub || saveState === 'loading' || saveState === 'saving'}
+            >
+              Refresh
+            </button>
           </div>
         </section>
       ) : null}
