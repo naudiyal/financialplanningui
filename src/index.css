@@ -3167,6 +3167,52 @@ input.section-title-input {
   background: #fff5f5;
 }
 
+.paycheck-date-clear {
+  border: 1px solid #cbd5e1;
+  border-radius: 0.2rem;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 0.66rem;
+  line-height: 1;
+  padding: 0 0.28rem;
+  height: 1rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+.paycheck-date-clear:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.date-sync-toast {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 2000;
+  max-width: 22rem;
+  padding: 0.55rem 0.85rem;
+  border-radius: 0.4rem;
+  background: #1e3a5f;
+  color: #ffffff;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.28);
+  animation: date-sync-toast-in 0.18s ease-out;
+}
+
+@keyframes date-sync-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.4rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .compact-side-panel .card-meta,
 .compact-side-panel .card-note {
   grid-column: 1 / -1;

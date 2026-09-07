@@ -26,8 +26,9 @@ Close Cycle is available only when all of the following are true:
 ## Salary-Specific Paycheck Rule
 
 - Banks without bi-weekly salary are excluded from the paycheck-date and paycheck-checkbox requirements.
-- For the default bank, paycheck completion comes from the `First Paycheck` and `Second Paycheck` checkbox-backed income items.
+- For the default bank, paycheck completion comes from the `1st Paycheck Arrived?` and `2nd Paycheck Arrived?` checkbox-backed income items (`first-paycheck`, `second-paycheck`).
 - For bank subsections, paycheck completion comes from `midMonthSalaryArrived` and `monthEndSalaryArrived`.
+- The optional `3rd Paycheck Arrived?` (date + arrived checkbox) and `Additional Paycheck Expected Next Month?` are **not** part of the close-cycle requirements.
 
 ## Popup Content
 

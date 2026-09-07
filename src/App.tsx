@@ -63,6 +63,8 @@ type FinancialPlanData = {
   viewModes?: FinancialPlanViewModes
   firstPaycheckDate?: string
   secondPaycheckDate?: string
+  thirdPaycheckDate?: string
+  additionalPaycheckExpectedNextMonth?: boolean
   defaultBankWarningThreshold?: number
   incomeSubsections?: IncomeSubsection[]
   notes?: string
@@ -332,6 +334,7 @@ const DECRYPTED_BACKUP_SCHEMA_VERSION = 1
 const HISTORY_REQUEST_TIMEOUT_MS = 10_000
 const FIRST_PAYCHECK_ID = 'first-paycheck'
 const SECOND_PAYCHECK_ID = 'second-paycheck'
+const THIRD_PAYCHECK_ID = 'third-paycheck'
 const DEFAULT_WARNING_THRESHOLD = 100
 
 const normalizeAppRoute = (pathname: string): AppRoute => (pathname === TRACKERS_ROUTE ? TRACKERS_ROUTE : PERSONAL_ROUTE)
@@ -430,8 +433,9 @@ const currency = (value: number) =>
 const getIncomeSubsectionStartingBalance = (subsection: IncomeSubsection) => {
   const midMonthSalary = subsection.midMonthSalaryArrived ? 0 : subsection.biMonthlySalary
   const monthEndSalary = subsection.monthEndSalaryArrived ? 0 : subsection.biMonthlySalary
+  const thirdPaycheck = (!isIsoDateValue(subsection.thirdPaycheckDate) || subsection.thirdPaycheckArrived) ? 0 : subsection.biMonthlySalary
 
-  return subsection.checkingBalance + midMonthSalary + monthEndSalary
+  return subsection.checkingBalance + midMonthSalary + monthEndSalary + thirdPaycheck
 }
 
 const getIncomeSubsectionTotalBalance = (subsection: IncomeSubsection) => (
@@ -503,10 +507,11 @@ const buildBankBalanceComparisonPoints = (data: FinancialPlanData): BankBalanceC
   const biMonthlySalary = normalizedData.incomeItems.find((item) => item.id === 'bi-monthly-salary')?.amount ?? 0
   const firstPaycheck = (normalizedData.incomeItems.find((item) => item.id === FIRST_PAYCHECK_ID)?.amount ?? 0) === 0 ? 0 : biMonthlySalary
   const secondPaycheck = (normalizedData.incomeItems.find((item) => item.id === SECOND_PAYCHECK_ID)?.amount ?? 0) === 0 ? 0 : biMonthlySalary
+  const thirdPaycheck = (!isIsoDateValue(normalizedData.thirdPaycheckDate ?? '') || (normalizedData.incomeItems.find((item) => item.id === THIRD_PAYCHECK_ID)?.amount ?? 0) === 0) ? 0 : biMonthlySalary
   const checkingAccountBalanceChase = normalizedData.balanceItems.find((item) => item.id === 'checking-balance-chase')?.amount ?? 0
   const additionalPaymentsChase = normalizedData.balanceItems.find((item) => item.id === 'additional-payments-chase')?.amount ?? 0
   const additionalIncomeChase = normalizedData.balanceItems.find((item) => item.id === 'additional-income-chase')?.amount ?? 0
-  const defaultBankMonthEndBalanceMinusDues = firstPaycheck + secondPaycheck + checkingAccountBalanceChase - additionalPaymentsChase + additionalIncomeChase - getCurrentDuesForBank(DEFAULT_BANK_EXPENSE_SOURCE_ID)
+  const defaultBankMonthEndBalanceMinusDues = firstPaycheck + secondPaycheck + thirdPaycheck + checkingAccountBalanceChase - additionalPaymentsChase + additionalIncomeChase - getCurrentDuesForBank(DEFAULT_BANK_EXPENSE_SOURCE_ID)
 
   return [
     {
@@ -543,6 +548,9 @@ const buildBankCashFlowData = (data: FinancialPlanData, todayIso: string, cycleE
   const secondPaycheckAmount = Math.abs(nd.incomeItems.find((i) => i.id === SECOND_PAYCHECK_ID)?.amount ?? 0) > 0.004
     ? (nd.incomeItems.find((i) => i.id === SECOND_PAYCHECK_ID)?.amount ?? 0)
     : 0
+  const thirdPaycheckAmount = Math.abs(nd.incomeItems.find((i) => i.id === THIRD_PAYCHECK_ID)?.amount ?? 0) > 0.004
+    ? (nd.incomeItems.find((i) => i.id === THIRD_PAYCHECK_ID)?.amount ?? 0)
+    : 0
   const result = new Map<string, CashFlowPoint[]>()
 
   type CashFlowEvent = {
@@ -552,7 +560,7 @@ const buildBankCashFlowData = (data: FinancialPlanData, todayIso: string, cycleE
     kind: 'inflow' | 'outflow'
   }
 
-  const build = (bid: string, currentBal: number, pc1Amt: number, pc2Amt: number, addlInc: number, addlPmt: number, pcDate1: string | null, pcDate2: string | null) => {
+  const build = (bid: string, currentBal: number, pc1Amt: number, pc2Amt: number, pc3Amt: number, addlInc: number, addlPmt: number, pcDate1: string | null, pcDate2: string | null, pcDate3: string | null) => {
     const evts: CashFlowEvent[] = []
     if (pc1Amt > 0 && pcDate1 && isIsoDateValue(pcDate1)) {
       const paycheckDate = coerceEventDateToProjectionDate(pcDate1, todayIso)
@@ -561,6 +569,10 @@ const buildBankCashFlowData = (data: FinancialPlanData, todayIso: string, cycleE
     if (pc2Amt > 0 && pcDate2 && isIsoDateValue(pcDate2)) {
       const paycheckDate = coerceEventDateToProjectionDate(pcDate2, todayIso)
       evts.push({ label: 'Second Paycheck', date: paycheckDate, amount: pc2Amt, kind: 'inflow' })
+    }
+    if (pc3Amt > 0 && pcDate3 && isIsoDateValue(pcDate3)) {
+      const paycheckDate = coerceEventDateToProjectionDate(pcDate3, todayIso)
+      evts.push({ label: 'Third Paycheck', date: paycheckDate, amount: pc3Amt, kind: 'inflow' })
     }
     if (addlInc > 0.004) evts.push({ label: 'Additional Income', date: cycleEnd, amount: addlInc, kind: 'inflow' })
     const bankExps = exps.filter((e) => e.payFromBankId === bid && !e.paid && e.current > 0.004 && isIsoDateValue(e.payDate))
@@ -618,8 +630,8 @@ const buildBankCashFlowData = (data: FinancialPlanData, todayIso: string, cycleE
   const cb = nd.balanceItems.find((b) => b.id === 'checking-balance-chase')?.amount ?? 0
   const ap = nd.balanceItems.find((b) => b.id === 'additional-payments-chase')?.amount ?? 0
   const ai = nd.balanceItems.find((b) => b.id === 'additional-income-chase')?.amount ?? 0
-  build(DEFAULT_BANK_EXPENSE_SOURCE_ID, cb, firstPaycheckAmount, secondPaycheckAmount, ai, ap, nd.firstPaycheckDate || null, nd.secondPaycheckDate || null)
-  for (const s of subs) build(s.id, s.checkingBalance, s.midMonthSalaryArrived ? 0 : s.biMonthlySalary, s.monthEndSalaryArrived ? 0 : s.biMonthlySalary, s.additionalIncome, s.additionalPayments, s.firstPaycheckDate || null, s.secondPaycheckDate || null)
+  build(DEFAULT_BANK_EXPENSE_SOURCE_ID, cb, firstPaycheckAmount, secondPaycheckAmount, thirdPaycheckAmount, ai, ap, nd.firstPaycheckDate || null, nd.secondPaycheckDate || null, nd.thirdPaycheckDate || null)
+  for (const s of subs) build(s.id, s.checkingBalance, s.midMonthSalaryArrived ? 0 : s.biMonthlySalary, s.monthEndSalaryArrived ? 0 : s.biMonthlySalary, (s.thirdPaycheckArrived || !s.thirdPaycheckDate) ? 0 : s.biMonthlySalary, s.additionalIncome, s.additionalPayments, s.firstPaycheckDate || null, s.secondPaycheckDate || null, s.thirdPaycheckDate || null)
   return result
 }
 
@@ -700,8 +712,8 @@ const formatTableHeaderLabel = (label: string) => {
 const formatCreditTableHeaderLabel = (label: string) => {
   const trimmedLabel = label.trim()
 
-  if (trimmedLabel === 'Stmt for Next Cycle Pymnt Cycled?') {
-    return ['Stmt for Next Cycle', 'Pymnt Cycled?']
+  if (trimmedLabel === 'Next cycle stmt generated?' || trimmedLabel === 'Stmt for Next Cycle Pymnt Cycled?') {
+    return ['Next cycle', 'stmt generated?']
   }
 
   if (!trimmedLabel.includes(' ')) {
@@ -751,7 +763,7 @@ const normalizeLegacyCreditAccountColumnLabel = (id: string, label: string) => {
   }
 
   if (id === 'statement-cycled' && (label === 'Stmt Cycled' || label === 'Stmt Cycled?' || label === 'New Stmt Cycled?' || label === 'Current Cycle Stmt Cycled?' || label === 'Next Payment Stmt Cycled?' || label === 'Next Cycle Payment Stmt Cycled?' || label === 'Next Cycle Pymnt Stmt Cycled?' || label === 'Stmt for Next Cycle Pymnt Cycled?')) {
-    return 'Stmt for Next Cycle Pymnt Cycled?'
+    return 'Next cycle stmt generated?'
   }
 
   if (id === 'credit-limit' && label === 'Limit') {
@@ -783,7 +795,7 @@ const getCreditColumnHeaderTooltip = (columnId: string) => {
   }
 
   if (columnId === 'statement-cycled') {
-    return 'Stmt for Next Cycle Pymnt Cycled?'
+    return 'Next cycle stmt generated?'
   }
 
   if (columnId === 'statement-balance') {
@@ -979,10 +991,50 @@ const isIsoDateValue = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value)
 
 const coerceEventDateToProjectionDate = (value: string, todayIsoDate: string) => (value < todayIsoDate ? todayIsoDate : value)
 
+const normalizeFirstPaycheckLabel = (label?: string | null) => {
+  const value = (label ?? '').trim()
+  if (!value || /first/i.test(value) || /^15/.test(value) || /mid/i.test(value)) {
+    return '1st Paycheck Arrived?'
+  }
+  return value
+}
+
+const normalizeSecondPaycheckLabel = (label?: string | null) => {
+  const value = (label ?? '').trim()
+  if (!value || /second/i.test(value) || /month end/i.test(value)) {
+    return '2nd Paycheck Arrived?'
+  }
+  return value
+}
+
+const normalizeThirdPaycheckLabel = (label?: string | null) => {
+  const value = (label ?? '').trim()
+  if (!value) {
+    return '3rd Paycheck Arrived?'
+  }
+  return value
+}
+
+const normalizeBiMonthlySalaryLabel = (label?: string | null) => {
+  const value = (label ?? '').trim()
+  if (!value || /bi-mon/i.test(value) || /bi.?monthly salary/i.test(value)) {
+    return 'Paycheck Amount'
+  }
+  return value
+}
+
 const normalizeIncomeSubsectionForUi = (subsection: IncomeSubsection): IncomeSubsection => ({
   ...subsection,
   firstPaycheckDate: normalizeOptionalDateValue(subsection.firstPaycheckDate),
   secondPaycheckDate: normalizeOptionalDateValue(subsection.secondPaycheckDate),
+  thirdPaycheckDate: normalizeOptionalDateValue(subsection.thirdPaycheckDate),
+  biMonthlySalaryLabel: normalizeBiMonthlySalaryLabel(subsection.biMonthlySalaryLabel),
+  midMonthSalaryLabel: normalizeFirstPaycheckLabel(subsection.midMonthSalaryLabel),
+  monthEndSalaryLabel: normalizeSecondPaycheckLabel(subsection.monthEndSalaryLabel),
+  thirdPaycheckLabel: normalizeThirdPaycheckLabel(subsection.thirdPaycheckLabel),
+  thirdPaycheckArrived: subsection.thirdPaycheckArrived === true,
+  additionalPaycheckExpectedLabel: subsection.additionalPaycheckExpectedLabel || 'Additional Paycheck Expected Next Month?',
+  additionalPaycheckExpectedNextMonth: subsection.additionalPaycheckExpectedNextMonth === true,
   warningThreshold: Number.isFinite(subsection.warningThreshold) && subsection.warningThreshold >= 0
     ? subsection.warningThreshold
     : DEFAULT_WARNING_THRESHOLD,
@@ -1473,9 +1525,32 @@ const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData 
     ...normalizedIncomeSubsections.map((subsection) => subsection.id),
   ])
 
+  const sourcedBiMonthlySalary = data.incomeItems.find((item) => item.id === 'bi-monthly-salary')?.amount ?? 0
+  const normalizedIncomeItems = (data.incomeItems.some((item) => item.id === THIRD_PAYCHECK_ID)
+    ? data.incomeItems
+    : [
+        ...data.incomeItems,
+        { id: THIRD_PAYCHECK_ID, label: '3rd Paycheck Arrived?', amount: sourcedBiMonthlySalary, month: '' },
+      ]
+  ).map((item) => {
+    if (item.id === FIRST_PAYCHECK_ID) {
+      return { ...item, label: normalizeFirstPaycheckLabel(item.label) }
+    }
+    if (item.id === SECOND_PAYCHECK_ID) {
+      return { ...item, label: normalizeSecondPaycheckLabel(item.label) }
+    }
+    if (item.id === THIRD_PAYCHECK_ID) {
+      return { ...item, label: normalizeThirdPaycheckLabel(item.label) }
+    }
+    if (item.id === 'bi-monthly-salary') {
+      return { ...item, label: normalizeBiMonthlySalaryLabel(item.label) }
+    }
+    return item
+  })
+
   return {
     creditAccounts: data.creditAccounts,
-    incomeItems: data.incomeItems,
+    incomeItems: normalizedIncomeItems,
     balanceItems: data.balanceItems,
     planoExpenses: normalizeExpenseItemsForUi(data.planoExpenses, validPayFromBankIds),
     sanfordExpenses: normalizeExpenseItemsForUi(data.sanfordExpenses, validPayFromBankIds),
@@ -1485,6 +1560,8 @@ const normalizeFinancialPlanData = (data: FinancialPlanData): FinancialPlanData 
     viewModes: normalizedViewModes,
     firstPaycheckDate: normalizeOptionalDateValue(data.firstPaycheckDate),
     secondPaycheckDate: normalizeOptionalDateValue(data.secondPaycheckDate),
+    thirdPaycheckDate: normalizeOptionalDateValue(data.thirdPaycheckDate),
+    additionalPaycheckExpectedNextMonth: data.additionalPaycheckExpectedNextMonth === true,
     defaultBankWarningThreshold: Number.isFinite(data.defaultBankWarningThreshold) && (data.defaultBankWarningThreshold ?? 0) >= 0
       ? data.defaultBankWarningThreshold
       : DEFAULT_WARNING_THRESHOLD,
@@ -1949,6 +2026,8 @@ export default function App() {
   const [incomeSubsections, setIncomeSubsections] = useState(defaultIncomeSubsections)
   const [defaultBankFirstPaycheckDate, setDefaultBankFirstPaycheckDate] = useState(defaultFinancialPlanData.firstPaycheckDate ?? '')
   const [defaultBankSecondPaycheckDate, setDefaultBankSecondPaycheckDate] = useState(defaultFinancialPlanData.secondPaycheckDate ?? '')
+  const [defaultBankThirdPaycheckDate, setDefaultBankThirdPaycheckDate] = useState(defaultFinancialPlanData.thirdPaycheckDate ?? '')
+  const [additionalPaycheckExpectedNextMonth, setAdditionalPaycheckExpectedNextMonth] = useState(defaultFinancialPlanData.additionalPaycheckExpectedNextMonth === true)
   const [defaultBankWarningThreshold, setDefaultBankWarningThreshold] = useState(defaultFinancialPlanData.defaultBankWarningThreshold ?? DEFAULT_WARNING_THRESHOLD)
   const [notes, setNotes] = useState('')
   const [newBankSubsectionIds, setNewBankSubsectionIds] = useState<Set<string>>(new Set())
@@ -1981,6 +2060,8 @@ export default function App() {
   })
   const [saveState, setSaveState] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('loading')
   const [saveMessage, setSaveMessage] = useState('Loading saved plan...')
+  const [dateSyncToast, setDateSyncToast] = useState<string | null>(null)
+  const dateSyncToastTimerRef = useRef<number | null>(null)
   const [loadedPlanSignature, setLoadedPlanSignature] = useState<string | null>(null)
   const [planViewMode, setPlanViewMode] = useState<PlanViewMode>('personal')
   const [sharedViewerUsers, setSharedViewerUsers] = useState<SharedViewerUserSummary[]>([])
@@ -2748,6 +2829,17 @@ export default function App() {
     })
   }
 
+  const showDateSyncToast = (message: string) => {
+    setDateSyncToast(message)
+    if (dateSyncToastTimerRef.current !== null) {
+      window.clearTimeout(dateSyncToastTimerRef.current)
+    }
+    dateSyncToastTimerRef.current = window.setTimeout(() => {
+      setDateSyncToast(null)
+      dateSyncToastTimerRef.current = null
+    }, 4000)
+  }
+
   const updateIncomeSubsection = <K extends keyof IncomeSubsection>(index: number, field: K, value: IncomeSubsection[K]) => {
     if (isViewingPreviousCycle) {
       return
@@ -2755,14 +2847,55 @@ export default function App() {
 
     markCurrentCycleEdited()
 
+    const isSyncedPaycheckDate = field === 'firstPaycheckDate' || field === 'secondPaycheckDate' || field === 'thirdPaycheckDate'
+    const isAdditionalPaycheckExpected = field === 'additionalPaycheckExpectedNextMonth'
+
     setIncomeSubsections((current) => {
       const updated = [...current]
       updated[index] = { ...updated[index], [field]: value }
+
+      if (isSyncedPaycheckDate) {
+        for (let i = 0; i < updated.length; i++) {
+          if (i !== index && updated[i].biMonthlySalary > 0) {
+            updated[i] = { ...updated[i], [field]: value } as IncomeSubsection
+          }
+        }
+      }
+
+      if (isAdditionalPaycheckExpected) {
+        for (let i = 0; i < updated.length; i++) {
+          if (i !== index) {
+            updated[i] = { ...updated[i], additionalPaycheckExpectedNextMonth: value as boolean }
+          }
+        }
+      }
+
       return updated
     })
+
+    if (isSyncedPaycheckDate) {
+      const defaultBankSalary = incomeItemsState.find((item) => item.id === 'bi-monthly-salary')?.amount ?? 0
+      if (defaultBankSalary > 0) {
+        if (field === 'firstPaycheckDate') {
+          setDefaultBankFirstPaycheckDate(value as string)
+        } else if (field === 'secondPaycheckDate') {
+          setDefaultBankSecondPaycheckDate(value as string)
+        } else if (field === 'thirdPaycheckDate') {
+          setDefaultBankThirdPaycheckDate(value as string)
+        }
+      }
+
+      if (value) {
+        showDateSyncToast('Paycheck date applied to all other salary accounts.')
+      }
+    }
+
+    if (isAdditionalPaycheckExpected) {
+      setAdditionalPaycheckExpectedNextMonth(value as boolean)
+    }
   }
 
-  const updateDefaultBankPaycheckDate = (field: 'first' | 'second', value: string) => {
+  const updateDefaultBankPaycheckDate = (field: 'first' | 'second' | 'third', value: string) => {
     if (isViewingPreviousCycle) {
       return
     }
@@ -2771,10 +2904,32 @@ export default function App() {
 
     if (field === 'first') {
       setDefaultBankFirstPaycheckDate(value)
+    } else if (field === 'second') {
+      setDefaultBankSecondPaycheckDate(value)
+    } else {
+      setDefaultBankThirdPaycheckDate(value)
+    }
+
+    const subsectionField = field === 'first' ? 'firstPaycheckDate' : field === 'second' ? 'secondPaycheckDate' : 'thirdPaycheckDate'
+    setIncomeSubsections((current) => current.map((subsection) => (
+      subsection.biMonthlySalary > 0 ? { ...subsection, [subsectionField]: value } : subsection
+    )))
+
+    if (value) {
+      showDateSyncToast('Paycheck date applied to all other salary accounts.')
+    }
+  }
+
+  const updateDefaultBankAdditionalPaycheckExpected = (value: boolean) => {
+    if (isViewingPreviousCycle) {
       return
     }
 
-    setDefaultBankSecondPaycheckDate(value)
+    markCurrentCycleEdited()
+    setAdditionalPaycheckExpectedNextMonth(value)
+    setIncomeSubsections((current) => current.map((subsection) => (
+      { ...subsection, additionalPaycheckExpectedNextMonth: value }
+    )))
   }
 
   const addIncomeSubsection = () => {
@@ -2791,12 +2946,12 @@ export default function App() {
       {
         id: subsectionId,
         title: getNewBankSubsectionTitle(newBankCount),
-        biMonthlySalaryLabel: 'Bi-monthly salary',
+        biMonthlySalaryLabel: 'Paycheck Amount',
         biMonthlySalary: 0,
-        midMonthSalaryLabel: 'First Paycheck Arrived?',
+        midMonthSalaryLabel: '1st Paycheck Arrived?',
         firstPaycheckDate: '',
         midMonthSalaryArrived: false,
-        monthEndSalaryLabel: 'Second Paycheck Arrived?',
+        monthEndSalaryLabel: '2nd Paycheck Arrived?',
         secondPaycheckDate: '',
         monthEndSalaryArrived: false,
         checkingBalanceLabel: 'Account Balance',
@@ -2808,6 +2963,11 @@ export default function App() {
         additionalIncomeLabel: 'Additional Income',
         additionalIncome: 0,
         monthEndBalanceLabel: 'Month End Balance minus Dues',
+        thirdPaycheckLabel: '3rd Paycheck Arrived?',
+        thirdPaycheckDate: '',
+        thirdPaycheckArrived: false,
+        additionalPaycheckExpectedLabel: 'Additional Paycheck Expected Next Month?',
+        additionalPaycheckExpectedNextMonth: false,
       },
     ]
 
@@ -3138,7 +3298,7 @@ export default function App() {
   const editableIncomeIds = new Set([
     'bi-monthly-salary',
   ])
-  const checkboxIncomeIds = new Set([FIRST_PAYCHECK_ID, SECOND_PAYCHECK_ID])
+  const checkboxIncomeIds = new Set([FIRST_PAYCHECK_ID, SECOND_PAYCHECK_ID, THIRD_PAYCHECK_ID])
 
   const editableBalanceIds = new Set([
     'checking-balance-chase',
@@ -3158,6 +3318,8 @@ export default function App() {
   const biMonthlySalary = incomeItemsState.find((item) => item.id === 'bi-monthly-salary')?.amount ?? 0
   const firstPaycheck = (incomeItemsState.find((item) => item.id === FIRST_PAYCHECK_ID)?.amount ?? 0) === 0 ? 0 : biMonthlySalary
   const secondPaycheck = (incomeItemsState.find((item) => item.id === SECOND_PAYCHECK_ID)?.amount ?? 0) === 0 ? 0 : biMonthlySalary
+  const thirdPaycheckRaw = (incomeItemsState.find((item) => item.id === THIRD_PAYCHECK_ID)?.amount ?? 0) === 0 ? 0 : biMonthlySalary
+  const thirdPaycheck = (!isIsoDateValue(defaultBankThirdPaycheckDate) || thirdPaycheckRaw === 0) ? 0 : biMonthlySalary
   const salaryTransferToChase = biMonthlySalary * 2
   const salaryTransfersToPNC = 2000 * 2
   const totalSalaryPerMonth = salaryTransferToChase
@@ -3169,7 +3331,7 @@ export default function App() {
   const checkingAccountBalancePNC = balanceItemsState.find((item) => item.id === 'checking-balance-pnc')?.amount ?? 0
   const additionalOtherIncome = balanceItemsState.find((item) => item.id === 'additional-other-income')?.amount ?? 0
 
-  const totalBalanceChase = firstPaycheck + secondPaycheck + checkingAccountBalanceChase - additionalPaymentsChase
+  const totalBalanceChase = firstPaycheck + secondPaycheck + thirdPaycheck + checkingAccountBalanceChase - additionalPaymentsChase
 
   const creditCardCurrentMonthPayments = creditAccounts.reduce((sum, account) => {
     const currentMonthPayment = account.paidThisMonth ? 0 : account.lastStatementBalance
@@ -3207,7 +3369,13 @@ export default function App() {
     (sum, subsection) => sum + subsection.biMonthlySalary * 2,
     0,
   )
+  const otherBanksNextCycleAdditionalPaycheckTotal = incomeSubsections.reduce(
+    (sum, subsection) => sum + (subsection.additionalPaycheckExpectedNextMonth ? subsection.biMonthlySalary : 0),
+    0,
+  )
+  const defaultBankNextCycleAdditionalPaycheck = additionalPaycheckExpectedNextMonth ? biMonthlySalary : 0
   const totalNextCycleSalaryFunding = salaryTransferToChase + otherBanksNextCycleSalaryTotal
+    + otherBanksNextCycleAdditionalPaycheckTotal + defaultBankNextCycleAdditionalPaycheck
   const debitCardExpensesByBankCurrent = debitCardExpenseItems.reduce<Map<string, number>>((totals, item) => {
     const currentTotal = totals.get(item.payFromBankId) ?? 0
     totals.set(item.payFromBankId, currentTotal + item.current)
@@ -3262,6 +3430,8 @@ export default function App() {
         return { ...item, amount: firstPaycheck }
       case SECOND_PAYCHECK_ID:
         return { ...item, amount: secondPaycheck }
+      case THIRD_PAYCHECK_ID:
+        return { ...item, amount: thirdPaycheckRaw }
       case 'salary-transfer-chase-month':
         return { ...item, amount: salaryTransferToChase }
       case 'salary-transfer-pnc-home-loans':
@@ -3300,6 +3470,8 @@ export default function App() {
     && Math.abs(bankSectionIncomeItems.find((item) => item.id === FIRST_PAYCHECK_ID)?.amount ?? 0) < 0.004
   const defaultBankSecondPaycheckArrived = defaultBankBiMonthlySalary > 0
     && Math.abs(bankSectionIncomeItems.find((item) => item.id === SECOND_PAYCHECK_ID)?.amount ?? 0) < 0.004
+  const defaultBankThirdPaycheckArrived = defaultBankBiMonthlySalary > 0
+    && Math.abs(bankSectionIncomeItems.find((item) => item.id === THIRD_PAYCHECK_ID)?.amount ?? 0) < 0.004
   const displayedCheckingAccountBalanceChase = bankSectionBalanceItems.find((item) => item.id === 'checking-balance-chase')?.amount ?? 0
   const hasRequiredDefaultBankPaycheckDates = defaultBankBiMonthlySalary <= 0
     || (isIsoDateValue(defaultBankFirstPaycheckDate) && isIsoDateValue(defaultBankSecondPaycheckDate))
@@ -3329,6 +3501,14 @@ export default function App() {
     if (!defaultBankSecondPaycheckArrived && defaultBankBiMonthlySalary > 0 && isIsoDateValue(defaultBankSecondPaycheckDate)) {
       defaultBankEvents.push({
         date: coerceEventDateToProjectionDate(defaultBankSecondPaycheckDate, todayIsoDate),
+        amount: defaultBankBiMonthlySalary,
+        kind: 'inflow',
+      })
+    }
+
+    if (!defaultBankThirdPaycheckArrived && defaultBankBiMonthlySalary > 0 && isIsoDateValue(defaultBankThirdPaycheckDate)) {
+      defaultBankEvents.push({
+        date: coerceEventDateToProjectionDate(defaultBankThirdPaycheckDate, todayIsoDate),
         amount: defaultBankBiMonthlySalary,
         kind: 'inflow',
       })
@@ -3378,6 +3558,14 @@ export default function App() {
       if (!subsection.monthEndSalaryArrived && subsection.biMonthlySalary > 0 && isIsoDateValue(subsection.secondPaycheckDate)) {
         subsectionEvents.push({
           date: coerceEventDateToProjectionDate(subsection.secondPaycheckDate, todayIsoDate),
+          amount: subsection.biMonthlySalary,
+          kind: 'inflow',
+        })
+      }
+
+      if (!subsection.thirdPaycheckArrived && subsection.biMonthlySalary > 0 && isIsoDateValue(subsection.thirdPaycheckDate)) {
+        subsectionEvents.push({
+          date: coerceEventDateToProjectionDate(subsection.thirdPaycheckDate, todayIsoDate),
           amount: subsection.biMonthlySalary,
           kind: 'inflow',
         })
@@ -3439,21 +3627,21 @@ export default function App() {
       ...overdueExpensesStyles,
     },
     {
-      label: 'Current Cycle Exposure',
+      label: 'Current Cycle Expenses',
       value: currency(currentCycleExposure),
       detail: 'Unpaid credit card statement balances + current month debit expenses + additional payments',
       ratio: Math.min(100, currentCycleExposureCapacity <= 0 ? 0 : Math.max(0, (currentCycleExposure / currentCycleExposureCapacity) * 100)),
       ...currentMonthExposureStyles,
     },
     {
-      label: 'Next Cycle Exposure',
+      label: 'Next Cycle Expenses',
       value: currency(nextCycleExposure),
       detail: 'Upcoming debit expenses plus credit exposure that is Next Stmt Balance unless a card is Paid—then it uses Latest Stmt Balance (cycled) or Total Due (not cycled)',
       ratio: Math.min(100, totalLimits === 0 ? 0 : (nextCycleExposure / totalLimits) * 100),
       ...nextMonthExposureStyles,
     },
     {
-      label: 'Cycle After Next Cycle Exposure',
+      label: 'Cycle After Next Cycle Expenses',
       value: currency(monthAfterNextMonthExpense),
       detail: 'Next debit expenses plus Next Stmt Balance only for cards that are both cycled and paid',
       ratio: Math.min(100, totalLimits === 0 ? 0 : (monthAfterNextMonthExpense / totalLimits) * 100),
@@ -3589,7 +3777,7 @@ export default function App() {
   const savingsNextMonthPieData = savingsNextMonth >= 0
     ? [
         {
-          name: 'Next Cycle Exposure',
+          name: 'Next Cycle Expenses',
           value: Number(Math.max(0, nextCycleExposure).toFixed(2)),
           color: CHART_COLORS.next,
         },
@@ -3691,6 +3879,8 @@ export default function App() {
     balanceItems: bankSectionBalanceItems,
     firstPaycheckDate: defaultBankFirstPaycheckDate,
     secondPaycheckDate: defaultBankSecondPaycheckDate,
+    thirdPaycheckDate: defaultBankThirdPaycheckDate,
+    additionalPaycheckExpectedNextMonth,
     planoExpenses,
     sanfordExpenses,
     otherExpenses,
@@ -3841,6 +4031,7 @@ export default function App() {
     'bi-monthly-salary',
     FIRST_PAYCHECK_ID,
     SECOND_PAYCHECK_ID,
+    THIRD_PAYCHECK_ID,
   ]
   const chaseBalanceIds = new Set([
     'checking-balance-chase',
@@ -3860,17 +4051,24 @@ export default function App() {
   const renderIncomeCard = (item: IncomeItem) => {
     const itemIndex = incomeItemsState.findIndex((entry) => entry.id === item.id)
     const isCheckboxIncome = checkboxIncomeIds.has(item.id)
+    const thirdPaycheckChecked = biMonthlySalary > 0 && item.amount === 0
     const requiresPaycheckDate = isCheckboxIncome && biMonthlySalary > 0
+      && (item.id !== THIRD_PAYCHECK_ID || thirdPaycheckChecked)
     const defaultBankPaycheckConfig = isCheckboxIncome
       ? item.id === FIRST_PAYCHECK_ID
         ? {
             paycheckDate: defaultBankFirstPaycheckDate,
             onPaycheckDateChange: (value: string) => updateDefaultBankPaycheckDate('first', value),
           }
-        : {
-            paycheckDate: defaultBankSecondPaycheckDate,
-            onPaycheckDateChange: (value: string) => updateDefaultBankPaycheckDate('second', value),
-          }
+        : item.id === SECOND_PAYCHECK_ID
+          ? {
+              paycheckDate: defaultBankSecondPaycheckDate,
+              onPaycheckDateChange: (value: string) => updateDefaultBankPaycheckDate('second', value),
+            }
+          : {
+              paycheckDate: defaultBankThirdPaycheckDate,
+              onPaycheckDateChange: (value: string) => updateDefaultBankPaycheckDate('third', value),
+            }
       : null
 
     return (
@@ -3878,6 +4076,16 @@ export default function App() {
         <p className="card-title card-title-static">{item.label}</p>
         {isCheckboxIncome ? (
           <div className="paycheck-status-control">
+            {item.id === THIRD_PAYCHECK_ID ? (
+              <button
+                type="button"
+                className="paycheck-date-clear"
+                title="Clear 3rd paycheck date"
+                onClick={() => updateDefaultBankPaycheckDate('third', '')}
+              >
+                ×
+              </button>
+            ) : null}
             <input
               type="date"
               value={defaultBankPaycheckConfig?.paycheckDate ?? ''}
@@ -3954,6 +4162,7 @@ export default function App() {
       warning ? (warning.severity === 'negative' ? 'bank-name-warning-negative' : 'bank-name-warning-warning') : undefined,
     )
     const requiresPaycheckDates = subsection.biMonthlySalary > 0
+    const requiresThirdPaycheckDate = subsection.thirdPaycheckArrived
 
     return (
       <div key={subsection.id} className={selectedBankSubsectionIds.has(subsection.id) ? 'subsection-block row-selected' : 'subsection-block'}>
@@ -4025,6 +4234,44 @@ export default function App() {
             </div>
           </article>
           <article className="info-card">
+            <p className="card-title card-title-static">{subsection.thirdPaycheckLabel}</p>
+            <div className="paycheck-status-control">
+              <button
+                type="button"
+                className="paycheck-date-clear"
+                title="Clear 3rd paycheck date"
+                onClick={() => updateIncomeSubsection(index, 'thirdPaycheckDate', '')}
+              >
+                ×
+              </button>
+              <input
+                type="date"
+                value={subsection.thirdPaycheckDate}
+                onChange={(event) => updateIncomeSubsection(index, 'thirdPaycheckDate', event.target.value)}
+                className="paycheck-date-input"
+                required={requiresThirdPaycheckDate}
+                aria-invalid={requiresThirdPaycheckDate && !isIsoDateValue(subsection.thirdPaycheckDate)}
+              />
+              <input
+                type="checkbox"
+                checked={subsection.thirdPaycheckArrived}
+                onChange={(e) => updateIncomeSubsection(index, 'thirdPaycheckArrived', e.target.checked)}
+                className="salary-toggle-checkbox"
+              />
+            </div>
+          </article>
+          <article className="info-card">
+            <p className="card-title card-title-static">{subsection.additionalPaycheckExpectedLabel}</p>
+            <div className="paycheck-status-control">
+              <input
+                type="checkbox"
+                checked={subsection.additionalPaycheckExpectedNextMonth}
+                onChange={(e) => updateIncomeSubsection(index, 'additionalPaycheckExpectedNextMonth', e.target.checked)}
+                className="salary-toggle-checkbox"
+              />
+            </div>
+          </article>
+          <article className="info-card">
             <p className="card-title card-title-static">{subsection.checkingBalanceLabel}</p>
             <CurrencyInput
               value={subsection.checkingBalance}
@@ -4086,6 +4333,17 @@ export default function App() {
         </div>
         <div className="card-list">
           {chaseIncomeItems.map(renderIncomeCard)}
+          <article className="info-card">
+            <p className="card-title card-title-static">Additional Paycheck Expected Next Month?</p>
+            <div className="paycheck-status-control">
+              <input
+                type="checkbox"
+                checked={additionalPaycheckExpectedNextMonth}
+                onChange={(e) => updateDefaultBankAdditionalPaycheckExpected(e.target.checked)}
+                className="salary-toggle-checkbox"
+              />
+            </div>
+          </article>
           {chaseBalanceItems.map(renderBalanceCard)}
         </div>
       </div>
@@ -4239,6 +4497,8 @@ export default function App() {
       }),
       firstPaycheckDate: overrides.firstPaycheckDate ?? defaultBankFirstPaycheckDate,
       secondPaycheckDate: overrides.secondPaycheckDate ?? defaultBankSecondPaycheckDate,
+      thirdPaycheckDate: overrides.thirdPaycheckDate ?? defaultBankThirdPaycheckDate,
+      additionalPaycheckExpectedNextMonth: overrides.additionalPaycheckExpectedNextMonth ?? additionalPaycheckExpectedNextMonth,
       defaultBankWarningThreshold: overrides.defaultBankWarningThreshold ?? defaultBankWarningThreshold,
       incomeSubsections: nextIncomeSubsections,
       summary: overrides.summary,
@@ -4732,6 +4992,8 @@ export default function App() {
     setBankViewMode(normalizedViewModes.bankAccounts)
     setDefaultBankFirstPaycheckDate(normalizedData.firstPaycheckDate ?? '')
     setDefaultBankSecondPaycheckDate(normalizedData.secondPaycheckDate ?? '')
+    setDefaultBankThirdPaycheckDate(normalizedData.thirdPaycheckDate ?? '')
+    setAdditionalPaycheckExpectedNextMonth(normalizedData.additionalPaycheckExpectedNextMonth === true)
     setDefaultBankWarningThreshold(normalizedData.defaultBankWarningThreshold ?? DEFAULT_WARNING_THRESHOLD)
     setIncomeSubsections(normalizedData.incomeSubsections ?? defaultIncomeSubsections)
     setNotes(normalizedData.notes ?? '')
@@ -7848,6 +8110,11 @@ export default function App() {
 
   return (
     <div className={joinClassNames('app', shouldShowMobileActionBar ? 'app-mobile-action-bar-visible' : undefined)}>
+      {dateSyncToast ? (
+        <div className="date-sync-toast" role="status" aria-live="polite">
+          {dateSyncToast}
+        </div>
+      ) : null}
       <header className="hero" style={creditWidthCapStyle}>
         <div>
           <p className="eyebrow">Financial Planning</p>
@@ -9408,7 +9675,7 @@ export default function App() {
                             />
                           </label>
                           <label className="credit-account-toggle">
-                            <span>{columnLabels.creditAccounts[5]?.label ?? 'Stmt for Next Cycle Pymnt Cycled?'}</span>
+                            <span>{columnLabels.creditAccounts[5]?.label ?? 'Next cycle stmt generated?'}</span>
                             <input
                               type="checkbox"
                               checked={account.statementCycledAfterPayment}

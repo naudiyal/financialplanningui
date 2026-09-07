@@ -45,6 +45,11 @@ export type IncomeSubsection = {
   additionalIncomeLabel: string
   additionalIncome: number
   monthEndBalanceLabel: string
+  thirdPaycheckLabel: string
+  thirdPaycheckDate: string
+  thirdPaycheckArrived: boolean
+  additionalPaycheckExpectedLabel: string
+  additionalPaycheckExpectedNextMonth: boolean
 }
 
 export type ColumnLabel = {
@@ -215,19 +220,25 @@ export const creditAccounts: CreditAccount[] = [
 export const incomeItems: IncomeItem[] = [
   {
     id: 'bi-monthly-salary',
-    label: 'Bi-mon Sal minus(ESPP + 2 Mortgage Payments)',
+    label: 'Paycheck Amount',
     amount: 4211.25,
     month: '',
   },
   {
     id: 'first-paycheck',
-    label: 'First Paycheck Arrived?',
+    label: '1st Paycheck Arrived?',
     amount: 0,
     month: '',
   },
   {
     id: 'second-paycheck',
-    label: 'Second Paycheck Arrived?',
+    label: '2nd Paycheck Arrived?',
+    amount: 0,
+    month: '',
+  },
+  {
+    id: 'third-paycheck',
+    label: '3rd Paycheck Arrived?',
     amount: 0,
     month: '',
   },
@@ -271,7 +282,7 @@ export const defaultColumnLabels: FinancialPlanColumnLabels = {
     { id: 'statement-date', label: 'Prev Cycle Stmt Date' },
     { id: 'pay-date', label: 'Payment Date' },
     { id: 'paid', label: 'Paid' },
-    { id: 'statement-cycled', label: 'Stmt for Next Cycle Pymnt Cycled?' },
+    { id: 'statement-cycled', label: 'Next cycle stmt generated?' },
     { id: 'statement-balance', label: 'Latest Stmt Balance' },
     { id: 'credit-limit', label: 'Credit Limit' },
     { id: 'due', label: 'Total Due' },
